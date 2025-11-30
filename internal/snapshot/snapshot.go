@@ -3,295 +3,223 @@
 package snapshot
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "strings"
-    "time"
+	"context"
+	"fmt"
+	"time"
 
-    corev1 "k8s.io/api/core/v1"
-    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-    "k8s.io/client-go/kubernetes"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
-type ContainerInfo struct {
-    Name         string       `json:"name"`
-    Image        string       `json:"image"`
-    LastState    string       `json:"lastState"`
-    LastReason   string       `json:"lastReason"`
-    RestartCount int32        `json:"restartCount"`
-    Ready        bool         `json:"ready"`
-    Resources    ResourceInfo `json:"resources"`
-    LastLogs     []string     `json:"lastLogs"`
+// ContainerSnapshot describes a single container in a pod.
+type ContainerSnapshot struct {
+	Name            string `json:"name"`
+	Image           string `json:"image"`
+	Ready           bool   `json:"ready"`
+	RestartCount    int32  `json:"restartCount"`
+	State           string `json:"state,omitempty"`       // Waiting|Running|Terminated
+	StateReason     string `json:"stateReason,omitempty"` // e.g. ImagePullBackOff
+	LastState       string `json:"lastState,omitempty"`
+	LastStateReason string `json:"lastStateReason,omitempty"`
 }
 
-type ResourceInfo struct {
-    Requests map[string]string `json:"requests"`
-    Limits   map[string]string `json:"limits"`
+// EventSnapshot is a simplified event view.
+type EventSnapshot struct {
+	Type      string    `json:"type,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	Count     int32     `json:"count,omitempty"`
+	FirstTime time.Time `json:"firstTimestamp,omitempty"`
+	LastTime  time.Time `json:"lastTimestamp,omitempty"`
 }
 
-type EventInfo struct {
-    Type    string `json:"type"`
-    Reason  string `json:"reason"`
-    Message string `json:"message"`
+// PodSnapshot is what we send to the LLM per “problem pod”.
+type PodSnapshot struct {
+	Namespace  string              `json:"namespace"`
+	Name       string              `json:"name"`
+	Phase      string              `json:"phase"`
+	Reason     string              `json:"reason,omitempty"`
+	Restarts   int32               `json:"restarts"`
+	Ready      bool                `json:"ready"`
+	NodeName   string              `json:"nodeName,omitempty"`
+	Containers []ContainerSnapshot `json:"containers"`
+	Events     []EventSnapshot     `json:"events,omitempty"`
+	Logs       string              `json:"logs,omitempty"`
 }
 
-type ProblemPod struct {
-    Namespace  string          `json:"namespace"`
-    Name       string          `json:"name"`
-    Node       string          `json:"node"`
-    Phase      string          `json:"phase"`
-    Reason     string          `json:"reason"`
-    Restarts   int32           `json:"restarts"`
-    IssueType  string          `json:"issueType"` // e.g. ImagePullError, CrashLoop, OOMKilled, PendingScheduling, etc.
-    Containers []ContainerInfo `json:"containers"`
-    Events     []EventInfo     `json:"events"`
+// NodeConditionSnapshot flattens node conditions.
+type NodeConditionSnapshot struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
-type NodeCondition struct {
-    Node       string            `json:"node"`
-    Conditions map[string]string `json:"conditions"`
+// NodeSnapshot is a node + its conditions.
+type NodeSnapshot struct {
+	Name       string                  `json:"name"`
+	Conditions []NodeConditionSnapshot `json:"conditions"`
 }
 
+// Snapshot is the whole thing the model sees.
 type Snapshot struct {
-    Cluster        string          `json:"cluster"`
-    Timestamp      string          `json:"timestamp"`
-    Namespaces     []string        `json:"namespaces"`
-    ProblemPods    []ProblemPod    `json:"problemPods"`
-    NodeConditions []NodeCondition `json:"nodeConditions"`
+	GeneratedAt    time.Time      `json:"generatedAt"`
+	Namespace      string         `json:"namespace,omitempty"`
+	ProblemPods    []PodSnapshot  `json:"problemPods"`
+	NodeConditions []NodeSnapshot `json:"nodeConditions"`
 }
 
-func Collect(ctx context.Context, client *kubernetes.Clientset, namespace string, maxPods int, logLines int64) (*Snapshot, error) {
-    snap := &Snapshot{
-        Cluster:   client.RESTClient().Get().URL().Host,
-        Timestamp: time.Now().Format(time.RFC3339),
-    }
+// BuildSnapshot collects:
+// - non-Running pods / pods with restarts / not-ready
+// - last N log lines for each bad pod
+// - all node conditions
+func BuildSnapshot(
+	ctx context.Context,
+	clientset *kubernetes.Clientset,
+	namespace string,
+	maxPods int,
+	logLines int,
+) (*Snapshot, error) {
+	if maxPods <= 0 {
+		maxPods = 20
+	}
+	if logLines <= 0 {
+		logLines = 50
+	}
 
-    // Which namespaces to scan
-    nsList := []string{}
-    if namespace != "" {
-        nsList = append(nsList, namespace)
-    } else {
-        nss, err := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
-        if err != nil {
-            return nil, err
-        }
-        for _, n := range nss.Items {
-            if n.Name == "kube-system" || n.Name == "kube-node-lease" {
-                continue
-            }
-            nsList = append(nsList, n.Name)
-        }
-    }
-    snap.Namespaces = nsList
+	snap := &Snapshot{
+		GeneratedAt: time.Now().UTC(),
+		Namespace:   namespace,
+	}
 
-    // Node conditions
-    nodes, _ := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-    for _, n := range nodes.Items {
-        nc := NodeCondition{
-            Node:       n.Name,
-            Conditions: map[string]string{},
-        }
-        for _, c := range n.Status.Conditions {
-            nc.Conditions[string(c.Type)] = string(c.Status)
-        }
-        snap.NodeConditions = append(snap.NodeConditions, nc)
-    }
+	// --- Nodes ---
+	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	for _, n := range nodes.Items {
+		ns := NodeSnapshot{Name: n.Name}
+		for _, c := range n.Status.Conditions {
+			ns.Conditions = append(ns.Conditions, NodeConditionSnapshot{
+				Type:    string(c.Type),
+				Status:  string(c.Status),
+				Reason:  c.Reason,
+				Message: c.Message,
+			})
+		}
+		snap.NodeConditions = append(snap.NodeConditions, ns)
+	}
 
-    // Scan pods in each namespace
-    for _, ns := range nsList {
-        pods, err := client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
-        if err != nil {
-            continue
-        }
+	// --- Pods ---
+	podOpts := metav1.ListOptions{}
+	var podList *corev1.PodList
+	if namespace != "" {
+		podList, err = clientset.CoreV1().Pods(namespace).List(ctx, podOpts)
+	} else {
+		podList, err = clientset.CoreV1().Pods("").List(ctx, podOpts)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
 
-        for _, pod := range pods.Items {
-            // Decide if this pod is actually interesting/problematic
-            isProblem := false
+	for _, p := range podList.Items {
+		if len(snap.ProblemPods) >= maxPods {
+			break
+		}
 
-            switch pod.Status.Phase {
-            case corev1.PodFailed, corev1.PodUnknown, corev1.PodPending:
-                isProblem = true
+		status := p.Status
+		phase := string(status.Phase)
 
-            case corev1.PodRunning:
-                // Running but with restarts or waiting states
-                for _, cs := range pod.Status.ContainerStatuses {
-                    if cs.RestartCount > 0 {
-                        isProblem = true
-                        break
-                    }
-                    if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-                        isProblem = true
-                        break
-                    }
-                }
+		var restarts int32
+		allReady := true
+		for _, cs := range status.ContainerStatuses {
+			restarts += cs.RestartCount
+			if !cs.Ready {
+				allReady = false
+			}
+		}
 
-            case corev1.PodSucceeded:
-                // Completed job – usually not a problem for current-state incident views
-                isProblem = false
-            }
+		// “Problem pod” heuristic
+		if phase == "Running" && restarts == 0 && allReady {
+			continue
+		}
 
-            if !isProblem {
-                continue
-            }
+		ps := PodSnapshot{
+			Namespace: p.Namespace,
+			Name:      p.Name,
+			Phase:     phase,
+			NodeName:  p.Spec.NodeName,
+			Ready:     allReady,
+			Restarts:  restarts,
+			Reason:    status.Reason,
+		}
 
-            problem := ProblemPod{
-                Namespace: pod.Namespace,
-                Name:      pod.Name,
-                Node:      pod.Spec.NodeName,
-                Phase:     string(pod.Status.Phase),
-            }
+		// Containers
+		for _, cs := range status.ContainerStatuses {
+			cSnap := ContainerSnapshot{
+				Name:         cs.Name,
+				Image:        cs.Image,
+				Ready:        cs.Ready,
+				RestartCount: cs.RestartCount,
+			}
 
-            // Pod-level reason, use first container as representative
-            if len(pod.Status.ContainerStatuses) > 0 {
-                cs := pod.Status.ContainerStatuses[0]
-                if cs.State.Waiting != nil {
-                    problem.Reason = cs.State.Waiting.Reason
-                } else if cs.LastTerminationState.Terminated != nil {
-                    problem.Reason = cs.LastTerminationState.Terminated.Reason
-                }
-                problem.Restarts = cs.RestartCount
-            }
+			if cs.State.Waiting != nil {
+				cSnap.State = "Waiting"
+				cSnap.StateReason = cs.State.Waiting.Reason
+			} else if cs.State.Running != nil {
+				cSnap.State = "Running"
+			} else if cs.State.Terminated != nil {
+				cSnap.State = "Terminated"
+				cSnap.StateReason = cs.State.Terminated.Reason
+			}
 
-            // All containers
-            for _, cs := range pod.Status.ContainerStatuses {
-                ci := ContainerInfo{
-                    Name:         cs.Name,
-                    RestartCount: cs.RestartCount,
-                    Ready:        cs.Ready,
-                    Resources: ResourceInfo{
-                        Requests: map[string]string{},
-                        Limits:   map[string]string{},
-                    },
-                }
+			if cs.LastTerminationState.Terminated != nil {
+				cSnap.LastState = "Terminated"
+				cSnap.LastStateReason = cs.LastTerminationState.Terminated.Reason
+			} else if cs.LastTerminationState.Waiting != nil {
+				cSnap.LastState = "Waiting"
+				cSnap.LastStateReason = cs.LastTerminationState.Waiting.Reason
+			}
 
-                // State / reason
-                if cs.State.Waiting != nil {
-                    ci.LastState = "Waiting"
-                    ci.LastReason = cs.State.Waiting.Reason
-                } else if cs.LastTerminationState.Terminated != nil {
-                    ci.LastState = "Terminated"
-                    ci.LastReason = cs.LastTerminationState.Terminated.Reason
-                } else if cs.State.Running != nil {
-                    ci.LastState = "Running"
-                }
+			ps.Containers = append(ps.Containers, cSnap)
+		}
 
-                // Get resource requests/limits & image from spec
-                for _, c := range pod.Spec.Containers {
-                    if c.Name == cs.Name {
-                        ci.Image = c.Image
-                        if cpu := c.Resources.Requests.Cpu(); cpu != nil {
-                            ci.Resources.Requests["cpu"] = cpu.String()
-                        }
-                        if mem := c.Resources.Requests.Memory(); mem != nil {
-                            ci.Resources.Requests["memory"] = mem.String()
-                        }
-                        if cpu := c.Resources.Limits.Cpu(); cpu != nil {
-                            ci.Resources.Limits["cpu"] = cpu.String()
-                        }
-                        if mem := c.Resources.Limits.Memory(); mem != nil {
-                            ci.Resources.Limits["memory"] = mem.String()
-                        }
-                    }
-                }
+		// Events (Warning events for this pod)
+		evts, err := clientset.CoreV1().Events(p.Namespace).List(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("involvedObject.kind=Pod,involvedObject.name=%s", p.Name),
+		})
+		if err == nil {
+			for _, e := range evts.Items {
+				// Old API has Type; K8s may emit Normal/Warning etc.
+				if e.Type != "Warning" && e.Type != "" {
+					continue
+				}
+				ps.Events = append(ps.Events, EventSnapshot{
+					Type:      e.Type,
+					Reason:    e.Reason,
+					Message:   e.Message,
+					Count:     e.Count,
+					FirstTime: e.FirstTimestamp.Time,
+					LastTime:  e.LastTimestamp.Time,
+				})
+			}
+		}
 
-                // Fetch logs (best-effort; ignore errors)
-                req := client.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
-                    Container: cs.Name,
-                    TailLines: &logLines,
-                })
-                raw, _ := req.Do(ctx).Raw()
-                lines := strings.Split(string(raw), "\n")
-                if len(lines) > 0 && lines[len(lines)-1] == "" {
-                    lines = lines[:len(lines)-1]
-                }
-                ci.LastLogs = lines
+		// Logs (last N lines)
+		var tail int64 = int64(logLines)
+		logReq := clientset.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{
+			TailLines: &tail,
+		})
+		logBytes, err := logReq.DoRaw(ctx)
+		if err == nil {
+			ps.Logs = string(logBytes)
+		} else {
+			ps.Logs = "<unable to fetch logs>"
+		}
 
-                problem.Containers = append(problem.Containers, ci)
-            }
+		snap.ProblemPods = append(snap.ProblemPods, ps)
+	}
 
-            // Pod events (best-effort)
-            evs, _ := client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
-                FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name),
-                Limit:         20,
-            })
-            for _, e := range evs.Items {
-                problem.Events = append(problem.Events, EventInfo{
-                    Type:    e.Type,
-                    Reason:  e.Reason,
-                    Message: e.Message,
-                })
-            }
-
-            // Classify issue type
-            problem.IssueType = classifyProblem(problem)
-
-            snap.ProblemPods = append(snap.ProblemPods, problem)
-
-            if maxPods > 0 && len(snap.ProblemPods) >= maxPods {
-                return snap, nil
-            }
-        }
-    }
-
-    return snap, nil
-}
-
-func (s *Snapshot) JSON() string {
-    b, _ := json.MarshalIndent(s, "", "  ")
-    return string(b)
-}
-
-// classifyProblem assigns a coarse issue type label to a problematic pod,
-// based on its reason, container states, and events.
-func classifyProblem(p ProblemPod) string {
-    r := strings.ToLower(p.Reason)
-
-    // Events-based classification
-    for _, ev := range p.Events {
-        reason := strings.ToLower(ev.Reason)
-        msg := strings.ToLower(ev.Message)
-
-        if strings.Contains(reason, "imagepullbackoff") || strings.Contains(reason, "errimagepull") ||
-            strings.Contains(msg, "imagepullbackoff") || strings.Contains(msg, "pulling image") {
-            return "ImagePullError"
-        }
-        if strings.Contains(reason, "failedscheduling") {
-            if strings.Contains(msg, "insufficient") {
-                return "InsufficientResources"
-            }
-            return "PendingScheduling"
-        }
-    }
-
-    // Reason-based classification
-    if strings.Contains(r, "imagepullbackoff") || strings.Contains(r, "errimagepull") {
-        return "ImagePullError"
-    }
-    if strings.Contains(r, "crashloopbackoff") {
-        return "CrashLoop"
-    }
-    if strings.Contains(r, "oomkilled") {
-        return "OOMKilled"
-    }
-
-    // Container state classification
-    for _, c := range p.Containers {
-        lr := strings.ToLower(c.LastReason)
-        if strings.Contains(lr, "crashloopbackoff") {
-            return "CrashLoop"
-        }
-        if strings.Contains(lr, "oomkilled") {
-            return "OOMKilled"
-        }
-    }
-
-    if p.Phase == string(corev1.PodPending) {
-        return "Pending"
-    }
-    if p.Phase == string(corev1.PodFailed) {
-        return "FailedPod"
-    }
-
-    return "Unknown"
+	return snap, nil
 }

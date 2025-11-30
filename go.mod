@@ -1,4 +1,4 @@
-module kubenow
+module github.com/ppiankov/kubenow
 
 go 1.25.4
 
