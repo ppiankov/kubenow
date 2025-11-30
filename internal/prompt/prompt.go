@@ -1,46 +1,32 @@
-// Loads template file + injects JSON.
-
 package prompt
 
 import (
-    "fmt"
-    "os"
-    "strings"
+	"fmt"
+	"strings"
 )
 
-func LoadPrompt(path string, snapshotJSON string) (string, error) {
-    raw, err := os.ReadFile(path)
-    if err != nil {
-        return "", err
-    }
+func LoadPrompt(mode string, snapshotJSON string) (string, error) {
+	var tmpl string
 
-    p := string(raw)
-    p = strings.ReplaceAll(p, "{{SNAPSHOT}}", snapshotJSON)
-    return p, nil
-}
+	switch mode {
+	case "default":
+		tmpl = PromptDefault
+	case "pod":
+		tmpl = PromptPod
+	case "incident":
+		tmpl = PromptIncident
+	case "teamlead":
+		tmpl = PromptTeamlead
+	case "compliance":
+		tmpl = PromptCompliance
+	case "chaos":
+		tmpl = PromptChaos
+	default:
+		return "", fmt.Errorf("invalid mode: %s", mode)
+	}
 
-func PromptPath(mode string) string {
-    switch mode {
-    case "default":
-        return "prompts/default.txt"
-    case "pod":
-        return "prompts/pod.txt"
-    case "incident":
-        return "prompts/incident.txt"
-    case "teamlead":
-        return "prompts/teamlead.txt"
-    case "compliance":
-        return "prompts/compliance.txt"
-    case "chaos":
-        return "prompts/chaos.txt"
-    }
-    return ""
-}
+	out := strings.ReplaceAll(tmpl, "{{SNAPSHOT_JSON}}", snapshotJSON)
+	out = strings.ReplaceAll(out, "{{SNAPSHOT}}", snapshotJSON)
 
-func ValidateMode(mode string) error {
-    switch mode {
-    case "default", "pod", "incident", "teamlead", "compliance", "chaos":
-        return nil
-    }
-    return fmt.Errorf("invalid mode: %s (valid: default|pod|incident|teamlead|compliance|chaos)", mode)
+	return out, nil
 }
