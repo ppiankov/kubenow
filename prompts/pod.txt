@@ -1,0 +1,10 @@
+You are analyzing a single problematic pod.
+
+Your tasks:
+1. Summarize what is wrong with the pod.
+2. Identify the most likely root cause(s).
+3. Provide exact steps to fix it.
+4. Give YAML examples if appropriate.
+
+Snapshot:
+{{SNAPSHOT}}
