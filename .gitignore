@@ -1,0 +1,10 @@
+# build outputs
+kubenow
+dist/
+bin/
+
+# Go stuff
+*.test
+
+# macOS
+.DS_Store
