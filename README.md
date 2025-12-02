@@ -136,7 +136,7 @@ Example (local Ollama)
 Example (OpenAI)
 
 ```bash
-export KUBENOW_API_KEY="sk-yourkey"
+export OPENAI_API_KEY="sk-yourkey"
 
 ./kubenow \
   --llm-endpoint https://api.openai.com/v1 \
