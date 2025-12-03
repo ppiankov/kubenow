@@ -198,3 +198,40 @@ END_SNAPSHOT
 
 Return ONLY the JSON object.
 `
+// Enhancement templates - injected conditionally based on flags
+
+// EnhancementTechnical adds technical depth to analysis
+const EnhancementTechnical = `TECHNICAL DEPTH ENHANCEMENT:
+When analyzing issues, include deeper technical details:
+- stackTrace: Extract and highlight the most relevant error stack traces from logs
+- memoryDump: Parse and summarize memory statistics, heap dumps, or OOM killer details
+- configDiff: Identify recent configuration changes that might have caused issues
+- deeperAnalysis: Provide lower-level technical insights (network errors, filesystem issues, syscalls, signals)
+
+Add these details to a "technicalDetails" object with fields: stackTrace, memoryDump, configDiff, deeperAnalysis
+`
+
+// EnhancementPriority adds priority and impact scoring
+const EnhancementPriority = `PRIORITY SCORING ENHANCEMENT:
+Add quantitative assessments for each issue:
+- priorityScore or severityScore: Numeric 1-10 scale (10 = most critical, based on severity, blast radius, and urgency)
+- sloImpact: Estimate SLO/SLA violations (e.g., "3/5 services below SLO", "15% error rate vs 1% target")
+- blastRadius: Describe scope of impact (e.g., "high - affects 40% of users", "low - single pod", "medium - 15% of traffic")
+- urgency: Classify as "immediate", "high", "medium", or "low"
+
+Add these fields directly to issue objects in your JSON output.
+`
+
+// EnhancementRemediation adds detailed remediation procedures
+const EnhancementRemediation = `DETAILED REMEDIATION ENHANCEMENT:
+Provide comprehensive fix guidance for each issue:
+- remediationSteps: Numbered array of specific step-by-step commands with verification checks
+  Example: ["1. Check current image: kubectl get pod X -o jsonpath='{.spec.containers[0].image}'", "2. Roll back: kubectl rollout undo deployment/X", "3. Verify: kubectl get pods -w"]
+- rollbackProcedure: Exact command to roll back to last known good state (include revision numbers if available)
+- preventionTips: Specific actionable recommendations to prevent recurrence
+  Example: ["Add image pull policy check in CI pipeline", "Set up registry health monitoring", "Add resource limits"]
+- verificationChecks: Commands or checks to confirm the fix worked
+  Example: ["kubectl logs -f pod/X | grep 'Started successfully'", "curl http://service/healthz"]
+
+Add these to a "remediationSteps" array, "rollbackProcedure" string, "preventionTips" array, and optionally a "detailedRemediation" object.
+`

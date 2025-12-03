@@ -5,6 +5,9 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -70,22 +73,38 @@ type Snapshot struct {
 	NodeConditions []NodeSnapshot `json:"nodeConditions"`
 }
 
+// Filters controls what pods and content to include/exclude.
+type Filters struct {
+	IncludePods       string // comma-separated patterns with wildcard support
+	ExcludePods       string
+	IncludeNamespaces string
+	ExcludeNamespaces string
+	IncludeKeywords   string // comma-separated keywords to search in logs/events
+	ExcludeKeywords   string
+}
+
 // BuildSnapshot collects:
 // - non-Running pods / pods with restarts / not-ready
 // - last N log lines for each bad pod
 // - all node conditions
+// - applies include/exclude filters
 func BuildSnapshot(
 	ctx context.Context,
 	clientset *kubernetes.Clientset,
 	namespace string,
 	maxPods int,
 	logLines int,
+	maxConcurrent int,
+	filters Filters,
 ) (*Snapshot, error) {
 	if maxPods <= 0 {
 		maxPods = 20
 	}
 	if logLines <= 0 {
 		logLines = 50
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = 5
 	}
 
 	snap := &Snapshot{
@@ -128,6 +147,16 @@ func BuildSnapshot(
 			break
 		}
 
+		// Apply namespace filters
+		if !matchesFilter(p.Namespace, filters.IncludeNamespaces, filters.ExcludeNamespaces) {
+			continue
+		}
+
+		// Apply pod name filters
+		if !matchesFilter(p.Name, filters.IncludePods, filters.ExcludePods) {
+			continue
+		}
+
 		status := p.Status
 		phase := string(status.Phase)
 
@@ -140,7 +169,7 @@ func BuildSnapshot(
 			}
 		}
 
-		// “Problem pod” heuristic
+		// "Problem pod" heuristic
 		if phase == "Running" && restarts == 0 && allReady {
 			continue
 		}
@@ -195,6 +224,10 @@ func BuildSnapshot(
 				if e.Type != "Warning" && e.Type != "" {
 					continue
 				}
+				// Apply keyword filters to event messages
+				if !containsKeywords(e.Message, filters.IncludeKeywords, filters.ExcludeKeywords) {
+					continue
+				}
 				ps.Events = append(ps.Events, EventSnapshot{
 					Type:      e.Type,
 					Reason:    e.Reason,
@@ -206,20 +239,130 @@ func BuildSnapshot(
 			}
 		}
 
-		// Logs (last N lines)
-		var tail int64 = int64(logLines)
-		logReq := clientset.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{
-			TailLines: &tail,
-		})
-		logBytes, err := logReq.DoRaw(ctx)
-		if err == nil {
-			ps.Logs = string(logBytes)
-		} else {
-			ps.Logs = "<unable to fetch logs>"
-		}
-
 		snap.ProblemPods = append(snap.ProblemPods, ps)
 	}
 
+	// Fetch logs concurrently with controlled parallelism to avoid API throttling
+	// Use a semaphore pattern to limit concurrent requests
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	semaphore := make(chan struct{}, maxConcurrent)
+
+	for i := range snap.ProblemPods {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }() // Release semaphore
+
+			pod := &snap.ProblemPods[idx]
+			var tail int64 = int64(logLines)
+			logReq := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+				TailLines: &tail,
+			})
+			logBytes, err := logReq.DoRaw(ctx)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				logs := string(logBytes)
+				// Apply keyword filters to logs
+				if containsKeywords(logs, filters.IncludeKeywords, filters.ExcludeKeywords) {
+					pod.Logs = logs
+				} else {
+					pod.Logs = "<filtered out by keyword filters>"
+				}
+			} else {
+				pod.Logs = "<unable to fetch logs>"
+			}
+		}(i)
+	}
+	wg.Wait()
+
 	return snap, nil
+}
+
+// matchesFilter checks if a string matches the include/exclude patterns.
+// Patterns are comma-separated and support wildcard matching.
+func matchesFilter(value, includePatterns, excludePatterns string) bool {
+	// If exclude patterns are specified and match, reject
+	if excludePatterns != "" {
+		patterns := splitAndTrim(excludePatterns)
+		for _, pattern := range patterns {
+			if matchesPattern(value, pattern) {
+				return false
+			}
+		}
+	}
+
+	// If include patterns are specified, must match at least one
+	if includePatterns != "" {
+		patterns := splitAndTrim(includePatterns)
+		for _, pattern := range patterns {
+			if matchesPattern(value, pattern) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// No filters or passed exclude check
+	return true
+}
+
+// containsKeywords checks if content contains include keywords and doesn't contain exclude keywords.
+func containsKeywords(content, includeKeywords, excludeKeywords string) bool {
+	content = strings.ToLower(content)
+
+	// If exclude keywords are specified and match, reject
+	if excludeKeywords != "" {
+		keywords := splitAndTrim(excludeKeywords)
+		for _, keyword := range keywords {
+			if strings.Contains(content, strings.ToLower(keyword)) {
+				return false
+			}
+		}
+	}
+
+	// If include keywords are specified, must match at least one
+	if includeKeywords != "" {
+		keywords := splitAndTrim(includeKeywords)
+		for _, keyword := range keywords {
+			if strings.Contains(content, strings.ToLower(keyword)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// No keyword filters specified or passed exclude check
+	return true
+}
+
+// matchesPattern checks if a string matches a pattern with wildcard support.
+func matchesPattern(str, pattern string) bool {
+	matched, err := filepath.Match(pattern, str)
+	if err != nil {
+		// If pattern is invalid, fall back to exact match
+		return str == pattern
+	}
+	return matched
+}
+
+// splitAndTrim splits a comma-separated string and trims whitespace.
+func splitAndTrim(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
