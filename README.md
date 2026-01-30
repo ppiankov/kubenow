@@ -6,7 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/kubenow)](https://goreportcard.com/report/github.com/ppiankov/kubenow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Version 0.1.1** — Enhanced spike detection for AI/RAG workloads! "11434 is enough. But what if fewer nodes are enough too?"
+**Version 0.1.2** — Real-time cluster problem monitoring with terminal UI! "11434 is enough. But what if fewer nodes are enough too?"
 
 ---
 

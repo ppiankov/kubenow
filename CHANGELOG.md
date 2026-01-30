@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.1.2] - 2026-01-30
+
+**First official release of kubenow!** 🎉
 
 ### Added
 
@@ -65,11 +67,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Makes it clear that requests-skew requires Prometheus metrics to compare requested vs actual usage
   - Reduces confusion when many workloads lack metrics (e.g., missing ServiceMonitors)
 
+#### Documentation
+- **README**: Restructured with monitor mode as first feature
+- **README**: Added tool comparison guide (monitor vs k9s vs Grafana vs kubectl)
+
+### Changed
+
+#### Dependencies
+- **k8s.io**: Updated to v0.35.0 (requires Go 1.25.0)
+- **Go version**: Updated to go 1.25.0 in go.mod
+- **CI**: Added GOTOOLCHAIN=auto to support Go 1.25 auto-download
+- **CI**: Temporarily disabled golangci-lint (compatibility issues with Go 1.25)
+
+### Fixed
+
+- **CI**: Multiple fixes for Go version compatibility issues
+- **CI**: Fixed test coverage command to handle packages without tests gracefully
+- **Monitor UI**: Fixed fmt.Println redundant newlines
+- **golangci-lint config**: Fixed deprecation warnings
+
 ---
 
 ## [0.1.1] - 2026-01-30
-
-**First official release of kubenow!** 🎉
 
 Kubernetes cluster analysis tool combining deterministic cost optimization with optional LLM-assisted diagnostics.
 
@@ -201,5 +220,6 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.1...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.2...HEAD
+- [0.1.2]: https://github.com/ppiankov/kubenow/compare/v0.1.1...v0.1.2
 - [0.1.1]: https://github.com/ppiankov/kubenow/releases/tag/v0.1.1
