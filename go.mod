@@ -7,8 +7,8 @@ require (
 	github.com/charmbracelet/bubbletea v1.2.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/olekukonko/tablewriter v1.1.3
-	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/common v0.67.5
+	github.com/prometheus/client_golang v1.20.5
+	github.com/prometheus/common v0.60.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
