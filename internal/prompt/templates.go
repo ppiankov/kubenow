@@ -198,6 +198,7 @@ END_SNAPSHOT
 
 Return ONLY the JSON object.
 `
+
 // Enhancement templates - injected conditionally based on flags
 
 // EnhancementTechnical adds technical depth to analysis

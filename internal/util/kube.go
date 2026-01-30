@@ -11,13 +11,13 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// BuildKubeClient builds a Kubernetes clientset.
+// BuildRestConfig builds a Kubernetes rest config.
 //
 // Priority:
 // 1. explicit kubeconfig flag
 // 2. $KUBECONFIG
 // 3. in-cluster config
-func BuildKubeClient(kubeconfig string) (*kubernetes.Clientset, error) {
+func BuildRestConfig(kubeconfig string) (*rest.Config, error) {
 	var (
 		cfg *rest.Config
 		err error
@@ -38,6 +38,21 @@ func BuildKubeClient(kubeconfig string) (*kubernetes.Clientset, error) {
 		if err != nil {
 			return nil, fmt.Errorf("in-cluster config: %w", err)
 		}
+	}
+
+	return cfg, nil
+}
+
+// BuildKubeClient builds a Kubernetes clientset.
+//
+// Priority:
+// 1. explicit kubeconfig flag
+// 2. $KUBECONFIG
+// 3. in-cluster config
+func BuildKubeClient(kubeconfig string) (*kubernetes.Clientset, error) {
+	cfg, err := BuildRestConfig(kubeconfig)
+	if err != nil {
+		return nil, err
 	}
 
 	clientset, err := kubernetes.NewForConfig(cfg)

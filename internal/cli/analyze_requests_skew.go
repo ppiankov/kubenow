@@ -1,0 +1,630 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/olekukonko/tablewriter"
+	"github.com/ppiankov/kubenow/internal/analyzer"
+	"github.com/ppiankov/kubenow/internal/metrics"
+	"github.com/ppiankov/kubenow/internal/util"
+	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
+)
+
+var requestsSkewConfig struct {
+	prometheusURL       string
+	autoDetect          bool
+	window              string
+	top                 int
+	namespaceRegex      string
+	minRuntimeDays      int
+	output              string
+	exportFile          string
+	prometheusTimeout   string
+	watchForSpikes      bool
+	spikeDuration       string
+	spikeInterval       string
+	showRecommendations bool
+	safetyFactor        float64
+	silent              bool
+}
+
+var requestsSkewCmd = &cobra.Command{
+	Use:   "requests-skew",
+	Short: "Find over-provisioned resources",
+	Long: `Identify namespaces with over-provisioned resource requests vs actual usage.
+
+This command analyzes resource requests compared to actual Prometheus metrics
+to find workloads that are significantly over-provisioned. Results are ranked
+by cost impact (skew ratio × absolute resources).
+
+Philosophy:
+  - Deterministic: No AI, no prediction, just historical data analysis
+  - Evidence-based: Claims based on actual metrics over time window
+  - Non-prescriptive: Shows "this would have worked" not "you should do this"
+
+Examples:
+  # Basic analysis with default 30-day window
+  kubenow analyze requests-skew --prometheus-url http://localhost:9090
+
+  # Focus on production namespace, last 7 days
+  kubenow analyze requests-skew --prometheus-url http://localhost:9090 \
+    --window 7d --namespace-regex "prod.*"
+
+  # Top 20 results with JSON output
+  kubenow analyze requests-skew --prometheus-url http://localhost:9090 \
+    --top 20 --output json
+
+  # Export to file
+  kubenow analyze requests-skew --prometheus-url http://localhost:9090 \
+    --export-file report.json`,
+	RunE: runRequestsSkew,
+}
+
+func init() {
+	analyzeCmd.AddCommand(requestsSkewCmd)
+
+	// Required flags
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.prometheusURL, "prometheus-url", "", "Prometheus endpoint (e.g., http://prometheus:9090)")
+	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.autoDetect, "auto-detect-prometheus", false, "Auto-discover Prometheus in cluster")
+
+	// Optional flags
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.window, "window", "30d", "Time window for analysis (e.g., 7d, 24h, 30d)")
+	requestsSkewCmd.Flags().IntVar(&requestsSkewConfig.top, "top", 10, "Top N results (0 = all)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.namespaceRegex, "namespace-regex", ".*", "Namespace filter regex")
+	requestsSkewCmd.Flags().IntVar(&requestsSkewConfig.minRuntimeDays, "min-runtime-days", 7, "Ignore workloads younger than N days")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.output, "output", "table", "Output format: table|json")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.exportFile, "export-file", "", "Save to file (optional)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.prometheusTimeout, "prometheus-timeout", "30s", "Query timeout")
+
+	// Spike monitoring flags (experimental)
+	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.watchForSpikes, "watch-for-spikes", false, "Enable real-time spike monitoring (experimental)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.spikeDuration, "spike-duration", "15m", "How long to monitor for spikes (e.g., 15m, 1h, 24h)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.spikeInterval, "spike-interval", "5s", "Sampling interval for spike detection (e.g., 1s, 5s)")
+	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.showRecommendations, "show-recommendations", false, "Show calculated CPU request recommendations based on spike data")
+	requestsSkewCmd.Flags().Float64Var(&requestsSkewConfig.safetyFactor, "safety-factor", 0.0, "Override safety factor for recommendations (default: auto-select based on spike ratio)")
+
+	// CI/CD flags
+	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.silent, "silent", false, "Suppress progress output (for CI/CD pipelines)")
+}
+
+func runRequestsSkew(cmd *cobra.Command, args []string) error {
+	// Set silent mode for CI/CD
+	if requestsSkewConfig.silent {
+		analyzer.SilentMode = true
+	}
+
+	// Validate flags
+	if requestsSkewConfig.prometheusURL == "" && !requestsSkewConfig.autoDetect {
+		return fmt.Errorf("either --prometheus-url or --auto-detect-prometheus is required")
+	}
+
+	if requestsSkewConfig.output != "table" && requestsSkewConfig.output != "json" {
+		return fmt.Errorf("--output must be 'table' or 'json'")
+	}
+
+	// Parse window duration
+	window, err := metrics.ParseDuration(requestsSkewConfig.window)
+	if err != nil {
+		return fmt.Errorf("invalid window: %w", err)
+	}
+
+	// Parse timeout
+	timeout, err := time.ParseDuration(requestsSkewConfig.prometheusTimeout)
+	if err != nil {
+		return fmt.Errorf("invalid timeout: %w", err)
+	}
+
+	// Build Kubernetes client
+	if IsVerbose() {
+		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")
+	}
+
+	kubeClient, err := util.BuildKubeClient(GetKubeconfig())
+	if err != nil {
+		return fmt.Errorf("failed to build Kubernetes client: %w", err)
+	}
+
+	// Create Prometheus client
+	if IsVerbose() {
+		fmt.Fprintf(os.Stderr, "[kubenow] Connecting to Prometheus: %s\n", requestsSkewConfig.prometheusURL)
+	}
+
+	promConfig := metrics.Config{
+		PrometheusURL: requestsSkewConfig.prometheusURL,
+		Timeout:       timeout,
+	}
+
+	metricsProvider, err := metrics.NewPrometheusClient(promConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Prometheus client: %w", err)
+	}
+
+	// Health check
+	ctx := context.Background()
+	if err := metricsProvider.Health(ctx); err != nil {
+		return fmt.Errorf("Prometheus health check failed: %w", err)
+	}
+
+	// Discover available metrics
+	if !requestsSkewConfig.silent {
+		fmt.Fprintln(os.Stderr, "[kubenow] Discovering available Prometheus metrics...")
+	}
+
+	discovery := metrics.NewMetricDiscovery(metricsProvider.GetAPI())
+	availableMetrics, err := discovery.DiscoverMetrics(ctx)
+	if err != nil {
+		return fmt.Errorf("metric discovery failed: %w", err)
+	}
+
+	// Validate that required metrics exist
+	if err := availableMetrics.ValidateMetrics(); err != nil {
+		fmt.Fprintf(os.Stderr, "\n⚠️  Metric Discovery Failed:\n")
+		fmt.Fprintf(os.Stderr, "════════════════════════\n\n")
+		fmt.Fprintf(os.Stderr, "%s\n\n", err.Error())
+		fmt.Fprintf(os.Stderr, "Available metrics in Prometheus:\n")
+		if len(availableMetrics.AllCPU) > 0 {
+			fmt.Fprintf(os.Stderr, "  CPU-related: %v\n", availableMetrics.AllCPU)
+		} else {
+			fmt.Fprintf(os.Stderr, "  CPU-related: (none found)\n")
+		}
+		if len(availableMetrics.AllMemory) > 0 {
+			fmt.Fprintf(os.Stderr, "  Memory-related: %v\n", availableMetrics.AllMemory)
+		} else {
+			fmt.Fprintf(os.Stderr, "  Memory-related: (none found)\n")
+		}
+		fmt.Fprintf(os.Stderr, "\nPossible causes:\n")
+		fmt.Fprintf(os.Stderr, "  • cAdvisor metrics not being scraped\n")
+		fmt.Fprintf(os.Stderr, "  • ServiceMonitor/PodMonitor not configured\n")
+		fmt.Fprintf(os.Stderr, "  • Prometheus scrape config missing container metrics\n")
+		fmt.Fprintf(os.Stderr, "\nSee README troubleshooting section for details.\n")
+		return fmt.Errorf("required metrics not available in Prometheus")
+	}
+
+	if !requestsSkewConfig.silent {
+		fmt.Fprintf(os.Stderr, "[kubenow] Using metrics: CPU=%s, Memory=%s\n",
+			availableMetrics.CPUMetric, availableMetrics.MemoryMetric)
+	}
+
+	if IsVerbose() {
+		fmt.Fprintln(os.Stderr, "[kubenow] Analyzing resource requests vs usage...")
+	}
+
+	// Create analyzer
+	analyzerConfig := analyzer.RequestsSkewConfig{
+		Window:         window,
+		Top:            requestsSkewConfig.top,
+		NamespaceRegex: requestsSkewConfig.namespaceRegex,
+		MinRuntimeDays: requestsSkewConfig.minRuntimeDays,
+	}
+
+	skewAnalyzer := analyzer.NewRequestsSkewAnalyzer(kubeClient, metricsProvider, analyzerConfig)
+
+	// Run analysis
+	result, err := skewAnalyzer.Analyze(ctx)
+	if err != nil {
+		return fmt.Errorf("analysis failed: %w", err)
+	}
+
+	// Run spike monitoring if requested
+	var spikeData map[string]*metrics.SpikeData
+	if requestsSkewConfig.watchForSpikes {
+		spikeData, err = runSpikeMonitoring(ctx, kubeClient)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[kubenow] Warning: Spike monitoring failed: %v\n", err)
+			// Continue with analysis results even if spike monitoring fails
+		}
+	}
+
+	// Output results
+	if requestsSkewConfig.output == "json" {
+		return outputRequestsSkewJSON(result, requestsSkewConfig.exportFile)
+	}
+
+	return outputRequestsSkewTable(result, spikeData, requestsSkewConfig.exportFile)
+}
+
+// runSpikeMonitoring runs the latch monitor to detect sub-scrape-interval spikes
+func runSpikeMonitoring(ctx context.Context, kubeClient *kubernetes.Clientset) (map[string]*metrics.SpikeData, error) {
+	// Parse duration and interval
+	duration, err := time.ParseDuration(requestsSkewConfig.spikeDuration)
+	if err != nil {
+		return nil, fmt.Errorf("invalid spike-duration: %w", err)
+	}
+
+	interval, err := time.ParseDuration(requestsSkewConfig.spikeInterval)
+	if err != nil {
+		return nil, fmt.Errorf("invalid spike-interval: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "\n[kubenow] Starting real-time spike monitoring...\n")
+	fmt.Fprintf(os.Stderr, "[kubenow] Duration: %s | Interval: %s\n", duration, interval)
+	fmt.Fprintf(os.Stderr, "[kubenow] This will sample Kubernetes Metrics API at high frequency to catch sub-scrape-interval spikes.\n\n")
+
+	// Create latch monitor
+	latchConfig := metrics.LatchConfig{
+		SampleInterval: interval,
+		Duration:       duration,
+		Namespaces:     []string{}, // Empty = all namespaces (will skip kube-system internally)
+	}
+
+	monitor, err := metrics.NewLatchMonitor(kubeClient, latchConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create latch monitor: %w", err)
+	}
+
+	// Run monitoring (blocks until complete)
+	if err := monitor.Start(ctx); err != nil {
+		return nil, fmt.Errorf("spike monitoring failed: %w", err)
+	}
+
+	// Get collected data
+	spikeData := monitor.GetSpikeData()
+
+	fmt.Fprintf(os.Stderr, "\n[kubenow] Spike monitoring complete. Captured %d workloads.\n\n", len(spikeData))
+
+	return spikeData, nil
+}
+
+func outputRequestsSkewJSON(result *analyzer.RequestsSkewResult, exportFile string) error {
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Export to file if specified
+	if exportFile != "" {
+		if err := os.WriteFile(exportFile, data, 0644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", exportFile)
+		return nil
+	}
+
+	// Print to stdout
+	fmt.Println(string(data))
+	return nil
+}
+
+func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile string) error {
+	// Create table
+	table := tablewriter.NewWriter(os.Stdout)
+	table.Header([]string{"Namespace", "Workload", "Req CPU", "P99 CPU", "Skew", "Safety", "Impact"})
+
+	for _, w := range result.Results {
+		safetyLabel := "?"
+		if w.Safety != nil {
+			safetyLabel = string(w.Safety.Rating)
+			// Add emoji indicators
+			switch w.Safety.Rating {
+			case "SAFE":
+				safetyLabel = "✓ SAFE"
+			case "CAUTION":
+				safetyLabel = "⚠ CAUTION"
+			case "RISKY":
+				safetyLabel = "⚠ RISKY"
+			case "UNSAFE":
+				safetyLabel = "✗ UNSAFE"
+			}
+		}
+
+		table.Append([]string{
+			w.Namespace,
+			w.Workload,
+			fmt.Sprintf("%.2f", w.RequestedCPU),
+			fmt.Sprintf("%.2f", w.P99UsedCPU),
+			fmt.Sprintf("%.1fx", w.SkewCPU),
+			safetyLabel,
+			impactScoreLabel(w.ImpactScore),
+		})
+	}
+
+	// Print summary
+	fmt.Printf("\n=== Requests-Skew Analysis ===\n")
+	if result.Summary.AnalyzedWorkloads == 0 && len(result.WorkloadsWithoutMetrics) > 0 {
+		fmt.Printf("Window: %s | Analyzed: %d workloads (%d have no Prometheus metrics) | Top: %d\n\n",
+			result.Metadata.Window,
+			result.Summary.AnalyzedWorkloads,
+			len(result.WorkloadsWithoutMetrics),
+			len(result.Results))
+	} else {
+		fmt.Printf("Window: %s | Analyzed: %d workloads | Top: %d\n\n",
+			result.Metadata.Window,
+			result.Summary.AnalyzedWorkloads,
+			len(result.Results))
+	}
+
+	// Render table
+	table.Render()
+
+	// Print summary stats
+	fmt.Printf("\nSummary:\n")
+	fmt.Printf("  Average CPU Skew: %.2fx\n", result.Summary.AvgSkewCPU)
+	fmt.Printf("  Average Memory Skew: %.2fx\n", result.Summary.AvgSkewMemory)
+	fmt.Printf("  Total Wasted CPU: %.2f cores\n", result.Summary.TotalWastedCPU)
+	fmt.Printf("  Total Wasted Memory: %.2fGi\n", result.Summary.TotalWastedMemoryGi)
+
+	// Print safety warnings
+	printSafetyWarnings(result)
+
+	// Print warnings about workloads without metrics
+	printWorkloadsWithoutMetricsWarning(result)
+
+	// Print spike monitoring results if available
+	if len(spikeData) > 0 {
+		printSpikeMonitoringResults(spikeData)
+	}
+
+	return nil
+}
+
+func printSafetyWarnings(result *analyzer.RequestsSkewResult) {
+	// Collect workloads with safety issues
+	var unsafe, risky, caution []string
+
+	for _, w := range result.Results {
+		if w.Safety == nil {
+			continue
+		}
+
+		label := fmt.Sprintf("%s/%s", w.Namespace, w.Workload)
+		switch w.Safety.Rating {
+		case "UNSAFE":
+			unsafe = append(unsafe, label)
+		case "RISKY":
+			risky = append(risky, label)
+		case "CAUTION":
+			caution = append(caution, label)
+		}
+	}
+
+	// Print warnings if any issues found
+	if len(unsafe) > 0 || len(risky) > 0 || len(caution) > 0 {
+		fmt.Printf("\n⚠️  Safety Warnings:\n")
+		fmt.Printf("═══════════════════\n\n")
+
+		if len(unsafe) > 0 {
+			fmt.Printf("✗ UNSAFE (%d workloads) - DO NOT REDUCE RESOURCES:\n", len(unsafe))
+			for _, w := range unsafe {
+				// Find the workload details
+				for _, wr := range result.Results {
+					if fmt.Sprintf("%s/%s", wr.Namespace, wr.Workload) == w && wr.Safety != nil {
+						fmt.Printf("  • %s\n", w)
+						for _, reason := range wr.Safety.Warnings {
+							fmt.Printf("    - %s\n", reason)
+						}
+						break
+					}
+				}
+			}
+			fmt.Println()
+		}
+
+		if len(risky) > 0 {
+			fmt.Printf("⚠ RISKY (%d workloads) - Review carefully before reducing:\n", len(risky))
+			for _, w := range risky {
+				for _, wr := range result.Results {
+					if fmt.Sprintf("%s/%s", wr.Namespace, wr.Workload) == w && wr.Safety != nil {
+						fmt.Printf("  • %s (safety margin: %.1fx)\n", w, wr.Safety.SafeMargin)
+						for _, reason := range wr.Safety.Warnings {
+							fmt.Printf("    - %s\n", reason)
+						}
+						break
+					}
+				}
+			}
+			fmt.Println()
+		}
+
+		if len(caution) > 0 {
+			fmt.Printf("⚠ CAUTION (%d workloads) - Minor concerns detected:\n", len(caution))
+			for _, w := range caution {
+				fmt.Printf("  • %s\n", w)
+			}
+			fmt.Println()
+		}
+
+		fmt.Printf("💡 Recommendation Philosophy:\n")
+		fmt.Printf("   - Evidence-based: These warnings are based on historical metrics over %s\n", result.Metadata.Window)
+		fmt.Printf("   - Non-prescriptive: We show what would have happened, not what you should do\n")
+		fmt.Printf("   - Safety-first: When in doubt, keep existing resources\n")
+		fmt.Println()
+	} else {
+		fmt.Printf("\n✓ No critical safety issues detected in analyzed workloads\n\n")
+	}
+}
+
+func printWorkloadsWithoutMetricsWarning(result *analyzer.RequestsSkewResult) {
+	if len(result.WorkloadsWithoutMetrics) == 0 {
+		return // No workloads without metrics, nothing to warn about
+	}
+
+	fmt.Printf("\n⚠️  Workloads Without Prometheus Metrics:\n")
+	fmt.Printf("══════════════════════════════════════════\n\n")
+
+	fmt.Printf("Found %d workload(s) in Kubernetes but NO corresponding Prometheus metrics:\n", len(result.WorkloadsWithoutMetrics))
+	fmt.Printf("(requests-skew requires Prometheus metrics to compare requested vs actual usage)\n\n")
+
+	// Group by namespace for better readability
+	byNamespace := make(map[string][]analyzer.WorkloadWithoutMetrics)
+	for _, w := range result.WorkloadsWithoutMetrics {
+		byNamespace[w.Namespace] = append(byNamespace[w.Namespace], w)
+	}
+
+	for ns, workloads := range byNamespace {
+		fmt.Printf("  Namespace: %s\n", ns)
+		for _, w := range workloads {
+			fmt.Printf("    • %s (%s)\n", w.Workload, w.Type)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("Possible Causes:\n")
+	fmt.Printf("  • Container metrics not being scraped by Prometheus\n")
+	fmt.Printf("  • ServiceMonitor/PodMonitor missing cAdvisor endpoint\n")
+	fmt.Printf("  • Workload too new (created after analysis window)\n")
+	fmt.Printf("  • Pods in crash loops or not running\n")
+	fmt.Println()
+
+	fmt.Printf("💡 Recommended Action - Use Latch Mode:\n")
+	fmt.Printf("═══════════════════════════════════════════\n\n")
+	fmt.Printf("Since these workloads lack Prometheus metrics, you can use LATCH MODE\n")
+	fmt.Printf("to monitor them in real-time via the Kubernetes Metrics API:\n\n")
+
+	fmt.Printf("  kubenow analyze requests-skew \\\n")
+	fmt.Printf("    --prometheus-url %s \\\n", requestsSkewConfig.prometheusURL)
+	fmt.Printf("    --watch-for-spikes \\\n")
+	fmt.Printf("    --spike-duration 15m \\\n")
+	fmt.Printf("    --spike-interval 5s\n\n")
+
+	fmt.Printf("What Latch Mode Does:\n")
+	fmt.Printf("  • Samples Kubernetes Metrics API at high frequency (default: 5s)\n")
+	fmt.Printf("  • Captures sub-scrape-interval spikes (< 15-30s) that Prometheus misses\n")
+	fmt.Printf("  • Useful for bursty workloads (AI inference, RAG, batch jobs)\n")
+	fmt.Printf("  • Provides real-time data when historical metrics unavailable\n\n")
+
+	fmt.Printf("⚡ Special Note for RAG Workloads:\n")
+	fmt.Printf("  RAG queries are extremely bursty (millisecond-level spikes).\n")
+	fmt.Printf("  For RAG workloads, use 1s or sub-1s sampling:\n\n")
+	fmt.Printf("    kubenow analyze requests-skew \\\n")
+	fmt.Printf("      --prometheus-url %s \\\n", requestsSkewConfig.prometheusURL)
+	fmt.Printf("      --watch-for-spikes \\\n")
+	fmt.Printf("      --spike-duration 30m \\\n")
+	fmt.Printf("      --spike-interval 1s    # ← Critical for RAG!\n\n")
+
+	fmt.Printf("Troubleshooting Missing Metrics:\n")
+	fmt.Printf("  1. Check ServiceMonitor configuration:\n")
+	fmt.Printf("     kubectl get servicemonitor -n kube-prometheus-stack kubelet -o yaml\n\n")
+	fmt.Printf("  2. Verify cAdvisor endpoint exists:\n")
+	fmt.Printf("     Look for: endpoints[].port=cadvisor, path=/metrics/cadvisor\n\n")
+	fmt.Printf("  3. Check Prometheus targets:\n")
+	fmt.Printf("     kubectl port-forward -n kube-prometheus-stack svc/prometheus-operated 9090:9090\n")
+	fmt.Printf("     # Open: http://localhost:9090/targets\n\n")
+
+	fmt.Printf("See README troubleshooting section for detailed guidance.\n\n")
+}
+
+func impactScoreLabel(score float64) string {
+	if score > 30 {
+		return fmt.Sprintf("HIGH (%.1f)", score)
+	} else if score > 10 {
+		return fmt.Sprintf("MED (%.1f)", score)
+	}
+	return fmt.Sprintf("LOW (%.1f)", score)
+}
+
+func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
+	fmt.Printf("\n📊 Real-Time Spike Monitoring Results:\n")
+	fmt.Printf("═══════════════════════════════════════\n\n")
+
+	// Find workloads with significant spikes
+	type spikeWorkload struct {
+		key       string
+		data      *metrics.SpikeData
+		spikeRatio float64
+	}
+
+	var workloadsWithSpikes []spikeWorkload
+
+	for key, data := range spikeData {
+		if data.AvgCPU == 0 {
+			continue
+		}
+
+		spikeRatio := data.MaxCPU / data.AvgCPU
+		if spikeRatio > 2.0 { // Spike is >2x average
+			workloadsWithSpikes = append(workloadsWithSpikes, spikeWorkload{
+				key:        key,
+				data:       data,
+				spikeRatio: spikeRatio,
+			})
+		}
+	}
+
+	if len(workloadsWithSpikes) == 0 {
+		fmt.Printf("✓ No significant spikes detected (all workloads < 2x average)\n\n")
+		return
+	}
+
+	fmt.Printf("⚠️  Detected %d workloads with CPU spikes > 2x average:\n\n", len(workloadsWithSpikes))
+
+	// Create table for spike data
+	table := tablewriter.NewWriter(os.Stdout)
+
+	// Add recommendations column if requested
+	if requestsSkewConfig.showRecommendations {
+		table.Header([]string{"Namespace/Workload", "Avg CPU", "Max CPU", "Spike Ratio", "Recommended CPU", "Safety Factor"})
+	} else {
+		table.Header([]string{"Namespace/Workload", "Avg CPU", "Max CPU", "Spike Ratio", "Spike Count", "Samples"})
+	}
+
+	for _, sw := range workloadsWithSpikes {
+		if requestsSkewConfig.showRecommendations {
+			// Calculate safety factor based on spike ratio
+			safetyFactor := requestsSkewConfig.safetyFactor
+			if safetyFactor == 0.0 {
+				// Auto-select based on spike ratio
+				if sw.spikeRatio >= 20.0 {
+					safetyFactor = 2.5
+				} else if sw.spikeRatio >= 10.0 {
+					safetyFactor = 2.0
+				} else if sw.spikeRatio >= 5.0 {
+					safetyFactor = 1.5
+				} else {
+					safetyFactor = 1.2
+				}
+			}
+
+			// Calculate recommended CPU
+			recommendedCPU := sw.data.MaxCPU * safetyFactor
+
+			table.Append([]string{
+				sw.key,
+				fmt.Sprintf("%.3f", sw.data.AvgCPU),
+				fmt.Sprintf("%.3f", sw.data.MaxCPU),
+				fmt.Sprintf("%.1fx", sw.spikeRatio),
+				fmt.Sprintf("%.2f cores", recommendedCPU),
+				fmt.Sprintf("%.1fx", safetyFactor),
+			})
+		} else {
+			table.Append([]string{
+				sw.key,
+				fmt.Sprintf("%.3f", sw.data.AvgCPU),
+				fmt.Sprintf("%.3f", sw.data.MaxCPU),
+				fmt.Sprintf("%.1fx", sw.spikeRatio),
+				fmt.Sprintf("%d", sw.data.SpikeCount),
+				fmt.Sprintf("%d", sw.data.SampleCount),
+			})
+		}
+	}
+
+	table.Render()
+
+	if requestsSkewConfig.showRecommendations {
+		fmt.Printf("\n💡 How to Use These Recommendations:\n")
+		fmt.Printf("═══════════════════════════════════════\n\n")
+		fmt.Printf("Formula: CPU Request = Max Observed CPU × Safety Factor\n\n")
+		fmt.Printf("Safety factor auto-selected based on spike ratio:\n")
+		fmt.Printf("  • Spike ≥20x: 2.5x (extreme bursts, e.g., RAG/AI inference)\n")
+		fmt.Printf("  • Spike 10-20x: 2.0x (high bursts, e.g., batch jobs)\n")
+		fmt.Printf("  • Spike 5-10x: 1.5x (moderate bursts, e.g., APIs)\n")
+		fmt.Printf("  • Spike 2-5x: 1.2x (low bursts, e.g., background workers)\n\n")
+		fmt.Printf("Apply with kubectl:\n")
+		fmt.Printf("  kubectl patch deployment <name> -n <namespace> --type=json -p='[\n")
+		fmt.Printf("    {\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/resources/requests/cpu\", \"value\": \"<recommended>m\"}\n")
+		fmt.Printf("  ]'\n\n")
+		fmt.Printf("See SPIKE-ANALYSIS.md for comprehensive guidance.\n\n")
+	} else {
+		fmt.Printf("\nKey Findings:\n")
+		fmt.Printf("  • These spikes may not be visible in Prometheus metrics (scrape interval ~15-30s)\n")
+		fmt.Printf("  • High spike ratios suggest sub-second bursts (common in RAG, AI inference, etc.)\n")
+		fmt.Printf("  • Consider these spikes when sizing resource requests\n\n")
+		fmt.Printf("💡 Want calculated recommendations? Use: --show-recommendations\n")
+		fmt.Printf("   This adds a 'Recommended CPU' column with safety-factor-adjusted values.\n")
+		fmt.Printf("   See SPIKE-ANALYSIS.md for detailed interpretation guidance.\n\n")
+	}
+}

@@ -1,35 +1,74 @@
 ![kubenow logo](https://raw.githubusercontent.com/ppiankov/kubenow/main/docs/img/logo.png)
 
-# 🧯 kubenow — Kubernetes Incident Triage on Demand
+# 🧯 kubenow — Kubernetes Cluster Analysis & Cost Optimization
 
-“11434 is enough.”
+[![CI](https://github.com/ppiankov/kubenow/workflows/CI/badge.svg)](https://github.com/ppiankov/kubenow/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/kubenow)](https://goreportcard.com/report/github.com/ppiankov/kubenow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## kubenow is a single Go binary that takes a live Kubernetes cluster snapshot and feeds it into an LLM (local or cloud) to generate:
-	•	🔥 incident triage (ranked, actionable, command-ready)
-	•	🛠 pod-level debugging
-	•	📊 cluster health summaries
-	•	👩‍💼 teamlead / ownership recommendations
-	•	🧹 compliance / hygiene reviews
-	•	🧨 chaos engineering experiment suggestions
+**Version 0.1.1** — Enhanced spike detection for AI/RAG workloads! "11434 is enough. But what if fewer nodes are enough too?"
 
-## It works with any OpenAI-compatible API, including:
-	•	🦙 Ollama (Mixtral, Llama, Qwen, etc.)
-	•	☁️ OpenAI / Azure OpenAI
-	•	🔧 DeepSeek / Groq / Together / OpenRouter
-	•	or your own weird homemade inference server
+---
 
-If your laptop can run it and respond to /v1/chat/completions,
-kubenow will talk to it.
+## What is kubenow?
+
+**kubenow** is a Kubernetes cluster analysis tool that combines:
+- **Real-time problem monitoring** like `top` for cluster issues
+- **Deterministic, evidence-based analysis** for cost and capacity decisions
+- **Optional LLM-assisted analysis** for incident triage and diagnostics
+
+### 🔴 **Monitor Mode** (Live)
+Real-time terminal UI for cluster problems:
+- 📺 **Attention-first**: Empty screen when healthy, shows only broken things
+- 📊 **Compact view**: 10-15 problems at once, sortable (severity/recency/count)
+- ⌨️ **Interactive**: Pause, scroll, sort, copy to terminal
+- 🎯 **No flicker**: Updates only when problems change
+- 📋 **Copyable**: Press `c` to dump everything to terminal for easy copying
+
+```bash
+kubenow monitor                    # Start monitoring
+# Press 1/2/3 to sort, ↑↓ to scroll, c to copy, q to quit
+```
+
+**When to use:** Answering "what's broken RIGHT NOW?" in clusters with multiple problems. Complements k9s (exploration), kubectl (investigation), and Grafana (metrics).
+
+See **[MONITOR-MODE.md](MONITOR-MODE.md)** for full documentation and tool comparison.
+
+### 📊 **Deterministic Analysis** (Core)
+Data-driven cost optimization without AI:
+- 💰 **requests-skew**: Identify over-provisioned resources
+- 🏗️ **node-footprint**: Historical capacity feasibility simulation
+
+### 🤖 **LLM-Powered Analysis** (Optional)
+Feed your cluster snapshot into any OpenAI-compatible LLM for:
+- 🔥 Incident triage (ranked, actionable, command-ready)
+- 🛠 Pod-level debugging
+- 📊 Cluster health summaries
+- 👩‍💼 Teamlead / ownership recommendations
+- 🧹 Compliance / hygiene reviews
+- 🧨 Chaos engineering suggestions
+
+---
+
+## Works with any OpenAI-compatible API:
+- 🦙 **Ollama** (Mixtral, Llama, Qwen, etc.)
+- ☁️ **OpenAI / Azure OpenAI**
+- 🔧 **DeepSeek / Groq / Together / OpenRouter**
+- 🏠 Your own inference server
+
+If it responds to `/v1/chat/completions`, kubenow will talk to it.
+
+---
 
 # ✨ Why kubenow?
 
 ## Because when the cluster is on fire, nobody wants to run:
-	•	12 commands
-	•	across 5 namespaces
-	•	using 4 terminals
-	•	while Slack is screaming
+- 12 commands
+- across 5 namespaces
+- using 4 terminals
+- while Slack is screaming
 
-You want:
+## You want:
 ```bash
 TOP ISSUES:
 1. callback/data-converter-worker — ImagePullBackOff — critical
@@ -42,923 +81,687 @@ ROOT CAUSES:
 FIX COMMANDS:
 kubectl -n callback get events
 kubectl -n callback set image deploy/data-converter-worker api=repo/worker:stable
-kubectl -n prod edit deploy/payments-api
 ```
 
-Short, ranked, actionable.
+**Short, ranked, actionable.**
 
-And yes — kubenow can also run teamlead mode, which gently hints at which team probably caused the outage.
+## And when you want to save money:
+```bash
+=== Requests-Skew Analysis ===
+Top over-provisioned workloads:
+
+NAMESPACE    WORKLOAD         REQ CPU  AVG CPU  SKEW     IMPACT
+prod         payment-api      4.0      0.5      8.0x     HIGH
+prod         checkout-worker  2.0      0.3      6.7x     MED
+
+Summary: 6.5 cores wasted, ~$200/month
+```
+
+**Evidence-based, reproducible, non-prescriptive.**
+
+---
 
 # 🧩 Features
 
-## 🎯 Smart Filtering & Targeting
-	•	Include/Exclude pods by name pattern (wildcards supported)
-	•	Include/Exclude namespaces by pattern
-	•	Keyword-based log/event filtering
-	•	Problem hints to guide LLM analysis
-	•	Concurrent log fetching for faster snapshots
-	•	Fine-grained control over what gets analyzed
+## 🎯 LLM-Powered Analysis
 
-## ⚡ Optional Power-User Enhancements
-	•	**--enhance-technical**: Stack traces, memory dumps, config diffs, deeper analysis
-	•	**--enhance-priority**: Numerical priority scores, SLO impact, blast radius estimates
-	•	**--enhance-remediation**: Step-by-step fixes, rollback procedures, prevention tips
-	•	Mix and match enhancements as needed
-	•	Simple by default, powerful when you need it
+### Incident Mode
+Ranks top problems with:
+- 1-2 sentence root causes
+- Actionable kubectl commands
+- Zero fluff, zero theory
 
-## 👁️ Watch Mode (NEW)
-	•	**Continuous monitoring** with configurable intervals
-	•	**Diff detection**: Highlights new, resolved, and ongoing issues
-	•	Alert-only mode: Show only new/changed issues
-	•	Graceful shutdown with Ctrl+C
-	•	Perfect for active incident response and continuous compliance
-
-## 💾 Export Reports (NEW)
-	•	**Save reports to files** for sharing with teams
-	•	**Auto-format detection**: JSON, Markdown, HTML, Plain Text
-	•	**Metadata included**: Timestamp, version, cluster name, filters
-	•	Great for post-mortems, audit trails, and team collaboration
-
-## 🔥 Incident Mode (--mode incident)
-	•	Ranks the top problems in the cluster
-	•	Gives 1–2 sentence root causes
-	•	Provides actionable kubectl / YAML patches
-	•	Zero fluff, zero theory
-
-## 🧪 Pod Mode (--mode pod)
-
+### Pod Mode
 Deep dive into broken pods:
-	•	container states
-	•	events
-	•	restarts
-	•	image pulls
-	•	OOMs
-	•	last logs
+- Container states, events, restarts
+- Image pulls, OOMs, last logs
 
-## 📊 Default Mode
+### Teamlead Mode
+Manager-friendly reports:
+- Risk assessment, blast radius
+- Ownership hints, escalation guidance
 
-High-level cluster summary with readable health insights.
+### Compliance Mode
+Policy / hygiene checks:
+- Missing resource limits
+- `:latest` tags, namespace misuse
+- Registry hygiene, bad env patterns
 
-## 👩‍💼 Teamlead Mode (--mode teamlead)
+### Chaos Mode
+Suggests experiments based on real weaknesses:
+- Node drain, registry outage simulation
+- Disruption tests, restart storms
 
-Manager-friendly report:
-	•	risk
-	•	blast radius
-	•	ownership hints
-	•	escalation guidance
+### Smart Filtering
+- Include/Exclude pods by pattern (wildcards)
+- Include/Exclude namespaces
+- Keyword-based log/event filtering
+- Problem hints to guide LLM
+- Concurrent log fetching
 
-## 📏 Compliance Mode (--mode compliance)
+### Power-User Enhancements
+- `--enhance-technical`: Stack traces, config diffs
+- `--enhance-priority`: Numerical scores, SLO impact
+- `--enhance-remediation`: Step-by-step fixes
 
-Finds policy / hygiene issues:
-	•	missing resource limits
-	•	:latest tags
-	•	namespace misuse
-	•	registry hygiene
-	•	bad env patterns
+### Watch Mode
+- Continuous monitoring with intervals
+- Diff detection (new/resolved/ongoing)
+- Alert-only mode for new issues
+- Graceful shutdown (Ctrl+C)
 
-## 🧨 Chaos Mode
+### Export Reports
+- Save to JSON, Markdown, HTML, Plain Text
+- Auto-format detection by extension
+- Metadata included (timestamp, version, cluster, filters)
 
-Suggests targeted chaos experiments based on real weaknesses:
-	•	node drain
-	•	registry outage simulation
-	•	disruption tests
-	•	restart storms
+---
 
-⸻
+## 📊 Deterministic Analysis (NEW in v0.1.0)
+
+### requests-skew: Find Over-Provisioned Resources
+
+**Analyzes resource requests vs actual Prometheus metrics.**
+
+```bash
+kubenow analyze requests-skew --prometheus-url http://prometheus:9090
+```
+
+**Philosophy:**
+- ✅ Deterministic: No AI, no prediction
+- ✅ Evidence-based: Historical metrics over time window
+- ✅ Non-prescriptive: Shows "this would have worked" not "you should do this"
+- ✅ Safety-first: Detects OOMKills, restarts, spikes before recommending reductions
+
+**Important:** kubenow never makes future safety guarantees. All `analyze` commands describe
+what *would have worked historically* based on observed data, not what *will*
+work under all future conditions.
+
+**Output:**
+```
+NAMESPACE  WORKLOAD         REQ CPU  P99 CPU  SKEW   SAFETY      IMPACT
+prod       payment-api      4.0      3.8      8.0x   ⚠ RISKY     HIGH (42.5)
+prod       checkout-worker  2.0      0.5      6.7x   ✓ SAFE      MED (18.2)
+prod       batch-job        8.0      7.9      8.0x   ✗ UNSAFE    HIGH (65.0)
+
+Summary:
+  Average CPU Skew: 7.5x
+  Total Wasted CPU: 10.5 cores
+
+⚠️  Safety Warnings:
+═══════════════════
+
+✗ UNSAFE (1 workload) - DO NOT REDUCE RESOURCES:
+  • prod/batch-job
+    - ⚠️ p99 usage at 99% of request
+    - ⚠️ 3 OOMKills in window
+    - ⚠️ 15 restarts in window
+
+⚠ RISKY (1 workload) - Review carefully:
+  • prod/payment-api (safety margin: 1.5x)
+    - ⚠️ p99 CPU usage at 95% of request
+    - ⚠️ CPU throttled 12.5% of time
+```
+
+**Key Features:**
+- **Safety Analysis**: Detects OOMKills, restarts, CPU throttling, spike patterns (p99, p99.9, max)
+- **Safety Ratings**: SAFE ✓ | CAUTION ⚠️ | RISKY ⚠️ | UNSAFE ✗ with automatic safety margins
+- **Real-Time Spike Monitoring**: Optional high-frequency sampling (1-5s) to catch sub-scrape-interval bursts
+- Time window analysis (default 30 days)
+- Percentile analysis (p95, p99, p99.9, max)
+- Namespace filtering with regex
+- Top N results
+- Impact scoring (skew × absolute resources)
+- JSON and table output
+- Export to file
+
+**Spike Monitoring:**
+
+Use `--watch-for-spikes` for real-time spike detection (ideal for AI/RAG workloads):
+
+```bash
+# Basic spike monitoring (15 minutes, 5-second sampling)
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --watch-for-spikes
+
+# Show calculated recommendations based on spike data
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --watch-for-spikes \
+  --show-recommendations
+
+# For RAG workloads: use 1-second sampling to catch millisecond bursts
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --watch-for-spikes \
+  --spike-interval 1s \
+  --spike-duration 30m \
+  --show-recommendations \
+  --safety-factor 2.5
+```
+
+**Output with recommendations:**
+```
+📊 Real-Time Spike Monitoring Results:
+════════════════════════════════════
+
+⚠️  Detected 3 workloads with CPU spikes > 2x average:
+
+NAMESPACE/WORKLOAD       AVG CPU  MAX CPU  SPIKE RATIO  RECOMMENDED CPU  SAFETY FACTOR
+prod/exchange-rates      0.020    0.412    21.0x        1.03 cores       2.5x
+prod/config-service      0.020    0.623    31.2x        1.56 cores       2.5x
+prod/illumination        0.040    0.752    18.8x        1.50 cores       2.0x
+
+💡 How to Use These Recommendations:
+════════════════════════════════════
+
+Formula: CPU Request = Max Observed CPU × Safety Factor
+
+Safety factor auto-selected based on spike ratio:
+  • Spike ≥20x: 2.5x (extreme bursts, e.g., RAG/AI inference)
+  • Spike 10-20x: 2.0x (high bursts, e.g., batch jobs)
+  • Spike 5-10x: 1.5x (moderate bursts, e.g., APIs)
+  • Spike 2-5x: 1.2x (low bursts, e.g., background workers)
+
+See SPIKE-ANALYSIS.md for comprehensive guidance.
+```
+
+**For detailed spike analysis guidance**, see **[SPIKE-ANALYSIS.md](SPIKE-ANALYSIS.md)** which covers:
+- How to calculate resource requests from spike data
+- Safety factor selection by workload type
+- Step-by-step sizing examples with kubectl commands
+- Common patterns (RAG/AI inference, API caching, etc.)
+- Troubleshooting throttling and missing metrics
+
+---
+
+### node-footprint: Historical Capacity Feasibility Simulation
+
+**Bin-packing simulation to test smaller node configurations.**
+
+```bash
+kubenow analyze node-footprint --prometheus-url http://prometheus:9090
+```
+
+**Philosophy:**
+- ✅ Simulation-based: Tests alternatives against historical data
+- ✅ Evidence-based: Claims "this would have worked historically"
+- ✅ Never prescriptive: Doesn't say "you should do this"
+- ✅ Reproducible: Same inputs → same outputs
+
+**Output:**
+```
+Current Topology:
+  Node Type: c5.xlarge
+  Node Count: 25
+  Avg CPU Utilization: 42%
+
+Workload Envelope (p95):
+  Total CPU Required: 42.0 cores
+  Pod Count: 87
+
+Scenarios:
+SCENARIO                 NODES  AVG CPU%  AVG MEM%  FEASIBILITY  NOTES
+Current (c5.xlarge)       25     42%       38%       -            Current topology
+Alt 1 (c5.2xlarge)        14     78%       72%       YES          44% fewer nodes
+Alt 2 (r5.2xlarge)        12     68%       81%       YES (tight)  Memory-optimized
+Alt 3 (c5.4xlarge)         8     85%       76%       NO           Insufficient CPU
+```
+
+**Key Features:**
+- Prometheus-based workload envelope (p50/p95/p99)
+- First-Fit Decreasing bin-packing algorithm
+- Feasibility checks with reasons
+- Headroom calculation (high/medium/low)
+- Custom node types support
+- Estimated savings
+- JSON and table output
+
+---
 
 # 📦 Installation
 
-Build from source
+## Option 1: Download Binary (Recommended)
 
-Requires Go ≥ 1.25.4
+**Linux (amd64):**
+```bash
+curl -LO https://github.com/ppiankov/kubenow/releases/latest/download/kubenow_0.1.1_linux_amd64.tar.gz
+tar -xzf kubenow_0.1.1_linux_amd64.tar.gz
+sudo mv kubenow /usr/local/bin/
+```
+
+**macOS (amd64):**
+```bash
+curl -LO https://github.com/ppiankov/kubenow/releases/latest/download/kubenow_0.1.1_darwin_amd64.tar.gz
+tar -xzf kubenow_0.1.1_darwin_amd64.tar.gz
+sudo mv kubenow /usr/local/bin/
+```
+
+**macOS (arm64 / Apple Silicon):**
+```bash
+curl -LO https://github.com/ppiankov/kubenow/releases/latest/download/kubenow_0.1.1_darwin_arm64.tar.gz
+tar -xzf kubenow_0.1.1_darwin_arm64.tar.gz
+sudo mv kubenow /usr/local/bin/
+```
+
+## Option 2: Build from Source
+
+Requires Go ≥ 1.21
 
 ```bash
 git clone https://github.com/ppiankov/kubenow
 cd kubenow
-go build ./cmd/kubenow
+make build
+sudo mv bin/kubenow /usr/local/bin/
 ```
 
-(Optional) Move to PATH
+## Verify Installation
 
 ```bash
-sudo mv kubenow /usr/local/bin/
+kubenow version
+# kubenow version 0.1.1
+# Go version: go1.23.0
+# OS/Arch: darwin/arm64
 ```
 
-Helps DevOps engineers identify pods with incorrectly configured
-resource limits/requests, reducing cluster waste and improving stability.
+---
 
 # 🚀 Usage
 
-You only need:
-	•	a kubeconfig
-	•	an LLM endpoint
-	•	a model name
+## LLM-Powered Analysis
 
-Example (local Ollama)
+### Basic Incident Triage
 ```bash
-./kubenow \
+kubenow incident \
+  --llm-endpoint http://localhost:11434/v1 \
+  --model mixtral:8x22b
+```
+
+### Pod Debugging
+```bash
+kubenow pod \
   --llm-endpoint http://localhost:11434/v1 \
   --model mixtral:8x22b \
-  --mode incident
+  --namespace production
 ```
-Example (OpenAI)
 
+### With OpenAI
 ```bash
 export OPENAI_API_KEY="sk-yourkey"
 
-./kubenow \
+kubenow teamlead \
   --llm-endpoint https://api.openai.com/v1 \
-  --model gpt-4.1-mini \
-  --mode teamlead
+  --model gpt-4.1-mini
 ```
 
-Example (one specific namespace)
-
+### Filter Specific Pods
 ```bash
-./kubenow \
-  --namespace prod \
-  --mode pod \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-Example (filter specific pods with wildcard)
-
-```bash
-./kubenow \
+kubenow incident \
   --include-pods "payment-*,checkout-*" \
-  --mode incident \
   --llm-endpoint http://localhost:11434/v1 \
   --model mixtral:8x22b
 ```
 
-Example (exclude system namespaces)
-
+### Memory Issue Investigation
 ```bash
-./kubenow \
-  --exclude-namespaces "kube-system,kube-public,kube-node-lease" \
-  --mode default \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-Example (search for memory-related issues with hint)
-
-```bash
-./kubenow \
+kubenow incident \
   --include-keywords "OOM,memory,killed" \
   --hint "memory leak investigation" \
-  --mode incident \
   --llm-endpoint http://localhost:11434/v1 \
   --model mixtral:8x22b
 ```
 
-Example (exclude verbose logs)
-
+### Power-User Mode
 ```bash
-./kubenow \
-  --exclude-keywords "debug,trace,verbose" \
-  --mode pod \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-Example (focus on specific namespace pattern)
-
-```bash
-./kubenow \
-  --include-namespaces "prod-*" \
-  --exclude-pods "*test*,*debug*" \
-  --mode compliance \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-Example (large cluster with controlled concurrency)
-
-```bash
-./kubenow \
-  --max-pods 100 \
-  --max-concurrent-fetches 3 \
-  --mode incident \
-  --llm-endpoint https://api.openai.com/v1 \
-  --model gpt-4.1-mini
-```
-
-Example (power-user mode with all enhancements)
-
-```bash
-./kubenow \
-  --mode incident \
+kubenow incident \
   --enhance-technical \
   --enhance-priority \
   --enhance-remediation \
-  --include-pods "payment-*,checkout-*" \
-  --hint "possible memory leak" \
   --llm-endpoint http://localhost:11434/v1 \
   --model mixtral:8x22b
 ```
 
-Example (watch mode: continuous monitoring)
-
+### Watch Mode (Continuous Monitoring)
 ```bash
-./kubenow \
+kubenow incident \
   --watch-interval 1m \
   --watch-alert-new-only \
-  --mode incident \
   --llm-endpoint http://localhost:11434/v1 \
   --model mixtral:8x22b
 ```
 
-Example (export to Markdown for GitHub issue)
-
+### Export to Markdown
 ```bash
-./kubenow \
-  --mode incident \
+kubenow incident \
   --output incident-report.md \
-  --include-namespaces "prod-*" \
   --llm-endpoint http://localhost:11434/v1 \
   --model mixtral:8x22b
 ```
 
-Example (export to JSON for API/dashboard)
+---
+
+## Deterministic Analysis (NEW)
+
+### Find Over-Provisioned Resources
+```bash
+# Basic analysis (30-day window)
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090
+
+# Focus on production namespaces, 7-day window
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --window 7d \
+  --namespace-regex "prod.*"
+
+# Top 20 results as JSON
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --top 20 \
+  --output json
+
+# Export to file
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --export-file overprovisioned-report.json
+
+# Real-time spike monitoring (catch sub-second bursts)
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --watch-for-spikes \
+  --spike-duration 15m \
+  --spike-interval 5s
+
+# CI/CD integration (silent mode, JSON output)
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --silent \
+  --output json \
+  --export-file analysis-results.json
+```
+
+### Simulate Alternative Node Topologies
+```bash
+# Basic analysis with default node types
+kubenow analyze node-footprint \
+  --prometheus-url http://prometheus:9090
+
+# Use p99 workload envelope (more conservative)
+kubenow analyze node-footprint \
+  --prometheus-url http://prometheus:9090 \
+  --percentile p99
+
+# Custom node types
+kubenow analyze node-footprint \
+  --prometheus-url http://prometheus:9090 \
+  --node-types "c5.large,c5.xlarge,c5.2xlarge,r5.2xlarge"
+
+# Export results
+kubenow analyze node-footprint \
+  --prometheus-url http://prometheus:9090 \
+  --output json \
+  --export-file node-footprint.json
+```
+
+### Prometheus Connection Methods
+
+**Port-forward (recommended for local analysis):**
+```bash
+# Find your Prometheus service
+kubectl get svc -A | grep prometheus
+
+# Common patterns:
+# - kube-prometheus-stack: prometheus-operated or kube-prometheus-stack-prometheus
+# - prometheus-operator: prometheus-operated
+# - default: prometheus-server
+
+# Example: kube-prometheus-stack
+kubectl port-forward -n kube-prometheus-stack svc/prometheus-operated 9090:9090
+
+# In another terminal (use 127.0.0.1, not localhost)
+kubenow analyze requests-skew --prometheus-url http://127.0.0.1:9090
+```
+
+**Direct URL (external Prometheus):**
+```bash
+kubenow analyze requests-skew \
+  --prometheus-url https://prometheus.example.com
+```
+
+**Important Notes:**
+- Use `http://127.0.0.1:9090` (not `http://prometheus:9090`) for port-forward
+- Analysis is **read-only** - safe to run on production clusters
+- No concurrent load - queries run sequentially
+- If you see "0 workloads analyzed", check that Prometheus has `container_cpu_usage_seconds_total` metrics
+
+---
+
+# 🔧 Troubleshooting
+
+## "0 workloads analyzed" in requests-skew
+
+**Symptoms:** `Analyzed: 0 workloads | Top: 0`
+
+**Causes & Fixes:**
+
+1. **Missing Prometheus metrics**
+   ```bash
+   # Check if metrics exist
+   curl -s "http://127.0.0.1:9090/api/v1/label/__name__/values" | grep container_cpu
+
+   # Should see: container_cpu_usage_seconds_total
+   ```
+
+   **Fix:** Install metrics-server or ensure cAdvisor metrics are being scraped.
+
+2. **Time window too old**
+   ```bash
+   # Try shorter window
+   kubenow analyze requests-skew --prometheus-url http://127.0.0.1:9090 --window 7d
+   ```
+
+3. **No workloads match filters**
+   ```bash
+   # Check without filters
+   kubenow analyze requests-skew --prometheus-url http://127.0.0.1:9090 \
+     --namespace-regex ".*" --min-runtime-days 0
+   ```
+
+4. **Prometheus not reachable**
+   ```bash
+   # Test Prometheus directly
+   curl http://127.0.0.1:9090/api/v1/query?query=up
+   ```
+
+## Why node-footprint works but requests-skew doesn't
+
+- **node-footprint**: Uses Kubernetes API directly (always works if kubectl works)
+- **requests-skew**: Requires historical Prometheus metrics (depends on scrape config)
+
+If node-footprint shows results but requests-skew doesn't, your Prometheus likely isn't scraping container metrics or they're named differently.
+
+---
+
+# ⚙️ CI/CD Integration
+
+## Silent Mode for Pipelines
+
+Use `--silent` flag to suppress progress output (perfect for Jenkins, GitLab CI, GitHub Actions, etc.):
 
 ```bash
-./kubenow \
-  --mode compliance \
-  --output compliance-audit.json \
-  --llm-endpoint https://api.openai.com/v1 \
-  --model gpt-4.1-mini
+# Silent JSON output (no stderr progress)
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --silent \
+  --output json \
+  --export-file results.json
+
+# Exit codes
+# 0 = Success
+# 2 = Invalid input
+# 3 = Runtime error (Prometheus unreachable, etc.)
 ```
 
+## Example: GitHub Actions Workflow
 
-# 🧠 Recommended Models
-| Mode | Best Local | Best Cloud |notes |
-|-------|-----|-----------|-----------|
-| incident | mixtral:8x22b | GPT-4.1 Mini | concise, obedient|
-| pod | llama3:70b (if patient) | GPT-4.1 | detail friendly |
-| teamlead | mixtral:8x22b | GPT-4.1 Mini | leadership tone |
-| compliance | mixtral or Qwen |GPT-4.1 Mini | structured |
-| chaos | mixtral |GPT-4.1 Mini | creative but grounded|
+```yaml
+name: Cost Analysis
+on:
+  schedule:
+    - cron: '0 9 * * MON'  # Every Monday at 9am
 
-Quote of the project:
-“11434 is enough.”
+jobs:
+  analyze-cost:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download kubenow
+        run: |
+          curl -LO https://github.com/ppiankov/kubenow/releases/latest/download/kubenow_0.1.1_linux_amd64.tar.gz
+          tar -xzf kubenow_0.1.1_linux_amd64.tar.gz
+          chmod +x kubenow
 
-# 🔧 Command-Line Flags
+      - name: Port-forward Prometheus
+        run: |
+          kubectl port-forward -n monitoring svc/prometheus 9090:9090 &
+          sleep 5
 
-## Core Flags
-```bash
---kubeconfig <path>           Path to kubeconfig (optional)
---namespace <ns>              Only analyze this namespace
---mode <type>                 default|pod|incident|teamlead|compliance|chaos
---llm-endpoint <url>          OpenAI-compatible URL
---model <name>                Model name (mixtral:8x22b, gpt-4.1-mini, etc.)
---api-key <key>               LLM API key (optional if local)
---max-pods <num>              Max problem pods to include (default: 20)
---log-lines <num>             Logs per container (default: 50)
---format <type>               Output format: human|json (default: human)
---timeout-seconds <num>       LLM call timeout in seconds (default: 60)
---max-concurrent-fetches <num> Max concurrent log fetches (default: 5, prevents API throttling)
+      - name: Run Analysis
+        run: |
+          ./kubenow analyze requests-skew \
+            --prometheus-url http://127.0.0.1:9090 \
+            --silent \
+            --output json \
+            --export-file cost-analysis.json
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: cost-analysis
+          path: cost-analysis.json
 ```
 
-## Filtering Flags
-```bash
---include-pods <patterns>       Comma-separated pod name patterns (supports wildcards: *, ?)
---exclude-pods <patterns>       Comma-separated pod name patterns to exclude
---include-namespaces <patterns> Comma-separated namespace patterns (supports wildcards)
---exclude-namespaces <patterns> Comma-separated namespace patterns to exclude
---include-keywords <keywords>   Only show logs/events containing these keywords
---exclude-keywords <keywords>   Filter out logs/events containing these keywords
---hint <description>            Problem hint to guide LLM (e.g., 'memory leak', 'OOM')
-```
-
-## Enhancement Flags (Optional Power-User Features)
-```bash
---enhance-technical             Add technical depth (stack traces, config diffs, deeper analysis)
---enhance-priority              Add priority scoring (numerical scores, SLO impact, blast radius)
---enhance-remediation           Add detailed remediation (step-by-step fixes, rollback, prevention)
-```
-
-**Default behavior**: kubenow provides concise, actionable output. Enhancement flags are **optional** and add deeper analysis when needed.
-
-## Watch Mode Flags
-```bash
---watch-interval <duration>     Enable watch mode with interval (e.g., '30s', '1m', '5m')
---watch-iterations <num>        Max watch iterations (0 = infinite, default: 0)
---watch-alert-new-only          Only show new/changed issues in watch mode
-```
-
-## Export Flags
-```bash
---output <filepath>             Save report to file (format auto-detected: .json, .md, .html, .txt)
-```
-
-# 🎯 Advanced Filtering & Hints
-
-## Pod & Namespace Filtering
-
-Use wildcard patterns to focus your analysis:
-
-**Include patterns**: Only analyze pods/namespaces matching these patterns
-- `--include-pods "payment-*,api-*"` - Only payment and api pods
-- `--include-namespaces "prod-*"` - Only production namespaces
-
-**Exclude patterns**: Skip specific pods/namespaces
-- `--exclude-pods "*test*,*debug*"` - Ignore test/debug pods
-- `--exclude-namespaces "kube-system,monitoring"` - Skip system namespaces
-
-**Wildcard support**:
-- `*` matches any characters
-- `?` matches a single character
-- Multiple patterns separated by commas
-
-## Keyword Filtering
-
-Filter logs and events by content:
-
-**Include keywords**: Only show logs/events containing specific keywords
-- `--include-keywords "error,fatal,exception"` - Focus on errors
-- `--include-keywords "OOM,memory"` - Memory-related issues
-
-**Exclude keywords**: Filter out noise
-- `--exclude-keywords "debug,trace,verbose"` - Remove debug messages
-- `--exclude-keywords "health check,readiness"` - Ignore health checks
-
-**Case-insensitive**: Keywords are matched case-insensitively
-
-## Problem Hints
-
-Guide the LLM analysis with context:
-
-```bash
---hint "memory leak in payment service"
---hint "network connectivity issues"
---hint "database connection pool exhaustion"
---hint "image pull failures"
-```
-
-The hint helps the LLM:
-- Prioritize relevant findings
-- Provide more targeted recommendations
-- Connect related symptoms
-- Suggest specific debugging steps
-
-**Best practices:**
-- Be specific but concise
-- Mention the suspected root cause
-- Include relevant component names
-- Works with all modes (incident, pod, teamlead, etc.)
-
-## Concurrency Control
-
-Prevent API throttling and rate limits with controlled parallelism:
-
-```bash
---max-concurrent-fetches <num>
-```
-
-**Recommended values:**
-
-| Cluster Size | Recommended | Description |
-|-------------|-------------|-------------|
-| Small (< 50 pods) | `5-10` | Safe default, minimal throttling risk |
-| Medium (50-200 pods) | `3-5` | Conservative for production clusters |
-| Large (200+ pods) | `2-3` | Strict limit to avoid overwhelming API |
-| EKS/GKE/AKS | `3-5` | Cloud providers may have stricter limits |
-| Local (minikube/kind) | `10-20` | Less restrictive for local development |
-
-**Symptoms of too high concurrency:**
-- `Waited for X.XXs due to client-side throttling` messages
-- Slow snapshot collection despite parallelism
-- Kubernetes API server errors (429 Too Many Requests)
-
-**Example with concurrency control:**
-```bash
-./kubenow \
-  --max-pods 100 \
-  --max-concurrent-fetches 3 \
-  --mode incident \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-This fetches logs from up to 100 pods, but only 3 at a time, preventing API throttling.
-
-## Enhancement Flags: Deep Dive
-
-kubenow defaults to **simple, concise output** for fast incident response. For power users who need deeper analysis, three optional enhancement flags are available:
-
-### --enhance-technical
-
-Adds deep technical analysis to the output:
-- **Stack traces**: Extracted and highlighted from logs
-- **Memory dumps**: Parsed memory statistics, heap dumps, OOM killer details
-- **Config diffs**: Recent configuration changes that might have caused issues
-- **Deeper analysis**: Network errors, filesystem issues, syscalls, signals
-
-**When to use**: Debugging complex issues, performance problems, or when you need low-level details.
-
-**Output additions**: Adds a `technicalDetails` object with fields `stackTrace`, `memoryDump`, `configDiff`, `deeperAnalysis`
-
-**Example:**
-```bash
-./kubenow --mode incident --enhance-technical \
-  --hint "memory leak" \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-### --enhance-priority
-
-Adds quantitative priority and impact scoring:
-- **Priority score**: Numeric 1-10 scale (10 = most critical)
-- **SLO impact**: Estimated SLO/SLA violations (e.g., "3/5 services below SLO")
-- **Blast radius**: Scope of impact (e.g., "high - affects 40% of users")
-- **Urgency**: Classification as immediate|high|medium|low
-
-**When to use**: Triaging multiple incidents, reporting to management, or prioritizing fixes.
-
-**Output additions**: Adds `priorityScore`, `sloImpact`, `blastRadius`, `urgency` fields to issue objects
-
-**Example:**
-```bash
-./kubenow --mode incident --enhance-priority \
-  --max-pods 50 \
-  --llm-endpoint https://api.openai.com/v1 \
-  --model gpt-4.1-mini
-```
-
-### --enhance-remediation
-
-Adds comprehensive fix procedures:
-- **Remediation steps**: Numbered, specific kubectl commands with verification checks
-- **Rollback procedure**: Exact command to roll back (including revision numbers)
-- **Prevention tips**: Actionable recommendations to prevent recurrence
-- **Verification checks**: Commands to confirm the fix worked
-
-**When to use**: Training junior engineers, creating runbooks, or when fixes need careful documentation.
-
-**Output additions**: Adds `remediationSteps`, `rollbackProcedure`, `preventionTips` arrays/fields
-
-**Example:**
-```bash
-./kubenow --mode pod --enhance-remediation \
-  --include-pods "payment-*" \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-### Combining Enhancements
-
-Mix and match enhancement flags for maximum detail:
-
-```bash
-# Power user mode: ALL enhancements
-./kubenow --mode incident \
-  --enhance-technical \
-  --enhance-priority \
-  --enhance-remediation \
-  --max-pods 100 \
-  --max-concurrent-fetches 3 \
-  --llm-endpoint https://api.openai.com/v1 \
-  --model gpt-4.1-mini
-```
-
-```bash
-# Technical + remediation (great for debugging)
-./kubenow --mode pod \
-  --enhance-technical \
-  --enhance-remediation \
-  --include-keywords "OOM,crash" \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-### Performance Considerations
-
-**Token usage**: Enhancements increase LLM token consumption
-- Base prompt: ~500-800 tokens
-- With all enhancements: ~900-1200 tokens
-- Impact: Slightly slower responses, higher API costs (still reasonable)
-
-**Model recommendations for enhancements**:
-| Enhancement | Min Model | Recommended |
-|-------------|-----------|-------------|
-| --enhance-technical | 8B+ | mixtral:8x22b, llama3:70b |
-| --enhance-priority | 7B+ | mixtral:8x22b, qwen:14b |
-| --enhance-remediation | 8B+ | mixtral:8x22b, gpt-4.1-mini |
-| All combined | 70B+ / GPT-4 class | mixtral:8x22b (local), GPT-4.1 (cloud) |
-
-**Note**: Smaller models (< 7B) may struggle with complex conditional JSON generation for enhanced output.
-
-## 👁️ Watch Mode: Continuous Monitoring
-
-Watch mode enables **continuous cluster monitoring** with diff detection. kubenow will poll the cluster at regular intervals, detect new, resolved, and ongoing issues, and alert you to changes.
-
-### Basic Watch Mode
-
-```bash
-./kubenow \
-  --watch-interval 30s \
-  --mode incident \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-This checks the cluster every 30 seconds and shows all issues detected.
-
-### Watch Mode Flags
-
-**--watch-interval <duration>**: Enable watch mode with the specified interval
-- Examples: `30s`, `1m`, `5m`, `10m`
-- Recommended: `30s` for incidents, `1m-5m` for monitoring
-- Watch mode is **disabled by default** (keeps kubenow simple by default)
-
-**--watch-iterations <num>**: Limit the number of iterations (default: 0 = infinite)
-- `0`: Run forever until Ctrl+C
-- `10`: Run exactly 10 iterations then stop
-- Useful for scheduled jobs or time-boxed investigations
-
-**--watch-alert-new-only**: Only alert on new or changed issues
-- Filters out ongoing issues from previous iterations
-- Reduces noise during continuous monitoring
-- Great for Slack/webhook integrations (Phase 3)
-
-### Watch Mode Examples
-
-**Continuous incident monitoring (Ctrl+C to stop)**
-```bash
-./kubenow \
-  --watch-interval 1m \
-  --mode incident \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-**Monitor for 10 iterations (10 minutes with 1m interval)**
-```bash
-./kubenow \
-  --watch-interval 1m \
-  --watch-iterations 10 \
-  --mode default \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-**Alert only on new issues (great for dashboards)**
-```bash
-./kubenow \
-  --watch-interval 30s \
-  --watch-alert-new-only \
-  --mode incident \
-  --llm-endpoint https://api.openai.com/v1 \
-  --model gpt-4.1-mini
-```
-
-**Watch specific namespace with filtering**
-```bash
-./kubenow \
-  --watch-interval 1m \
-  --namespace prod \
-  --include-pods "payment-*,checkout-*" \
-  --watch-alert-new-only \
-  --mode pod \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-### How Watch Mode Works
-
-1. **Iteration 1**: Collects initial snapshot, calls LLM, shows all issues
-2. **Iteration 2+**: Compares with previous snapshot and detects:
-   - **NEW** issues (not in previous snapshot) - highlighted in red
-   - **RESOLVED** issues (in previous but not current) - highlighted in green
-   - **ONGOING** issues (in both snapshots) - shown unless `--watch-alert-new-only`
-
-3. **Output**: Shows diff first, then full LLM analysis (unless only showing new issues)
-4. **Graceful shutdown**: Ctrl+C stops watch mode cleanly
-
-### Watch Mode Output Example
-
-```
-[2025-12-03 15:45:23 UTC] Iteration 2/10
-----------------------------------------
-[kubenow] Collecting cluster snapshot...
-
-NEW ISSUES DETECTED: 2
-  [NEW] prod/payment-api - CrashLoopBackOff
-  [NEW] prod/checkout-worker (container: init) - ImagePullBackOff
-
-RESOLVED ISSUES: 1
-  [RESOLVED] staging/test-pod - Pending
-
-ONGOING ISSUES: 3
-  [ONGOING] prod/auth-service - OOMKilled
-  [ONGOING] prod/redis-cache - Evicted
-  [ONGOING] prod/db-backup - Failed
-
-[kubenow] Calling LLM endpoint...
-
-TOP ISSUES:
-1. prod/payment-api - CrashLoopBackOff - critical
-   Root Cause: Database connection pool exhausted
-   Fix: kubectl -n prod scale deploy/payment-api --replicas=0 && kubectl -n prod scale deploy/payment-api --replicas=3
-
-[... full LLM analysis ...]
-
-Next check in 1m... (Ctrl+C to stop)
-```
-
-### Watch Mode Best Practices
-
-**Interval selection:**
-- `10s-30s`: Active incident response (high API load)
-- `1m-2m`: Continuous monitoring (balanced)
-- `5m-10m`: Background health checks (low overhead)
-
-**Performance considerations:**
-- Watch mode increases API load (one snapshot per interval)
-- Use `--max-concurrent-fetches` to prevent throttling
-- Combine with namespace/pod filters to reduce snapshot size
-- Consider LLM costs for cloud providers (one API call per iteration)
-
-**Graceful shutdown:**
-- Press Ctrl+C to stop watch mode gracefully
-- kubenow will finish the current iteration before exiting
-- No partial outputs or corrupted state
-
-**Use cases:**
-- Active incident monitoring during deployments
-- Continuous compliance checks
-- Post-incident surveillance (watch for recurrence)
-- Team dashboards (pipe to files or webhooks)
-
-## 💾 Export Reports: Save & Share
-
-Export mode allows you to **save kubenow reports to files** for sharing with teams, creating post-mortems, or building audit trails.
-
-### Basic Export
-
-```bash
-./kubenow \
-  --mode incident \
-  --output report.json \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-This saves the incident report to `report.json` instead of printing to stdout.
-
-### Supported Export Formats
-
-Export format is **auto-detected from file extension**:
-
-| Extension | Format | Description |
-|-----------|--------|-------------|
-| `.json` | JSON | Structured data with metadata wrapper |
-| `.md` | Markdown | GitHub-flavored markdown for wikis/issues |
-| `.html` | HTML | Self-contained HTML (inline CSS, no external deps) |
-| `.txt` | Plain text | Human-readable format (same as stdout) |
-
-### Export Examples
-
-**JSON export (for APIs, scripts, dashboards)**
-```bash
-./kubenow \
-  --mode incident \
-  --output incident-2025-12-03.json \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-Output includes metadata:
-```json
-{
-  "metadata": {
-    "generatedAt": "2025-12-03T15:45:23Z",
-    "kubenowVersion": "v1.0.0",
-    "clusterName": "production-eks",
-    "mode": "incident",
-    "filters": {
-      "includePods": "payment-*",
-      "includeNamespaces": "prod"
+## Example: Jenkins Pipeline
+
+```groovy
+pipeline {
+    agent any
+    stages {
+        stage('Cost Analysis') {
+            steps {
+                sh '''
+                    kubectl port-forward -n monitoring svc/prometheus 9090:9090 &
+                    sleep 5
+
+                    ./kubenow analyze requests-skew \
+                        --prometheus-url http://127.0.0.1:9090 \
+                        --silent \
+                        --output json \
+                        --export-file cost-analysis.json
+
+                    # Parse and report
+                    jq '.summary.total_wasted_cpu' cost-analysis.json
+                '''
+            }
+        }
     }
-  },
-  "result": {
-    "topIssues": [...],
-    "rootCauses": [...],
-    "actions": [...]
-  }
 }
 ```
 
-**Markdown export (for GitHub issues, Confluence, wikis)**
-```bash
-./kubenow \
-  --mode pod \
-  --output pod-debug.md \
-  --include-pods "payment-*" \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
+---
 
-Creates a beautiful GitHub-flavored markdown file:
-```markdown
-# kubenow Report: pod
+# 🧠 Recommended Models
 
-**Generated:** 2025-12-03 15:45:23 UTC
-**Cluster:** production-eks
-**Mode:** pod
+| Mode | Best Local | Best Cloud | Notes |
+|------|------------|------------|-------|
+| incident | mixtral:8x22b | GPT-4.1 Mini | Concise, obedient |
+| pod | llama3:70b | GPT-4.1 | Detail friendly |
+| teamlead | mixtral:8x22b | GPT-4.1 Mini | Manager-appropriate |
+| compliance | qwen2.5:32b | GPT-4.1 | Policy-focused |
+| chaos | mixtral:8x22b | Claude Sonnet | Creative thinking |
+
+**Note:** Deterministic `analyze` commands don't use LLMs.
 
 ---
 
-## Problem Pods
+# 🏗️ Architecture
 
-### 1. prod/payment-api-7f8d9c - CRITICAL
-
-**Type:** CrashLoopBackOff
-**Failing Container:** api
-**Summary:** Container repeatedly crashing...
-
-**Fix Commands:**
-` ``bash
-kubectl -n prod logs payment-api-7f8d9c
-kubectl -n prod describe pod payment-api-7f8d9c
-` ``
+```
+┌─────────────────────────────────────────────────────┐
+│                   kubenow CLI                       │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  LLM Commands          │   Analyze Commands        │
+│  ├─ incident           │   ├─ requests-skew        │
+│  ├─ pod                │   └─ node-footprint       │
+│  ├─ teamlead           │                           │
+│  ├─ compliance         │   Prometheus Metrics      │
+│  └─ chaos              │   Bin-Packing Simulation  │
+│                        │   Deterministic Analysis  │
+│  Kubernetes Snapshot   │                           │
+│  LLM Analysis          │                           │
+└─────────────────────────────────────────────────────┘
+           │                          │
+           ▼                          ▼
+    ┌─────────────┐          ┌──────────────┐
+    │ Kubernetes  │          │ Prometheus   │
+    │     API     │          │     API      │
+    └─────────────┘          └──────────────┘
 ```
 
-**HTML export (for email, browser viewing, offline access)**
-```bash
-./kubenow \
-  --mode incident \
-  --output report.html \
-  --llm-endpoint https://api.openai.com/v1 \
-  --model gpt-4.1-mini
-```
-
-Creates a self-contained HTML file:
-- Inline CSS (no external dependencies)
-- Color-coded severity
-- Print-friendly
-- Works offline
-- Professional styling
-
-**Plain text export (for logs, terminals, simple storage)**
-```bash
-./kubenow \
-  --mode compliance \
-  --output compliance-audit.txt \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-### Export with Filters
-
-**Export filtered incident report**
-```bash
-./kubenow \
-  --mode incident \
-  --include-namespaces "prod-*" \
-  --exclude-pods "*test*" \
-  --output prod-incident-report.md \
-  --llm-endpoint http://localhost:11434/v1 \
-  --model mixtral:8x22b
-```
-
-The export file will include the filter metadata, so readers know what was included/excluded.
-
-### Export Metadata
-
-All export formats (except plain text) include metadata:
-
-- **generatedAt**: ISO 8601 timestamp
-- **kubenowVersion**: Tool version (for reproducibility)
-- **clusterName**: Extracted from kubeconfig context
-- **mode**: Analysis mode used
-- **filters**: All filter flags applied (pods, namespaces, keywords)
-
-This metadata helps with:
-- Audit trails ("when was this report generated?")
-- Reproducibility ("what version of kubenow?")
-- Context ("which cluster and namespace?")
-- Filtering transparency ("what was included/excluded?")
-
-### Export Best Practices
-
-**Naming conventions:**
-```bash
-# Timestamped reports
---output "incident-$(date +%Y-%m-%d-%H%M).json"
-
-# Cluster-specific reports
---output "prod-eks-incident.md"
-
-# Mode-specific reports
---output "compliance-audit-$(date +%Y%m%d).json"
-```
-
-**Use cases:**
-- **JSON**: APIs, dashboards, scripts, data processing
-- **Markdown**: GitHub issues, Confluence, team wikis, documentation
-- **HTML**: Email attachments, browser viewing, presentations
-- **Plain text**: Logs, terminals, grep-able archives
-
-**Sharing with teams:**
-- Markdown for GitHub issues (native rendering)
-- HTML for email attachments (works everywhere)
-- JSON for integrations (Slack bots, ticketing systems)
-
-### Combining Watch Mode + Export
-
-Export is **not yet supported with watch mode** in Phase 1 MVP. This will be added in Phase 2:
-
-**Phase 2 (future):**
-```bash
-# Timestamped exports per iteration
-./kubenow --watch-interval 1m --output report.json
-# Saves: report-2025-12-03T15:45:23Z.json, report-2025-12-03T15:46:23Z.json, ...
-
-# Or overwrite same file (latest snapshot)
-./kubenow --watch-interval 1m --output report.json --output-overwrite
-# Always writes to: report.json
-```
-
-For now, use single-execution mode with export, or run watch mode with stdout.
-
-# 🧱 Architecture
-
-```bash
-cmd/kubenow/
-internal/
-  snapshot/   ← collects K8s data with concurrent log fetching & filtering
-  prompt/     ← loads prompt templates by mode with optional hints & enhancements
-  llm/        ← calls OpenAI-compatible APIs
-  util/       ← kube client builder
-  result/     ← output rendering and formatting
-  export/     ← file export in multiple formats (JSON, Markdown, HTML, text)
-  watch/      ← continuous monitoring with diff detection
-```
-
-## Snapshot Process
-
-1. **Node Discovery**: Collects all node conditions
-2. **Pod Filtering**: Applies include/exclude patterns for pods and namespaces
-3. **Problem Detection**: Identifies pods with issues (CrashLoop, ImagePull, OOM, etc.)
-4. **Event Collection**: Gathers pod events with keyword filtering
-5. **Concurrent Log Fetch**: Fetches logs from all problem pods in parallel (performance boost!)
-6. **Keyword Filtering**: Applies include/exclude keywords to logs and events
-
-Snapshot contains:
-	•	node conditions
-	•	filtered problem pods with:
-	•	reason
-	•	restart count
-	•	container states
-	•	resource requests/limits
-	•	image names
-	•	filtered logs (concurrent fetch)
-	•	filtered pod events
-	•	issueType (ImagePullError | CrashLoop | OOMKilled | PendingScheduling | etc.)
-
-## Performance Improvements
-
-**Controlled Concurrent Log Fetching**: kubenow fetches logs from problem pods in parallel using a semaphore-based worker pool. This:
-- Significantly reduces snapshot collection time
-- Prevents Kubernetes API throttling with configurable concurrency limits
-- Defaults to 5 concurrent fetches (safe for most clusters)
-- Adjustable via `--max-concurrent-fetches` for different cluster sizes
-
-**Smart Filtering**: Filter before analysis to reduce:
-- LLM token usage (lower costs)
-- Processing time
-- Noise in results
-- Context window pressure
-
-**Filter Early, Analyze Fast**: Use namespace and pod filters to focus on specific areas, making kubenow even faster for targeted investigations.
-
-**API-Friendly**: Semaphore pattern ensures kubenow never overwhelms your Kubernetes API server, even with `--max-pods 100`.
-
-# 📄 License
-MIT
-
-# 🐉 Disclaimer
-
-## This tool can:
-	•	shame your engineers
-	•	uncover your terrible cluster hygiene
-	•	predict who broke production
-	•	and suggest chaos tests strong enough to get you fired
-
-Use responsibly.
-
-## ✨ Keywords
-	•	kubernetes incident response LLM
-	•	kubernetes triage cli
-	•	ollama kubernetes assistant
-	•	k8s troubleshooting
-	•	kubectl alternative
-	•	k8s observability
-	•	chaos engineering
+**See [Architecture Documentation](docs/architecture.md) for details.**
 
 ---
 
+# 📚 Documentation
+
+- **[Architecture](docs/architecture.md)** - System design and components
+- **[Contributing](CONTRIBUTING.md)** - Development guide
+- **[Changelog](CHANGELOG.md)** - Version history
+- **[Manifesto](MANIFESTO.md)** - Design philosophy
+
+---
+
+# 🧭 Philosophy
+
+This tool follows the principles of **Attention-First Software**:
+
+> The primary responsibility of software is to disappear once it works correctly.
+
+kubenow is built to reduce cognitive load, not monetize attention:
+- Deterministic analysis over prescriptive recommendations
+- Evidence-based outputs ("this would have worked") not predictions ("you should do this")
+- Silent mode for automation, clear progress for humans
+- No upsells, no engagement mechanics, no hype
+
+Read the full manifesto: **[MANIFESTO.md](MANIFESTO.md)**
+
+---
+
+# 🤝 Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup
+- Testing guidelines
+- Pull request process
+- Code style conventions
+
+---
+
+# 📝 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
+# 🙏 Credits
+
+Part of the [Spectre Tools Family](https://github.com/ppiankov):
+- [clickspectre](https://github.com/ppiankov/clickspectre) - ClickHouse query analyzer
+- [vaultspectre](https://github.com/ppiankov/vaultspectre) - HashiCorp Vault secret scanner
+- [spectrehub](https://github.com/ppiankov/spectrehub) - Centralized reporting hub
+- [entropia](https://github.com/ppiankov/entropia) - Documentation entropy analyzer
+
+---
+
+**"11434 is enough. But fewer nodes might be enough too."**
