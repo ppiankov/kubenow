@@ -17,13 +17,13 @@
 - **Deterministic, evidence-based analysis** for cost and capacity decisions
 - **Optional LLM-assisted analysis** for incident triage and diagnostics
 
-### 🔴 **Monitor Mode** (Live)
+### **Monitor Mode** (Live)
 Real-time terminal UI for cluster problems:
-- 📺 **Attention-first**: Empty screen when healthy, shows only broken things
-- 📊 **Compact view**: 10-15 problems at once, sortable (severity/recency/count)
-- ⌨️ **Interactive**: Pause, scroll, sort, copy to terminal
-- 🎯 **No flicker**: Updates only when problems change
-- 📋 **Copyable**: Press `c` to dump everything to terminal for easy copying
+- **Attention-first**: Empty screen when healthy, shows only broken things
+- **Compact view**: 10-15 problems at once, sortable (severity/recency/count)
+- **Interactive**: Pause, scroll, sort, copy to terminal
+- **No flicker**: Updates only when problems change
+- **Copyable**: Press `c` to dump everything to terminal for easy copying
 
 ```bash
 kubenow monitor                    # Start monitoring
@@ -34,33 +34,33 @@ kubenow monitor                    # Start monitoring
 
 See **[MONITOR-MODE.md](MONITOR-MODE.md)** for full documentation and tool comparison.
 
-### 📊 **Deterministic Analysis** (Core)
+### **Deterministic Analysis** (Core)
 Data-driven cost optimization without AI:
-- 💰 **requests-skew**: Identify over-provisioned resources
-- 🏗️ **node-footprint**: Historical capacity feasibility simulation
+- **requests-skew**: Identify over-provisioned resources
+- **node-footprint**: Historical capacity feasibility simulation
 
-### 🤖 **LLM-Powered Analysis** (Optional)
+### **LLM-Powered Analysis** (Optional)
 Feed your cluster snapshot into any OpenAI-compatible LLM for:
-- 🔥 Incident triage (ranked, actionable, command-ready)
-- 🛠 Pod-level debugging
-- 📊 Cluster health summaries
-- 👩‍💼 Teamlead / ownership recommendations
-- 🧹 Compliance / hygiene reviews
-- 🧨 Chaos engineering suggestions
+- Incident triage (ranked, actionable, command-ready)
+- Pod-level debugging
+- Cluster health summaries
+- Teamlead / ownership recommendations
+- Compliance / hygiene reviews
+- Chaos engineering suggestions
 
 ---
 
 ## Works with any OpenAI-compatible API:
-- 🦙 **Ollama** (Mixtral, Llama, Qwen, etc.)
-- ☁️ **OpenAI / Azure OpenAI**
-- 🔧 **DeepSeek / Groq / Together / OpenRouter**
-- 🏠 Your own inference server
+- **Ollama** (Mixtral, Llama, Qwen, etc.)
+- **OpenAI / Azure OpenAI**
+- **DeepSeek / Groq / Together / OpenRouter**
+- Your own inference server
 
 If it responds to `/v1/chat/completions`, kubenow will talk to it.
 
 ---
 
-# ✨ Why kubenow?
+# Why kubenow?
 
 ## Because when the cluster is on fire, nobody wants to run:
 - 12 commands
@@ -101,9 +101,9 @@ Summary: 6.5 cores wasted, ~$200/month
 
 ---
 
-# 🧩 Features
+# Features
 
-## 🎯 LLM-Powered Analysis
+## LLM-Powered Analysis
 
 ### Incident Mode
 Ranks top problems with:
@@ -157,7 +157,7 @@ Suggests experiments based on real weaknesses:
 
 ---
 
-## 📊 Deterministic Analysis (NEW in v0.1.0)
+## Deterministic Analysis (NEW in v0.1.0)
 
 ### requests-skew: Find Over-Provisioned Resources
 
@@ -367,7 +367,7 @@ kubenow version
 
 ---
 
-# 🚀 Usage
+# Usage
 
 ## LLM-Powered Analysis
 
@@ -537,7 +537,7 @@ kubenow analyze requests-skew \
 
 ---
 
-# 🔧 Troubleshooting
+# Troubleshooting
 
 ## "0 workloads analyzed" in requests-skew
 
@@ -583,7 +583,7 @@ If node-footprint shows results but requests-skew doesn't, your Prometheus likel
 
 ---
 
-# ⚙️ CI/CD Integration
+# CI/CD Integration
 
 ## Silent Mode for Pipelines
 
@@ -684,22 +684,22 @@ pipeline {
 
 ---
 
-# 🏗️ Architecture
+# Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   kubenow CLI                       │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
-│  LLM Commands          │   Analyze Commands        │
-│  ├─ incident           │   ├─ requests-skew        │
-│  ├─ pod                │   └─ node-footprint       │
-│  ├─ teamlead           │                           │
-│  ├─ compliance         │   Prometheus Metrics      │
-│  └─ chaos              │   Bin-Packing Simulation  │
-│                        │   Deterministic Analysis  │
-│  Kubernetes Snapshot   │                           │
-│  LLM Analysis          │                           │
+│  LLM Commands           │   Analyze Commands        │
+│  ├─ incident            │   ├─ requests-skew        │
+│  ├─ pod                 │   └─ node-footprint       │
+│  ├─ teamlead            │                           │
+│  ├─ compliance          │   Prometheus Metrics      │
+│  └─ chaos               │   Bin-Packing Simulation  │
+│                         │   Deterministic Analysis  │
+│  Kubernetes Snapshot    │                           │
+│  LLM Analysis           │                           │
 └─────────────────────────────────────────────────────┘
            │                          │
            ▼                          ▼
@@ -751,16 +751,6 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 # 📝 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
----
-
-# 🙏 Credits
-
-Part of the [Spectre Tools Family](https://github.com/ppiankov):
-- [clickspectre](https://github.com/ppiankov/clickspectre) - ClickHouse query analyzer
-- [vaultspectre](https://github.com/ppiankov/vaultspectre) - HashiCorp Vault secret scanner
-- [spectrehub](https://github.com/ppiankov/spectrehub) - Centralized reporting hub
-- [entropia](https://github.com/ppiankov/entropia) - Documentation entropy analyzer
 
 ---
 

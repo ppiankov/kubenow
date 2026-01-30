@@ -155,10 +155,10 @@ func printProblemsToTerminal(m monitor.Model) {
 
 	fmt.Println("\n═══════════════════════════════════════════════════════════════")
 	fmt.Println("kubenow monitor - Current State (COPYABLE)")
-	fmt.Println("═══════════════════════════════════════════════════════════════\n")
+	fmt.Println("═══════════════════════════════════════════════════════════════")
 
 	if len(problems) == 0 {
-		fmt.Println("✓ No active problems\n")
+		fmt.Println("✓ No active problems")
 	} else {
 		fmt.Printf("🔴 ACTIVE PROBLEMS (%d)\n\n", len(problems))
 
@@ -191,7 +191,7 @@ func printProblemsToTerminal(m monitor.Model) {
 
 	// Print recent events (last 10)
 	if len(events) > 0 {
-		fmt.Println("\n📊 RECENT EVENTS (last 5m)\n")
+		fmt.Println("\n📊 RECENT EVENTS (last 5m)")
 		count := 0
 		for _, event := range events {
 			if count >= 10 {
@@ -213,7 +213,7 @@ func printProblemsToTerminal(m monitor.Model) {
 
 	// Print cluster stats (only if populated)
 	if stats.TotalPods > 0 || stats.TotalNodes > 0 {
-		fmt.Println("📈 CLUSTER STATUS\n")
+		fmt.Println("📈 CLUSTER STATUS")
 		fmt.Printf("  Pods:  %d total  |  %d running  |  %d problem\n", stats.TotalPods, stats.RunningPods, stats.ProblemPods)
 		fmt.Printf("  Nodes: %d total  |  %d ready    |  %d NotReady\n", stats.TotalNodes, stats.ReadyNodes, stats.NotReadyNodes)
 		fmt.Println()
