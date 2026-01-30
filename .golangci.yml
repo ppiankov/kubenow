@@ -56,7 +56,6 @@ linters:
     - dupl           # Code duplication
     - gocritic       # Opinionated linter
     - revive         # Fast, configurable, extensible linter
-    - shadow         # Shadow variable detection
 
   disable:
     - gosec          # Security checks (can be noisy)
