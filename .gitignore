@@ -1,10 +1,31 @@
-# build outputs
-kubenow
-dist/
+# Binaries
 bin/
-
-# Go stuff
+dist/
+kubenow
+*.exe
+*.dll
+*.so
+*.dylib
 *.test
 
-# macOS
+# Go artifacts
+*.out
+coverage.out
+coverage.html
+go.work
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Tool-specific
+.kubenow/           # Cache/data directory
+test-reports/       # Generated test reports

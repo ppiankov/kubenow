@@ -22,11 +22,11 @@ const (
 
 // ExportMetadata contains metadata about the export.
 type ExportMetadata struct {
-	GeneratedAt    time.Time         `json:"generatedAt"`
-	KubenowVersion string            `json:"kubenowVersion"`
-	ClusterName    string            `json:"clusterName,omitempty"`
-	Mode           string            `json:"mode"`
-	Filters        snapshot.Filters  `json:"filters,omitempty"`
+	GeneratedAt    time.Time        `json:"generatedAt"`
+	KubenowVersion string           `json:"kubenowVersion"`
+	ClusterName    string           `json:"clusterName,omitempty"`
+	Mode           string           `json:"mode"`
+	Filters        snapshot.Filters `json:"filters,omitempty"`
 }
 
 // Exporter handles exporting results in various formats.

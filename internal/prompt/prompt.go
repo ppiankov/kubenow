@@ -7,9 +7,9 @@ import (
 
 // PromptEnhancements controls optional prompt enhancements.
 type PromptEnhancements struct {
-	Technical    bool // Add technical depth (stack traces, config diffs, deeper analysis)
-	Priority     bool // Add priority scoring (numerical scores, SLO impact, blast radius)
-	Remediation  bool // Add detailed remediation (step-by-step fixes, rollback, prevention)
+	Technical   bool // Add technical depth (stack traces, config diffs, deeper analysis)
+	Priority    bool // Add priority scoring (numerical scores, SLO impact, blast radius)
+	Remediation bool // Add detailed remediation (step-by-step fixes, rollback, prevention)
 }
 
 func LoadPrompt(mode string, snapshotJSON string, problemHint string, enhancements PromptEnhancements) (string, error) {
