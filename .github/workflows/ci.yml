@@ -14,9 +14,6 @@ permissions:
   contents: read
   security-events: write
 
-env:
-  GOTOOLCHAIN: auto
-
 jobs:
   test:
     name: Test
