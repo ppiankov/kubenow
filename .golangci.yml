@@ -1,0 +1,98 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  skip-dirs:
+    - vendor
+    - bin
+    - .github
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    check-shadowing: true
+
+  gocyclo:
+    min-complexity: 15
+
+  dupl:
+    threshold: 100
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  misspell:
+    locale: US
+
+  lll:
+    line-length: 140
+
+  goimports:
+    local-prefixes: github.com/ppiankov/kubenow
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - commentFormatting
+
+linters:
+  enable:
+    - errcheck       # Check for unchecked errors
+    - gosimple       # Simplify code
+    - govet          # Reports suspicious constructs
+    - ineffassign    # Detects ineffectual assignments
+    - staticcheck    # Static analysis
+    - typecheck      # Type checking
+    - unused         # Check for unused code
+    - gocyclo        # Cyclomatic complexity
+    - gofmt          # Check code formatting
+    - goimports      # Check import formatting
+    - misspell       # Spell checking
+    - goconst        # Repeated strings that could be constants
+    - unconvert      # Unnecessary type conversions
+    - dupl           # Code duplication
+    - gocritic       # Opinionated linter
+    - revive         # Fast, configurable, extensible linter
+
+  disable:
+    - gosec          # Security checks (can be noisy)
+    - stylecheck     # Style checks (can be opinionated)
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Exclude some linters from running on tests
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+
+    # Exclude known false positives
+    - linters:
+        - staticcheck
+      text: "SA9003:"
+
+    # Exclude some issues in CLI commands (can be more verbose)
+    - path: internal/cli/
+      linters:
+        - gocyclo
+        - goconst
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
