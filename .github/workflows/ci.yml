@@ -15,7 +15,7 @@ permissions:
   security-events: write
 
 env:
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
 
 jobs:
   test:
