@@ -34,6 +34,7 @@ type RequestsSkewAnalyzer struct {
 type RequestsSkewConfig struct {
 	Window            time.Duration // Time window for analysis (e.g., 30d)
 	Top               int           // Top N results (0 = all)
+	Namespace         string        // Specific namespace to analyze (overrides regex)
 	NamespaceRegex    string        // Namespace filter regex
 	MinRuntimeDays    int           // Minimum runtime in days to consider
 	IncludeKubeSystem bool          // Include kube-system namespace
@@ -179,6 +180,16 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 
 // getFilteredNamespaces retrieves namespaces matching the filter
 func (a *RequestsSkewAnalyzer) getFilteredNamespaces(ctx context.Context) ([]string, error) {
+	// If a specific namespace is provided, use only that one
+	if a.config.Namespace != "" {
+		// Verify the namespace exists
+		_, err := a.kubeClient.CoreV1().Namespaces().Get(ctx, a.config.Namespace, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("namespace %s not found: %w", a.config.Namespace, err)
+		}
+		return []string{a.config.Namespace}, nil
+	}
+
 	nsList, err := a.kubeClient.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err

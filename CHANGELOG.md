@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.3] - 2026-02-06
+
+### Fixed
+- **`analyze requests-skew`**: Now respects the global `--namespace` flag
+  - Previously, the `--namespace` flag was ignored, causing the command to analyze all namespaces
+  - Added namespace filtering support to RequestsSkewAnalyzer
+  - Fixed issue where `--namespace ns` would still scan all 33 namespaces instead of just one
+
+---
+
 ## [0.1.2] - 2026-01-30
 
 **First official release of kubenow!** 🎉
@@ -220,6 +230,7 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.2...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.3...HEAD
+- [0.1.3]: https://github.com/ppiankov/kubenow/compare/v0.1.2...v0.1.3
 - [0.1.2]: https://github.com/ppiankov/kubenow/compare/v0.1.1...v0.1.2
 - [0.1.1]: https://github.com/ppiankov/kubenow/releases/tag/v0.1.1
