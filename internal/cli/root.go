@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const version = "0.1.2"
+const version = "0.1.3"
 
 var (
 	// Global flags

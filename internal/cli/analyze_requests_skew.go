@@ -198,6 +198,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 	analyzerConfig := analyzer.RequestsSkewConfig{
 		Window:         window,
 		Top:            requestsSkewConfig.top,
+		Namespace:      GetNamespace(), // Use global --namespace flag if provided
 		NamespaceRegex: requestsSkewConfig.namespaceRegex,
 		MinRuntimeDays: requestsSkewConfig.minRuntimeDays,
 	}
