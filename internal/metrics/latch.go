@@ -97,6 +97,7 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 		m.config.Duration, m.config.SampleInterval)
 
 	sampleCount := 0
+	expectedSamples := int(m.config.Duration / m.config.SampleInterval)
 
 	for {
 		select {
@@ -108,6 +109,8 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 			return nil
 		case <-timeout:
 			fmt.Printf("[latch] Monitoring complete. Captured %d samples.\n", sampleCount)
+			fmt.Printf("[latch] Checking for critical signals (OOMKills, restarts, evictions)...\n")
+			m.checkAllCriticalSignals(ctx)
 			close(m.doneCh)
 			return nil
 		case <-ticker.C:
@@ -116,6 +119,11 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 				continue
 			}
 			sampleCount++
+			// Progress indicator every 10%
+			if expectedSamples > 0 && sampleCount%(expectedSamples/10+1) == 0 {
+				progress := float64(sampleCount) / float64(expectedSamples) * 100
+				fmt.Printf("[latch] Progress: %.0f%% (%d/%d samples)\n", progress, sampleCount, expectedSamples)
+			}
 		}
 	}
 }
@@ -166,9 +174,6 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 		// Extract workload name from pod name (remove replica suffix)
 		workloadName := extractWorkloadName(podMetrics.Name)
 		key := fmt.Sprintf("%s/%s", podMetrics.Namespace, workloadName)
-
-		// Check for critical signals (OOMKills, restarts, evictions)
-		go m.checkCriticalSignals(ctx, podMetrics.Namespace, podMetrics.Name, key)
 
 		// Calculate total CPU and memory for pod
 		var totalCPU, totalMemory float64
@@ -306,96 +311,111 @@ func calculateFloatAverage(samples []float64) float64 {
 	return sum / float64(len(samples))
 }
 
-// checkCriticalSignals monitors for OOMKills, restarts, evictions, and other critical events
-func (m *LatchMonitor) checkCriticalSignals(ctx context.Context, namespace, podName, workloadKey string) {
-	// Get pod details to check container statuses
-	pod, err := m.kubeClient.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		return // Pod may have been deleted
-	}
-
+// checkAllCriticalSignals checks for OOMKills, restarts, evictions ONCE at the end of monitoring
+// This batches API calls and only checks workloads that were actually monitored
+func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	data, exists := m.spikeData[workloadKey]
-	if !exists {
-		return
+	// Get unique namespaces from monitored workloads
+	namespacesMap := make(map[string]bool)
+	for key := range m.spikeData {
+		// Extract namespace from key (format: "namespace/workload")
+		parts := splitByDash(key)
+		if len(parts) > 0 {
+			// Actually the key uses "/" not "-", let me fix this
+			namespace := key[:findFirstSlash(key)]
+			if namespace != "" {
+				namespacesMap[namespace] = true
+			}
+		}
 	}
 
-	if data.CriticalEvents == nil {
-		data.CriticalEvents = make([]string, 0)
-	}
+	// Batch-fetch all pods from monitored namespaces
+	for namespace := range namespacesMap {
+		pods, err := m.kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			fmt.Printf("[latch] Warning: failed to list pods in namespace %s: %v\n", namespace, err)
+			continue
+		}
 
-	// Check container statuses for OOMKills and restarts
-	for _, containerStatus := range pod.Status.ContainerStatuses {
-		// Check for OOMKills
-		if containerStatus.LastTerminationState.Terminated != nil {
-			if containerStatus.LastTerminationState.Terminated.Reason == "OOMKilled" {
-				data.OOMKills++
-				event := fmt.Sprintf("[%s] OOMKill detected in container %s",
-					time.Now().Format("15:04:05"), containerStatus.Name)
+		// Check each pod for critical signals
+		for _, pod := range pods.Items {
+			workloadName := extractWorkloadName(pod.Name)
+			key := fmt.Sprintf("%s/%s", pod.Namespace, workloadName)
+
+			data, exists := m.spikeData[key]
+			if !exists {
+				continue // Skip pods we didn't monitor
+			}
+
+			if data.CriticalEvents == nil {
+				data.CriticalEvents = make([]string, 0)
+			}
+
+			// Check container statuses for OOMKills and restarts
+			for _, containerStatus := range pod.Status.ContainerStatuses {
+				// Check for OOMKills
+				if containerStatus.LastTerminationState.Terminated != nil {
+					if containerStatus.LastTerminationState.Terminated.Reason == "OOMKilled" {
+						data.OOMKills++
+						event := fmt.Sprintf("OOMKill detected in container %s", containerStatus.Name)
+						data.CriticalEvents = append(data.CriticalEvents, event)
+					}
+				}
+
+				// Track restarts
+				if containerStatus.RestartCount > 0 {
+					data.Restarts = int(containerStatus.RestartCount)
+					if containerStatus.RestartCount > 5 {
+						event := fmt.Sprintf("Container %s has %d restarts", containerStatus.Name, containerStatus.RestartCount)
+						data.CriticalEvents = append(data.CriticalEvents, event)
+					}
+				}
+
+				// Check if container is in CrashLoopBackOff
+				if containerStatus.State.Waiting != nil {
+					if containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
+						event := fmt.Sprintf("Container %s in CrashLoopBackOff", containerStatus.Name)
+						data.CriticalEvents = append(data.CriticalEvents, event)
+					}
+				}
+			}
+
+			// Check for pod eviction
+			if pod.Status.Reason == "Evicted" {
+				data.Evictions++
+				event := fmt.Sprintf("Pod evicted - %s", pod.Status.Message)
 				data.CriticalEvents = append(data.CriticalEvents, event)
 			}
 		}
 
-		// Track restarts (compare with previous sample)
-		if containerStatus.RestartCount > int32(data.Restarts) {
-			newRestarts := int(containerStatus.RestartCount) - data.Restarts
-			data.Restarts = int(containerStatus.RestartCount)
-			event := fmt.Sprintf("[%s] Container %s restarted (%d total restarts)",
-				time.Now().Format("15:04:05"), containerStatus.Name, containerStatus.RestartCount)
-			data.CriticalEvents = append(data.CriticalEvents, event)
-
-			// If restart is due to OOM, it was already counted above
-			if containerStatus.LastTerminationState.Terminated != nil &&
-				containerStatus.LastTerminationState.Terminated.Reason != "OOMKilled" {
-				// Log the reason for non-OOM restarts
-				reason := containerStatus.LastTerminationState.Terminated.Reason
-				if reason != "" {
-					data.CriticalEvents[len(data.CriticalEvents)-1] += fmt.Sprintf(" - Reason: %s", reason)
-				}
-			}
-
-			_ = newRestarts // avoid unused variable warning
+		// Batch-fetch recent events for this namespace (last 30 minutes)
+		events, err := m.kubeClient.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			continue
 		}
 
-		// Check if container is being throttled (based on state)
-		if containerStatus.State.Waiting != nil {
-			if containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
-				event := fmt.Sprintf("[%s] Container %s in CrashLoopBackOff",
-					time.Now().Format("15:04:05"), containerStatus.Name)
-				// Only add if not already in events
-				if len(data.CriticalEvents) == 0 || data.CriticalEvents[len(data.CriticalEvents)-1] != event {
-					data.CriticalEvents = append(data.CriticalEvents, event)
-				}
-			}
-		}
-	}
-
-	// Check for pod eviction
-	if pod.Status.Reason == "Evicted" {
-		data.Evictions++
-		event := fmt.Sprintf("[%s] Pod evicted - Message: %s",
-			time.Now().Format("15:04:05"), pod.Status.Message)
-		data.CriticalEvents = append(data.CriticalEvents, event)
-	}
-
-	// Get recent events for this pod (last 5 minutes)
-	events, err := m.kubeClient.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s", podName),
-	})
-	if err == nil {
-		fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
+		thirtyMinutesAgo := time.Now().Add(-30 * time.Minute)
 		for _, event := range events.Items {
-			if event.LastTimestamp.Time.Before(fiveMinutesAgo) {
+			if event.LastTimestamp.Time.Before(thirtyMinutesAgo) {
+				continue
+			}
+
+			// Extract workload name from pod name
+			podName := event.InvolvedObject.Name
+			workloadName := extractWorkloadName(podName)
+			key := fmt.Sprintf("%s/%s", namespace, workloadName)
+
+			data, exists := m.spikeData[key]
+			if !exists {
 				continue
 			}
 
 			// Look for critical event types
 			if event.Reason == "OOMKilling" || event.Reason == "FailedScheduling" ||
 				event.Reason == "FailedMount" || event.Reason == "BackOff" {
-				eventMsg := fmt.Sprintf("[%s] Event: %s - %s",
-					event.LastTimestamp.Format("15:04:05"), event.Reason, event.Message)
+				eventMsg := fmt.Sprintf("Event: %s - %s", event.Reason, truncateString(event.Message, 100))
 
 				// Avoid duplicates
 				isDuplicate := false
@@ -411,4 +431,21 @@ func (m *LatchMonitor) checkCriticalSignals(ctx context.Context, namespace, podN
 			}
 		}
 	}
+}
+
+// Helper functions
+func findFirstSlash(s string) int {
+	for i, ch := range s {
+		if ch == '/' {
+			return i
+		}
+	}
+	return -1
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

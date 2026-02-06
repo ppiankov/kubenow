@@ -234,6 +234,12 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 	logProgress("[kubenow] Calculating potential quota savings...\n")
 	a.calculateQuotaSavings(result)
 
+	// Diagnose why workloads don't have metrics (sample up to 5)
+	if len(result.WorkloadsWithoutMetrics) > 0 {
+		logProgress("[kubenow] Diagnosing why workloads lack metrics (sampling up to 5)...\n")
+		a.diagnoseWorkloadsWithoutMetrics(ctx, result)
+	}
+
 	// Calculate summary statistics
 	logProgress("[kubenow] Calculating summary statistics...\n")
 	a.calculateSummary(result)
@@ -432,6 +438,66 @@ func (a *RequestsSkewAnalyzer) calculateQuotaSavings(result *RequestsSkewResult)
 		if quota.QuotaMemory.HardValue > 0 {
 			quota.PotentialQuotaSavings.MemoryPercent = (memorySavings / quota.QuotaMemory.HardValue) * 100
 		}
+	}
+}
+
+// diagnoseWorkloadsWithoutMetrics samples workloads to understand why they lack Prometheus metrics
+func (a *RequestsSkewAnalyzer) diagnoseWorkloadsWithoutMetrics(ctx context.Context, result *RequestsSkewResult) {
+	sampleSize := 5
+	if len(result.WorkloadsWithoutMetrics) < sampleSize {
+		sampleSize = len(result.WorkloadsWithoutMetrics)
+	}
+
+	// Sample up to 5 workloads
+	for i := 0; i < sampleSize; i++ {
+		w := result.WorkloadsWithoutMetrics[i]
+
+		// Get pods for this workload
+		labelSelector := fmt.Sprintf("app=%s", w.Workload)
+		pods, err := a.kubeClient.CoreV1().Pods(w.Namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+			Limit:         1,
+		})
+
+		if err != nil || len(pods.Items) == 0 {
+			// Try alternative label selector
+			labelSelector = fmt.Sprintf("app.kubernetes.io/name=%s", w.Workload)
+			pods, err = a.kubeClient.CoreV1().Pods(w.Namespace).List(ctx, metav1.ListOptions{
+				LabelSelector: labelSelector,
+				Limit:         1,
+			})
+		}
+
+		var diagnosis string
+		if err != nil {
+			diagnosis = fmt.Sprintf("Unable to query pods: %v", err)
+		} else if len(pods.Items) == 0 {
+			diagnosis = "No pods found - workload may have no replicas or incorrect label selector"
+		} else {
+			pod := pods.Items[0]
+			if pod.Status.Phase != "Running" {
+				diagnosis = fmt.Sprintf("Pod not running (phase: %s)", pod.Status.Phase)
+			} else if len(pod.Spec.Containers) == 0 {
+				diagnosis = "Pod has no containers"
+			} else {
+				// Check if pod has the right labels for Prometheus scraping
+				hasAppLabel := false
+				for key := range pod.Labels {
+					if key == "app" || key == "app.kubernetes.io/name" {
+						hasAppLabel = true
+						break
+					}
+				}
+				if !hasAppLabel {
+					diagnosis = "Pod missing standard app labels (app or app.kubernetes.io/name)"
+				} else {
+					diagnosis = "Pod running with labels, but no Prometheus metrics - check ServiceMonitor/PodMonitor configuration"
+				}
+			}
+		}
+
+		// Store diagnosis in the workload metadata (we'll need to extend the struct)
+		result.WorkloadsWithoutMetrics[i].Type = fmt.Sprintf("%s (%s)", w.Type, diagnosis)
 	}
 }
 
