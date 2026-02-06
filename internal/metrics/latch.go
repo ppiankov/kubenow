@@ -37,13 +37,14 @@ type SpikeData struct {
 	MemSamples   []float64 `json:"memory_samples"` // All memory samples
 
 	// Critical signals during monitoring
-	OOMKills           int               `json:"oom_kills"`            // Number of OOMKills detected
-	Restarts           int               `json:"restarts"`             // Container restarts during monitoring
-	Evictions          int               `json:"evictions"`            // Pod evictions during monitoring
-	CriticalEvents     []string          `json:"critical_events"`      // List of critical event messages
-	ThrottlingDetected bool              `json:"throttling_detected"`  // CPU throttling detected
-	TerminationReasons map[string]int    `json:"termination_reasons"`  // Reasons for container terminations
-	ExitCodes          map[int]int       `json:"exit_codes"`           // Exit codes and their frequencies
+	OOMKills            int               `json:"oom_kills"`             // Number of OOMKills detected
+	Restarts            int               `json:"restarts"`              // Container restarts during monitoring
+	Evictions           int               `json:"evictions"`             // Pod evictions during monitoring
+	CriticalEvents      []string          `json:"critical_events"`       // List of critical event messages
+	ThrottlingDetected  bool              `json:"throttling_detected"`   // CPU throttling detected
+	TerminationReasons  map[string]int    `json:"termination_reasons"`   // Reasons for container terminations
+	ExitCodes           map[int]int       `json:"exit_codes"`            // Exit codes and their frequencies
+	LastTerminationTime *time.Time        `json:"last_termination_time"` // When the last termination happened
 }
 
 // LatchMonitor monitors for sub-scrape-interval spikes
@@ -364,6 +365,12 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 					terminated := containerStatus.LastTerminationState.Terminated
 					reason := terminated.Reason
 					exitCode := int(terminated.ExitCode)
+					finishedAt := terminated.FinishedAt.Time
+
+					// Track when the last termination happened
+					if data.LastTerminationTime == nil || finishedAt.After(*data.LastTerminationTime) {
+						data.LastTerminationTime = &finishedAt
+					}
 
 					// Count termination reason
 					if data.TerminationReasons == nil {

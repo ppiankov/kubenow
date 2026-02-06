@@ -762,31 +762,49 @@ func printCriticalSignals(workloads []spikeWorkload) {
 			fmt.Printf("  🔴 OOMKills: %d - MEMORY REQUESTS TOO LOW!\n", sw.data.OOMKills)
 		}
 		if sw.data.Restarts > 0 {
-			fmt.Printf("  ⚠️  Container Restarts: %d\n", sw.data.Restarts)
+			fmt.Printf("  ⚠️  Container Restarts: %d", sw.data.Restarts)
+			if sw.data.LastTerminationTime != nil {
+				ago := time.Since(*sw.data.LastTerminationTime)
+				fmt.Printf(" (last: %s ago)", formatDuration(ago))
+			}
+			fmt.Println()
 		}
 		if sw.data.Evictions > 0 {
 			fmt.Printf("  ⚠️  Pod Evictions: %d\n", sw.data.Evictions)
 		}
 
-		// Show termination reasons summary
+		// Show termination reasons summary (show ALL if there were restarts)
 		if len(sw.data.TerminationReasons) > 0 {
 			fmt.Printf("  Termination Reasons:\n")
 			for reason, count := range sw.data.TerminationReasons {
-				if reason == "Completed" {
-					continue // Skip successful completions
+				// Mark normal completions vs problematic terminations
+				icon := "  "
+				if reason == "OOMKilled" {
+					icon = "🔴"
+				} else if reason == "Error" || reason == "CrashLoopBackOff" {
+					icon = "⚠️ "
+				} else if reason == "Completed" {
+					icon = "✓ "
 				}
-				fmt.Printf("    • %s: %d times\n", reason, count)
+				fmt.Printf("    %s %s: %d times\n", icon, reason, count)
 			}
 		}
 
-		// Show exit codes summary
+		// Show exit codes summary (show ALL if there were restarts)
 		if len(sw.data.ExitCodes) > 0 {
 			fmt.Printf("  Exit Codes:\n")
 			for code, count := range sw.data.ExitCodes {
-				if code == 0 {
-					continue // Skip successful exits
+				meaning := getExitCodeMeaning(code)
+				// Mark normal exits vs problematic ones
+				icon := "  "
+				if code == 137 {
+					icon = "🔴"
+				} else if code != 0 {
+					icon = "⚠️ "
+				} else {
+					icon = "✓ "
 				}
-				fmt.Printf("    • %d: %d times\n", code, count)
+				fmt.Printf("    %s %d (%s): %d times\n", icon, code, meaning, count)
 			}
 		}
 
@@ -820,4 +838,39 @@ func printCriticalSignals(workloads []spikeWorkload) {
 	fmt.Printf("   • Frequent restarts or CrashLoopBackOff\n")
 	fmt.Printf("   • Multiple different exit codes (indicates instability)\n")
 	fmt.Printf("   These signals indicate the workload is already under-resourced or unstable.\n\n")
+}
+
+// getExitCodeMeaning returns human-readable explanation for common exit codes
+func getExitCodeMeaning(exitCode int) string {
+	switch exitCode {
+	case 0:
+		return "Success"
+	case 1:
+		return "General error"
+	case 2:
+		return "Misuse of shell command"
+	case 126:
+		return "Command cannot execute"
+	case 127:
+		return "Command not found"
+	case 128:
+		return "Invalid exit argument"
+	case 130:
+		return "SIGINT (Ctrl+C)"
+	case 137:
+		return "SIGKILL (usually OOMKilled)"
+	case 139:
+		return "SIGSEGV (segmentation fault)"
+	case 143:
+		return "SIGTERM (graceful termination)"
+	case 255:
+		return "Exit status out of range"
+	default:
+		// Check if it's a signal (128 + signal number)
+		if exitCode > 128 && exitCode < 256 {
+			signal := exitCode - 128
+			return fmt.Sprintf("Killed by signal %d", signal)
+		}
+		return "Unknown error"
+	}
 }

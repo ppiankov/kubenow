@@ -15,6 +15,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.8] - 2026-02-06
+
+### Fixed
+
+#### Termination Data Visibility in Latch Mode
+Fixed critical issue where container terminations were not being displayed properly:
+
+1. **Termination Data Now Always Shown**
+   - Previously: "Completed" terminations with exit code 0 were hidden
+   - Now: ALL terminations shown when container has restarts
+   - Impact: Users can now see WHY a container restarted, even if it was a "normal" exit
+   - Example: "Completed (exit 0)" is now visible alongside restart count
+
+2. **Termination Timestamps Added**
+   - Previously: No indication of WHEN termination happened
+   - Now: Shows "how long ago" the termination occurred
+   - Format: "Container Restarts: 1 (last: 104d ago)"
+   - Impact: Users can prioritize recent issues over old ones
+
+3. **Enhanced Termination Display**
+   - Added visual indicators:
+     - 🔴 for critical issues (OOMKilled, exit 137)
+     - ⚠️  for warnings (Error, non-zero exits)
+     - ✓  for normal completions
+   - Shows human-readable exit code meanings
+   - Example: "137 (SIGKILL - usually OOMKilled): 2 times"
+
+4. **Captured Missing Termination Data**
+   - Fixed: TerminationReasons and ExitCodes maps were populated but not persisted
+   - Added: LastTerminationTime field to SpikeData structure
+   - Now captures FinishedAt timestamp from container status
+
+**User Impact**: Operators can now see complete termination history including normal exits, understand when issues occurred, and prioritize recent problems over historical ones.
+
+---
+
 ## [0.1.7] - 2026-02-06
 
 ### Fixed
@@ -398,7 +434,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.7...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.8...HEAD
+- [0.1.8]: https://github.com/ppiankov/kubenow/compare/v0.1.7...v0.1.8
 - [0.1.7]: https://github.com/ppiankov/kubenow/compare/v0.1.6...v0.1.7
 - [0.1.6]: https://github.com/ppiankov/kubenow/compare/v0.1.5...v0.1.6
 - [0.1.5]: https://github.com/ppiankov/kubenow/compare/v0.1.4...v0.1.5
