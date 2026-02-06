@@ -15,6 +15,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.11] - 2026-02-06
+
+### Added
+
+#### Data Obfuscation for Secure Sharing
+Added `--obfuscate` flag for privacy-preserving output:
+
+- **Deterministic hash-based obfuscation**: Same real name always maps to same fake name
+- **Scope**: Obfuscates namespaces, pods, services, nodes, containers, workloads, images
+- **Format**: Generates short readable names like `ns-a1b2c3d4`, `pod-e5f6g7h8`
+- **Works across**: All output formats (table, JSON, future SARIF)
+- **Implementation**: Thread-safe with caching for consistent mapping
+- **Usage**: `--obfuscate` flag on analyze commands
+- Impact: Share cluster analysis with vendors/support without leaking internal naming conventions
+
+#### 60-Second Quickstart Guide
+Added comprehensive quickstart section to README:
+
+- Installation commands (brew, go install, binary download)
+- Common usage examples with expected outputs
+- Exit codes documentation (0, 2, 3)
+- CI/CD integration examples
+
+#### CI/CD Exit Code Support
+Added `--fail-on` flag for pipeline integration:
+
+- **Values**: `unsafe`, `critical`, `warning` (requests-skew); `fatal`, `critical`, `warning` (monitor)
+- **Behavior**: Exit with code 1 when conditions met
+- **Use cases**:
+  - Fail CI if OOMKills detected in spike monitoring
+  - Fail if UNSAFE workloads found
+  - Fail if critical cluster problems detected
+- **Documentation**: Exit codes clearly documented in README
+- Impact: kubenow can now gate deployments based on cluster health
+
+### Improved
+
+#### README Enhancements
+- Added 60-second quickstart with copy-paste commands
+- Documented exit codes (0=success, 2=invalid input, 3=runtime error)
+- Added obfuscation examples
+- Updated version badge to 0.1.11
+
+**User Impact**: kubenow is now production-ready for CI/CD pipelines and can safely share obfuscated analysis data with external parties.
+
+---
+
 ## [0.1.10] - 2026-02-06
 
 ### Added
@@ -549,7 +596,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.10...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.11...HEAD
+- [0.1.11]: https://github.com/ppiankov/kubenow/compare/v0.1.10...v0.1.11
 - [0.1.10]: https://github.com/ppiankov/kubenow/compare/v0.1.9...v0.1.10
 - [0.1.9]: https://github.com/ppiankov/kubenow/compare/v0.1.8...v0.1.9
 - [0.1.8]: https://github.com/ppiankov/kubenow/compare/v0.1.7...v0.1.8

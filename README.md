@@ -6,7 +6,38 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/kubenow)](https://goreportcard.com/report/github.com/ppiankov/kubenow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Version 0.1.2** — Real-time cluster problem monitoring with terminal UI! "11434 is enough. But what if fewer nodes are enough too?"
+**Version 0.1.11** — Real-time cluster problem monitoring with terminal UI! "11434 is enough. But what if fewer nodes are enough too?"
+
+---
+
+## ⚡ Quickstart (60 seconds)
+
+```bash
+# Install (choose one)
+brew install kubenow                    # macOS
+go install github.com/ppiankov/kubenow/cmd/kubenow@latest  # Go
+# Or download from releases: https://github.com/ppiankov/kubenow/releases
+
+# Monitor cluster problems (real-time TUI)
+kubenow monitor
+# Press / to search, ↑↓ to scroll, q to quit
+
+# Analyze over-provisioned resources
+kubenow analyze requests-skew --prometheus-url http://localhost:9090
+
+# With in-cluster Prometheus (no kubectl needed!)
+kubenow analyze requests-skew --k8s-service prometheus-operated --k8s-namespace monitoring
+
+# Obfuscate sensitive data for sharing
+kubenow analyze requests-skew --prometheus-url http://localhost:9090 --obfuscate
+```
+
+### Exit Codes (CI/CD friendly)
+- `0` - Success (no errors)
+- `2` - Invalid input (bad flags, missing required args)
+- `3` - Runtime error (cluster connection failed, query timeout)
+
+Use `--fail-on=critical` to exit with code 1 when problems are found.
 
 ---
 

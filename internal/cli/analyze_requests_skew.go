@@ -40,6 +40,10 @@ var requestsSkewConfig struct {
 	k8sNamespace   string
 	k8sLocalPort   string
 	k8sRemotePort  string
+	// Security options
+	obfuscate      bool
+	// CI/CD options
+	failOn         string
 }
 
 // spikeWorkload holds spike data with calculated ratios
@@ -118,6 +122,12 @@ func init() {
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sNamespace, "k8s-namespace", "monitoring", "Kubernetes namespace for service")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sLocalPort, "k8s-local-port", "9090", "Local port for port-forward")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sRemotePort, "k8s-remote-port", "9090", "Remote port for port-forward")
+
+	// Security/privacy flags
+	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.obfuscate, "obfuscate", false, "Obfuscate sensitive names (namespaces, pods, services, nodes)")
+
+	// CI/CD flags
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.failOn, "fail-on", "", "Exit with code 1 if problems at or above severity found (fatal|critical|warning)")
 }
 
 func runRequestsSkew(cmd *cobra.Command, args []string) error {
@@ -309,12 +319,91 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Output results
-	if requestsSkewConfig.output == "json" {
-		return outputRequestsSkewJSON(result, requestsSkewConfig.exportFile)
+	// Create obfuscator
+	obfuscator := util.NewObfuscator(requestsSkewConfig.obfuscate)
+
+	// Apply obfuscation to results if enabled
+	if obfuscator.IsEnabled() {
+		obfuscateResults(result, obfuscator)
+		if spikeData != nil {
+			obfuscateSpikeData(spikeData, obfuscator)
+		}
 	}
 
-	return outputRequestsSkewTable(result, spikeData, requestsSkewConfig.exportFile, requestsSkewConfig.exportFormat)
+	// Output results
+	var outputErr error
+	if requestsSkewConfig.output == "json" {
+		outputErr = outputRequestsSkewJSON(result, requestsSkewConfig.exportFile)
+	} else {
+		outputErr = outputRequestsSkewTable(result, spikeData, requestsSkewConfig.exportFile, requestsSkewConfig.exportFormat)
+	}
+
+	// Check fail-on conditions for CI/CD
+	if requestsSkewConfig.failOn != "" && outputErr == nil {
+		shouldFail := false
+
+		// Check for OOMKills in spike data (always critical)
+		if spikeData != nil {
+			for _, data := range spikeData {
+				if data.OOMKills > 0 {
+					shouldFail = true
+					fmt.Fprintf(os.Stderr, "\n❌ Found OOMKills in spike monitoring data (--fail-on active)\n")
+					break
+				}
+			}
+		}
+
+		// Check for UNSAFE safety ratings
+		if requestsSkewConfig.failOn == "unsafe" || requestsSkewConfig.failOn == "critical" || requestsSkewConfig.failOn == "warning" {
+			for _, w := range result.Results {
+				if w.Safety != nil && w.Safety.Rating == "UNSAFE" {
+					shouldFail = true
+					fmt.Fprintf(os.Stderr, "\n❌ Found UNSAFE workloads (--fail-on active)\n")
+					break
+				}
+			}
+		}
+
+		if shouldFail {
+			util.Exit(1) // Custom exit code for CI/CD
+		}
+	}
+
+	return outputErr
+}
+
+// obfuscateResults applies obfuscation to analysis results
+func obfuscateResults(result *analyzer.RequestsSkewResult, obf *util.Obfuscator) {
+	for i := range result.Results {
+		result.Results[i].Namespace = obf.Namespace(result.Results[i].Namespace)
+		result.Results[i].Workload = obf.Workload(result.Results[i].Workload)
+	}
+	for i := range result.WorkloadsWithoutMetrics {
+		result.WorkloadsWithoutMetrics[i].Namespace = obf.Namespace(result.WorkloadsWithoutMetrics[i].Namespace)
+		result.WorkloadsWithoutMetrics[i].Workload = obf.Workload(result.WorkloadsWithoutMetrics[i].Workload)
+	}
+	for i := range result.NamespaceQuotas {
+		result.NamespaceQuotas[i].Namespace = obf.Namespace(result.NamespaceQuotas[i].Namespace)
+	}
+}
+
+// obfuscateSpikeData applies obfuscation to spike monitoring data
+func obfuscateSpikeData(spikeData map[string]*metrics.SpikeData, obf *util.Obfuscator) {
+	newData := make(map[string]*metrics.SpikeData)
+	for _, data := range spikeData {
+		data.Namespace = obf.Namespace(data.Namespace)
+		data.WorkloadName = obf.Workload(data.WorkloadName)
+		data.PodName = obf.Pod(data.PodName)
+		newKey := fmt.Sprintf("%s/%s", data.Namespace, data.WorkloadName)
+		newData[newKey] = data
+	}
+	// Replace original map
+	for k := range spikeData {
+		delete(spikeData, k)
+	}
+	for k, v := range newData {
+		spikeData[k] = v
+	}
 }
 
 // runSpikeMonitoring runs the latch monitor to detect sub-scrape-interval spikes
