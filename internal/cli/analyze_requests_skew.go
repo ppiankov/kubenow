@@ -310,6 +310,18 @@ func outputRequestsSkewJSON(result *analyzer.RequestsSkewResult, exportFile stri
 }
 
 func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile string) error {
+	// If export file is specified, save JSON to file (in addition to showing table)
+	if exportFile != "" {
+		data, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON for export: %w", err)
+		}
+		if err := os.WriteFile(exportFile, data, 0644); err != nil {
+			return fmt.Errorf("failed to write export file: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[kubenow] Full results exported to: %s\n", exportFile)
+	}
+
 	// Create table
 	table := tablewriter.NewWriter(os.Stdout)
 	table.Header([]string{"Namespace", "Workload", "Req CPU", "P99 CPU", "Skew", "Safety", "Impact"})
@@ -748,8 +760,30 @@ func printCriticalSignals(workloads []spikeWorkload) {
 			fmt.Printf("  ⚠️  Pod Evictions: %d\n", sw.data.Evictions)
 		}
 
+		// Show termination reasons summary
+		if len(sw.data.TerminationReasons) > 0 {
+			fmt.Printf("  Termination Reasons:\n")
+			for reason, count := range sw.data.TerminationReasons {
+				if reason == "Completed" {
+					continue // Skip successful completions
+				}
+				fmt.Printf("    • %s: %d times\n", reason, count)
+			}
+		}
+
+		// Show exit codes summary
+		if len(sw.data.ExitCodes) > 0 {
+			fmt.Printf("  Exit Codes:\n")
+			for code, count := range sw.data.ExitCodes {
+				if code == 0 {
+					continue // Skip successful exits
+				}
+				fmt.Printf("    • %d: %d times\n", code, count)
+			}
+		}
+
 		if len(sw.data.CriticalEvents) > 0 {
-			fmt.Printf("  Events:\n")
+			fmt.Printf("  Recent Events:\n")
 			// Show only last 5 events to avoid clutter
 			maxEvents := 5
 			startIdx := 0
@@ -765,10 +799,17 @@ func printCriticalSignals(workloads []spikeWorkload) {
 	}
 
 	fmt.Printf("💡 Critical Signal Interpretation:\n")
-	fmt.Printf("   • OOMKills: Memory requests are TOO LOW - increase memory requests immediately\n")
-	fmt.Printf("   • Restarts: May indicate instability, check logs for root cause\n")
+	fmt.Printf("   • OOMKills (exit code 137): Memory requests TOO LOW - increase immediately\n")
+	fmt.Printf("   • Exit code 143 (SIGTERM): Graceful shutdown - usually normal\n")
+	fmt.Printf("   • Exit code 139 (SIGSEGV): Segmentation fault - application bug\n")
+	fmt.Printf("   • Exit code 1/2: Application error - check logs\n")
+	fmt.Printf("   • Restarts: May indicate instability or resource pressure\n")
 	fmt.Printf("   • Evictions: Node resource pressure, may need more cluster capacity\n")
+	fmt.Printf("   • CrashLoopBackOff: Container repeatedly failing to start\n")
 	fmt.Printf("   • High spike ratio + OOMKills: Classic sign of bursty workload needing higher limits\n\n")
-	fmt.Printf("⚠️  WARNING: Do NOT reduce requests for workloads with OOMKills or frequent restarts!\n")
-	fmt.Printf("   These signals indicate the workload is already under-resourced.\n\n")
+	fmt.Printf("⚠️  WARNING: Do NOT reduce requests for workloads with:\n")
+	fmt.Printf("   • OOMKills or exit code 137 (killed by system)\n")
+	fmt.Printf("   • Frequent restarts or CrashLoopBackOff\n")
+	fmt.Printf("   • Multiple different exit codes (indicates instability)\n")
+	fmt.Printf("   These signals indicate the workload is already under-resourced or unstable.\n\n")
 }
