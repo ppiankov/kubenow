@@ -15,6 +15,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.5] - 2026-02-06
+
+### Fixed
+
+#### Latch Mode: Performance & API Throttling
+- **CRITICAL FIX**: Eliminated API throttling storm in spike monitoring
+  - Previously: checked critical signals on EVERY sample (every 5s) = hundreds of API calls/second
+  - Now: checks critical signals ONCE at end of monitoring = minimal API impact
+  - Batches all API calls (List pods by namespace, not Get individual pods)
+  - Only checks workloads that were actually monitored (respects namespace filter)
+  - Result: ~99% reduction in Kubernetes API calls during spike monitoring
+
+#### Workloads Without Metrics: Diagnostics
+- **Auto-diagnosis**: Samples up to 5 workloads without metrics to identify root cause
+  - Checks if pods are running
+  - Verifies pod labels (app, app.kubernetes.io/name)
+  - Identifies missing ServiceMonitor/PodMonitor configuration
+  - Provides actionable troubleshooting guidance in output
+  - Example: "Pod running with labels, but no Prometheus metrics - check ServiceMonitor/PodMonitor configuration"
+
+#### Progress Indicators
+- **Spike monitoring progress**: Shows progress every 10% during latch mode
+  - Example: "[latch] Progress: 30% (54/180 samples)"
+  - Helps users understand monitoring is working despite long duration
+  - More visibility into sampling progress
+
+### Impact
+- **Large cluster support**: Latch mode now usable on clusters with hundreds/thousands of pods
+- **No more throttling**: Eliminates "client-side throttling" delays
+- **Better diagnostics**: Understand WHY workloads lack metrics, not just that they do
+
+---
+
 ## [0.1.4] - 2026-02-06
 
 ### Added
@@ -281,7 +314,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.4...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.5...HEAD
+- [0.1.5]: https://github.com/ppiankov/kubenow/compare/v0.1.4...v0.1.5
 - [0.1.4]: https://github.com/ppiankov/kubenow/compare/v0.1.3...v0.1.4
 - [0.1.3]: https://github.com/ppiankov/kubenow/compare/v0.1.2...v0.1.3
 - [0.1.2]: https://github.com/ppiankov/kubenow/compare/v0.1.1...v0.1.2
