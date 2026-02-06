@@ -35,6 +35,11 @@ var requestsSkewConfig struct {
 	safetyFactor        float64
 	silent              bool
 	sortBy              string
+	// Port-forward options
+	k8sService     string
+	k8sNamespace   string
+	k8sLocalPort   string
+	k8sRemotePort  string
 }
 
 // spikeWorkload holds spike data with calculated ratios
@@ -72,7 +77,11 @@ Examples:
 
   # Export to file
   kubenow analyze requests-skew --prometheus-url http://localhost:9090 \
-    --export-file report.json`,
+    --export-file report.json
+
+  # Use native port-forward to in-cluster Prometheus
+  kubenow analyze requests-skew --k8s-service prometheus-operated \
+    --k8s-namespace monitoring`,
 	RunE: runRequestsSkew,
 }
 
@@ -103,6 +112,12 @@ func init() {
 
 	// CI/CD flags
 	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.silent, "silent", false, "Suppress progress output (for CI/CD pipelines)")
+
+	// Kubernetes port-forward flags
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sService, "k8s-service", "", "Kubernetes service name for port-forward (e.g., 'prometheus-operated')")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sNamespace, "k8s-namespace", "monitoring", "Kubernetes namespace for service")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sLocalPort, "k8s-local-port", "9090", "Local port for port-forward")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sRemotePort, "k8s-remote-port", "9090", "Remote port for port-forward")
 }
 
 func runRequestsSkew(cmd *cobra.Command, args []string) error {
@@ -111,9 +126,48 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		analyzer.SilentMode = true
 	}
 
+	// Setup kubectl port-forward if k8s-service is specified
+	var portForward *util.PortForward
+	if requestsSkewConfig.k8sService != "" {
+		if IsVerbose() {
+			fmt.Fprintf(os.Stderr, "[kubenow] Setting up native port-forward to %s/%s...\n",
+				requestsSkewConfig.k8sNamespace, requestsSkewConfig.k8sService)
+		}
+
+		var err error
+		portForward, err = util.NewPortForward(
+			requestsSkewConfig.k8sService,
+			requestsSkewConfig.k8sNamespace,
+			requestsSkewConfig.k8sLocalPort,
+			requestsSkewConfig.k8sRemotePort,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create port-forward: %w", err)
+		}
+
+		if err := portForward.Start(); err != nil {
+			return fmt.Errorf("failed to start port-forward: %w", err)
+		}
+
+		// Stop port-forward on exit
+		defer func() {
+			if err := portForward.Stop(); err != nil {
+				fmt.Fprintf(os.Stderr, "[kubenow] Warning: failed to stop port-forward: %v\n", err)
+			}
+		}()
+
+		// Use localhost URL if port-forward is active
+		if requestsSkewConfig.prometheusURL == "" {
+			requestsSkewConfig.prometheusURL = fmt.Sprintf("http://localhost:%s", requestsSkewConfig.k8sLocalPort)
+			if IsVerbose() {
+				fmt.Fprintf(os.Stderr, "[kubenow] Using port-forward URL: %s\n", requestsSkewConfig.prometheusURL)
+			}
+		}
+	}
+
 	// Validate flags
 	if requestsSkewConfig.prometheusURL == "" && !requestsSkewConfig.autoDetect {
-		return fmt.Errorf("either --prometheus-url or --auto-detect-prometheus is required")
+		return fmt.Errorf("either --prometheus-url, --k8s-service, or --auto-detect-prometheus is required")
 	}
 
 	if requestsSkewConfig.output != "table" && requestsSkewConfig.output != "json" {

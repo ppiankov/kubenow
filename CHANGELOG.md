@@ -15,6 +15,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.10] - 2026-02-06
+
+### Added
+
+#### Native Go Port-Forward for In-Cluster Prometheus
+Added native Kubernetes port-forward support (no kubectl dependency):
+
+- **Flags**:
+  - `--k8s-service` - Kubernetes service name (e.g., 'prometheus-operated')
+  - `--k8s-namespace` - Namespace for service (default: "monitoring")
+  - `--k8s-local-port` - Local port (default: "9090")
+  - `--k8s-remote-port` - Remote port (default: "9090")
+- **Usage**: `kubenow analyze requests-skew --k8s-service prometheus-operated --k8s-namespace monitoring`
+- **Benefits**:
+  - No external kubectl dependency
+  - Native Go implementation using client-go
+  - Automatic cleanup on exit
+  - Works alongside existing --prometheus-url flag
+- **Implementation**:
+  - Copied from infranow's proven port-forward implementation
+  - Uses k8s.io/client-go/tools/portforward
+  - Automatic service-to-pod resolution
+  - Graceful cleanup via defer
+- Impact: Seamless analysis of in-cluster Prometheus without manual port-forward setup
+
+**User Impact**: Users can now analyze in-cluster Prometheus without kubectl installed or manual port-forward commands. The tool handles all port-forwarding internally and cleans up automatically.
+
+---
+
 ## [0.1.9] - 2026-02-06
 
 ### Added
@@ -520,7 +549,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.9...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.10...HEAD
+- [0.1.10]: https://github.com/ppiankov/kubenow/compare/v0.1.9...v0.1.10
 - [0.1.9]: https://github.com/ppiankov/kubenow/compare/v0.1.8...v0.1.9
 - [0.1.8]: https://github.com/ppiankov/kubenow/compare/v0.1.7...v0.1.8
 - [0.1.7]: https://github.com/ppiankov/kubenow/compare/v0.1.6...v0.1.7
