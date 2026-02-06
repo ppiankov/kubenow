@@ -15,6 +15,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.4] - 2026-02-06
+
+### Added
+
+#### ResourceQuota & LimitRange Awareness
+- **`analyze requests-skew`**: Now detects and displays namespace-level resource constraints
+  - **ResourceQuota detection**: Shows current quota usage (CPU/Memory) and utilization percentage
+  - **Potential quota savings calculation**: Estimates how much quota could be freed by reducing over-provisioned requests to p95
+  - **LimitRange awareness**: Displays default requests/limits set at namespace level
+    - Shows default CPU/Memory requests and limits
+    - Shows min/max constraints for containers
+  - **Quota context in results**: Each workload now includes quota context information
+  - **Enhanced output section**: New "Namespace ResourceQuota & LimitRange Analysis" section showing:
+    - Current quota utilization (used/hard)
+    - Potential savings in cores and GiB
+    - LimitRange defaults that may be applied to workloads
+    - Impact guidance for quota-constrained namespaces
+  - **JSON export**: Quota and LimitRange data included in JSON output for automated processing
+
+#### Configurable Result Sorting
+- **`analyze requests-skew`**: New `--sort-by` flag for custom result ordering:
+  - `impact` (default) - Sort by impact score (skew × absolute resources) - highest first
+  - `skew` - Sort by CPU skew ratio - highest over-provisioning first
+  - `cpu` - Sort by wasted CPU cores - most wasted first
+  - `memory` - Sort by wasted memory - most wasted first
+  - `name` - Sort alphabetically by namespace/workload
+  - All sorts are descending (worst-first) except name (ascending)
+
+#### Latch Mode: Critical Signal Detection
+- **Spike monitoring now detects critical events** during real-time monitoring:
+  - **OOMKill detection**: Tracks Out-of-Memory kills during monitoring period
+  - **Container restart tracking**: Counts restarts and captures restart reasons
+  - **Pod eviction detection**: Identifies pods evicted due to resource pressure
+  - **CrashLoopBackOff detection**: Flags containers stuck in crash loops
+  - **Event correlation**: Captures related Kubernetes events (FailedScheduling, BackOff, etc.)
+  - **Safety warnings**: Automatically warns against reducing requests for workloads with OOMKills or instability
+  - **Enhanced output**: New "Critical Signals" section shows:
+    - OOMKills with clear warning that memory requests are too low
+    - Restart counts and reasons
+    - Recent events timeline (last 5 events shown)
+    - Interpretation guidance for each signal type
+
+### Why This Matters
+- **Quota-constrained namespaces**: See how much capacity could be freed for new workloads
+- **Default detection**: Identify workloads using LimitRange defaults vs explicitly set requests
+- **Better decision making**: Understand both actual usage AND namespace constraints when right-sizing
+- **Safety-first spike analysis**: Prevents dangerous request reductions by detecting OOMKills and instability during monitoring
+- **Root cause correlation**: See if high CPU spikes coincide with OOMKills (classic under-resourced pattern)
+
+---
+
 ## [0.1.3] - 2026-02-06
 
 ### Fixed
@@ -230,7 +281,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.3...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.4...HEAD
+- [0.1.4]: https://github.com/ppiankov/kubenow/compare/v0.1.3...v0.1.4
 - [0.1.3]: https://github.com/ppiankov/kubenow/compare/v0.1.2...v0.1.3
 - [0.1.2]: https://github.com/ppiankov/kubenow/compare/v0.1.1...v0.1.2
 - [0.1.1]: https://github.com/ppiankov/kubenow/releases/tag/v0.1.1

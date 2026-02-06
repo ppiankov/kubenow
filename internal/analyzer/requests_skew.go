@@ -38,14 +38,16 @@ type RequestsSkewConfig struct {
 	NamespaceRegex    string        // Namespace filter regex
 	MinRuntimeDays    int           // Minimum runtime in days to consider
 	IncludeKubeSystem bool          // Include kube-system namespace
+	SortBy            string        // Sort by: impact|skew|cpu|memory|name (default: impact)
 }
 
 // RequestsSkewResult contains the analysis results
 type RequestsSkewResult struct {
-	Metadata              RequestsSkewMetadata   `json:"metadata"`
-	Summary               RequestsSkewSummary    `json:"summary"`
-	Results               []WorkloadSkewAnalysis `json:"results"`
+	Metadata                RequestsSkewMetadata     `json:"metadata"`
+	Summary                 RequestsSkewSummary      `json:"summary"`
+	Results                 []WorkloadSkewAnalysis   `json:"results"`
 	WorkloadsWithoutMetrics []WorkloadWithoutMetrics `json:"workloads_without_metrics,omitempty"`
+	NamespaceQuotas         []NamespaceQuotaInfo     `json:"namespace_quotas,omitempty"`
 }
 
 // WorkloadWithoutMetrics represents a workload found in K8s but missing from Prometheus
@@ -53,6 +55,46 @@ type WorkloadWithoutMetrics struct {
 	Namespace string `json:"namespace"`
 	Workload  string `json:"workload"`
 	Type      string `json:"type"` // Deployment, StatefulSet, etc.
+}
+
+// NamespaceQuotaInfo contains ResourceQuota and LimitRange information for a namespace
+type NamespaceQuotaInfo struct {
+	Namespace             string                 `json:"namespace"`
+	HasResourceQuota      bool                   `json:"has_resource_quota"`
+	HasLimitRange         bool                   `json:"has_limit_range"`
+	QuotaCPU              QuotaUsage             `json:"quota_cpu,omitempty"`
+	QuotaMemory           QuotaUsage             `json:"quota_memory,omitempty"`
+	LimitRangeDefaults    *LimitRangeDefaults    `json:"limit_range_defaults,omitempty"`
+	PotentialQuotaSavings *PotentialQuotaSavings `json:"potential_quota_savings,omitempty"`
+}
+
+// QuotaUsage represents resource quota usage
+type QuotaUsage struct {
+	Hard string  `json:"hard"`           // e.g., "100" cores or "200Gi"
+	Used string  `json:"used"`           // e.g., "75" cores or "150Gi"
+	HardValue float64 `json:"hard_value"` // Numeric value for calculations
+	UsedValue float64 `json:"used_value"` // Numeric value for calculations
+	Utilization float64 `json:"utilization_percent"` // Used/Hard * 100
+}
+
+// LimitRangeDefaults contains default resource values from LimitRange
+type LimitRangeDefaults struct {
+	DefaultCPU        string `json:"default_cpu,omitempty"`         // e.g., "100m"
+	DefaultMemory     string `json:"default_memory,omitempty"`      // e.g., "128Mi"
+	DefaultRequestCPU string `json:"default_request_cpu,omitempty"` // e.g., "100m"
+	DefaultRequestMemory string `json:"default_request_memory,omitempty"` // e.g., "128Mi"
+	MinCPU            string `json:"min_cpu,omitempty"`
+	MinMemory         string `json:"min_memory,omitempty"`
+	MaxCPU            string `json:"max_cpu,omitempty"`
+	MaxMemory         string `json:"max_memory,omitempty"`
+}
+
+// PotentialQuotaSavings shows how much quota could be freed by reducing requests
+type PotentialQuotaSavings struct {
+	CPUSavings    float64 `json:"cpu_savings"`     // Cores that could be freed
+	MemorySavings float64 `json:"memory_savings_gi"` // GiB that could be freed
+	CPUPercent    float64 `json:"cpu_percent"`     // % of quota
+	MemoryPercent float64 `json:"memory_percent"`  // % of quota
 }
 
 // RequestsSkewMetadata contains metadata about the analysis
@@ -100,6 +142,10 @@ type WorkloadSkewAnalysis struct {
 
 	// Safety analysis
 	Safety *models.SafetyAnalysis `json:"safety,omitempty"`
+
+	// Quota/LimitRange context
+	UsingDefaultRequests bool   `json:"using_default_requests,omitempty"` // True if using LimitRange defaults
+	QuotaContext         string `json:"quota_context,omitempty"`          // E.g., "Namespace has quota: 50% utilized"
 }
 
 // NewRequestsSkewAnalyzer creates a new requests-skew analyzer
@@ -142,6 +188,21 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 	}
 	logProgress("[kubenow] Found %d namespaces to analyze\n", len(namespaces))
 
+	// Fetch quota/limitrange info for namespaces
+	logProgress("[kubenow] Fetching ResourceQuotas and LimitRanges...\n")
+	quotaMap := make(map[string]*NamespaceQuotaInfo)
+	for _, ns := range namespaces {
+		quotaInfo, err := a.getNamespaceQuotaInfo(ctx, ns)
+		if err != nil {
+			logProgress("[kubenow] Warning: failed to get quota info for namespace %s: %v\n", ns, err)
+			continue
+		}
+		if quotaInfo != nil {
+			quotaMap[ns] = quotaInfo
+			result.NamespaceQuotas = append(result.NamespaceQuotas, *quotaInfo)
+		}
+	}
+
 	// Analyze each namespace
 	for i, ns := range namespaces {
 		logProgress("[kubenow] [%d/%d] Analyzing namespace: %s\n", i+1, len(namespaces), ns)
@@ -157,18 +218,28 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 		if len(noMetrics) > 0 {
 			logProgress("[kubenow]   → Found %d workloads WITHOUT metrics\n", len(noMetrics))
 		}
+
+		// Add quota context to workloads
+		if quotaInfo, exists := quotaMap[ns]; exists {
+			for i := range workloads {
+				a.enrichWorkloadWithQuotaContext(&workloads[i], quotaInfo)
+			}
+		}
+
 		result.Results = append(result.Results, workloads...)
 		result.WorkloadsWithoutMetrics = append(result.WorkloadsWithoutMetrics, noMetrics...)
 	}
+
+	// Calculate potential quota savings
+	logProgress("[kubenow] Calculating potential quota savings...\n")
+	a.calculateQuotaSavings(result)
 
 	// Calculate summary statistics
 	logProgress("[kubenow] Calculating summary statistics...\n")
 	a.calculateSummary(result)
 
-	// Sort by impact score (descending)
-	sort.Slice(result.Results, func(i, j int) bool {
-		return result.Results[i].ImpactScore > result.Results[j].ImpactScore
-	})
+	// Sort results based on configured option
+	a.sortResults(result)
 
 	// Apply top N limit
 	if a.config.Top > 0 && len(result.Results) > a.config.Top {
@@ -207,6 +278,161 @@ func (a *RequestsSkewAnalyzer) getFilteredNamespaces(ctx context.Context) ([]str
 	}
 
 	return namespaces, nil
+}
+
+// getNamespaceQuotaInfo fetches ResourceQuota and LimitRange information for a namespace
+func (a *RequestsSkewAnalyzer) getNamespaceQuotaInfo(ctx context.Context, namespace string) (*NamespaceQuotaInfo, error) {
+	info := &NamespaceQuotaInfo{
+		Namespace: namespace,
+	}
+
+	// Fetch ResourceQuotas
+	quotas, err := a.kubeClient.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list resource quotas: %w", err)
+	}
+
+	if len(quotas.Items) > 0 {
+		info.HasResourceQuota = true
+		// Use the first quota (most namespaces have only one)
+		quota := quotas.Items[0]
+
+		// Extract CPU quota
+		if hardCPU, ok := quota.Status.Hard["requests.cpu"]; ok {
+			if usedCPU, ok := quota.Status.Used["requests.cpu"]; ok {
+				info.QuotaCPU = QuotaUsage{
+					Hard:      hardCPU.String(),
+					Used:      usedCPU.String(),
+					HardValue: float64(hardCPU.MilliValue()) / 1000.0,
+					UsedValue: float64(usedCPU.MilliValue()) / 1000.0,
+				}
+				if info.QuotaCPU.HardValue > 0 {
+					info.QuotaCPU.Utilization = (info.QuotaCPU.UsedValue / info.QuotaCPU.HardValue) * 100
+				}
+			}
+		}
+
+		// Extract Memory quota
+		if hardMem, ok := quota.Status.Hard["requests.memory"]; ok {
+			if usedMem, ok := quota.Status.Used["requests.memory"]; ok {
+				info.QuotaMemory = QuotaUsage{
+					Hard:      hardMem.String(),
+					Used:      usedMem.String(),
+					HardValue: float64(hardMem.Value()) / (1024 * 1024 * 1024), // Convert to GiB
+					UsedValue: float64(usedMem.Value()) / (1024 * 1024 * 1024), // Convert to GiB
+				}
+				if info.QuotaMemory.HardValue > 0 {
+					info.QuotaMemory.Utilization = (info.QuotaMemory.UsedValue / info.QuotaMemory.HardValue) * 100
+				}
+			}
+		}
+	}
+
+	// Fetch LimitRanges
+	limitRanges, err := a.kubeClient.CoreV1().LimitRanges(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list limit ranges: %w", err)
+	}
+
+	if len(limitRanges.Items) > 0 {
+		info.HasLimitRange = true
+		info.LimitRangeDefaults = &LimitRangeDefaults{}
+
+		// Extract defaults from first LimitRange (most namespaces have only one)
+		lr := limitRanges.Items[0]
+		for _, limit := range lr.Spec.Limits {
+			if limit.Type == "Container" {
+				if defaultCPU, ok := limit.Default["cpu"]; ok {
+					info.LimitRangeDefaults.DefaultCPU = defaultCPU.String()
+				}
+				if defaultMem, ok := limit.Default["memory"]; ok {
+					info.LimitRangeDefaults.DefaultMemory = defaultMem.String()
+				}
+				if defaultReqCPU, ok := limit.DefaultRequest["cpu"]; ok {
+					info.LimitRangeDefaults.DefaultRequestCPU = defaultReqCPU.String()
+				}
+				if defaultReqMem, ok := limit.DefaultRequest["memory"]; ok {
+					info.LimitRangeDefaults.DefaultRequestMemory = defaultReqMem.String()
+				}
+				if minCPU, ok := limit.Min["cpu"]; ok {
+					info.LimitRangeDefaults.MinCPU = minCPU.String()
+				}
+				if minMem, ok := limit.Min["memory"]; ok {
+					info.LimitRangeDefaults.MinMemory = minMem.String()
+				}
+				if maxCPU, ok := limit.Max["cpu"]; ok {
+					info.LimitRangeDefaults.MaxCPU = maxCPU.String()
+				}
+				if maxMem, ok := limit.Max["memory"]; ok {
+					info.LimitRangeDefaults.MaxMemory = maxMem.String()
+				}
+			}
+		}
+	}
+
+	// Only return info if there's quota or limitrange data
+	if !info.HasResourceQuota && !info.HasLimitRange {
+		return nil, nil
+	}
+
+	return info, nil
+}
+
+// enrichWorkloadWithQuotaContext adds quota/limitrange context to a workload
+func (a *RequestsSkewAnalyzer) enrichWorkloadWithQuotaContext(workload *WorkloadSkewAnalysis, quotaInfo *NamespaceQuotaInfo) {
+	if quotaInfo.HasResourceQuota {
+		workload.QuotaContext = fmt.Sprintf("Quota: CPU %.0f%%, Memory %.0f%%",
+			quotaInfo.QuotaCPU.Utilization, quotaInfo.QuotaMemory.Utilization)
+	}
+
+	// TODO: Check if workload is using LimitRange defaults by comparing pod specs
+	// This requires fetching the actual pod and comparing its requests against LimitRange defaults
+}
+
+// calculateQuotaSavings calculates potential quota savings from reducing requests
+func (a *RequestsSkewAnalyzer) calculateQuotaSavings(result *RequestsSkewResult) {
+	// Group workloads by namespace
+	workloadsByNs := make(map[string][]WorkloadSkewAnalysis)
+	for _, w := range result.Results {
+		workloadsByNs[w.Namespace] = append(workloadsByNs[w.Namespace], w)
+	}
+
+	// Calculate savings for each namespace with quotas
+	for i := range result.NamespaceQuotas {
+		quota := &result.NamespaceQuotas[i]
+		if !quota.HasResourceQuota {
+			continue
+		}
+
+		workloads := workloadsByNs[quota.Namespace]
+		if len(workloads) == 0 {
+			continue
+		}
+
+		var cpuSavings, memorySavings float64
+		for _, w := range workloads {
+			// Potential savings = requested - p95 (conservative estimate)
+			if w.RequestedCPU > w.P95UsedCPU {
+				cpuSavings += (w.RequestedCPU - w.P95UsedCPU)
+			}
+			if w.RequestedMemoryGi > w.P95UsedMemoryGi {
+				memorySavings += (w.RequestedMemoryGi - w.P95UsedMemoryGi)
+			}
+		}
+
+		quota.PotentialQuotaSavings = &PotentialQuotaSavings{
+			CPUSavings:    cpuSavings,
+			MemorySavings: memorySavings,
+		}
+
+		// Calculate percentage of quota
+		if quota.QuotaCPU.HardValue > 0 {
+			quota.PotentialQuotaSavings.CPUPercent = (cpuSavings / quota.QuotaCPU.HardValue) * 100
+		}
+		if quota.QuotaMemory.HardValue > 0 {
+			quota.PotentialQuotaSavings.MemoryPercent = (memorySavings / quota.QuotaMemory.HardValue) * 100
+		}
+	}
 }
 
 // analyzeNamespace analyzes all workloads in a namespace
@@ -465,6 +691,48 @@ func (a *RequestsSkewAnalyzer) calculateSummary(result *RequestsSkewResult) {
 	result.Summary.AvgSkewMemory = totalMemSkew / float64(len(result.Results))
 	result.Summary.TotalWastedCPU = totalWastedCPU
 	result.Summary.TotalWastedMemoryGi = totalWastedMem
+}
+
+// sortResults sorts workload results based on configured sort option
+func (a *RequestsSkewAnalyzer) sortResults(result *RequestsSkewResult) {
+	sortBy := a.config.SortBy
+	if sortBy == "" {
+		sortBy = "impact" // Default
+	}
+
+	switch sortBy {
+	case "impact":
+		// Sort by impact score (descending - highest impact first)
+		sort.Slice(result.Results, func(i, j int) bool {
+			return result.Results[i].ImpactScore > result.Results[j].ImpactScore
+		})
+	case "skew":
+		// Sort by CPU skew ratio (descending - highest skew first)
+		sort.Slice(result.Results, func(i, j int) bool {
+			return result.Results[i].SkewCPU > result.Results[j].SkewCPU
+		})
+	case "cpu":
+		// Sort by wasted CPU (descending - most wasted first)
+		sort.Slice(result.Results, func(i, j int) bool {
+			wastedI := result.Results[i].RequestedCPU - result.Results[i].P95UsedCPU
+			wastedJ := result.Results[j].RequestedCPU - result.Results[j].P95UsedCPU
+			return wastedI > wastedJ
+		})
+	case "memory":
+		// Sort by wasted memory (descending - most wasted first)
+		sort.Slice(result.Results, func(i, j int) bool {
+			wastedI := result.Results[i].RequestedMemoryGi - result.Results[i].P95UsedMemoryGi
+			wastedJ := result.Results[j].RequestedMemoryGi - result.Results[j].P95UsedMemoryGi
+			return wastedI > wastedJ
+		})
+	case "name":
+		// Sort alphabetically by namespace/workload (ascending)
+		sort.Slice(result.Results, func(i, j int) bool {
+			nameI := fmt.Sprintf("%s/%s", result.Results[i].Namespace, result.Results[i].Workload)
+			nameJ := fmt.Sprintf("%s/%s", result.Results[j].Namespace, result.Results[j].Workload)
+			return nameI < nameJ
+		})
+	}
 }
 
 // generateRecommendation generates a recommendation note

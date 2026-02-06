@@ -31,6 +31,14 @@ var requestsSkewConfig struct {
 	showRecommendations bool
 	safetyFactor        float64
 	silent              bool
+	sortBy              string
+}
+
+// spikeWorkload holds spike data with calculated ratios
+type spikeWorkload struct {
+	key        string
+	data       *metrics.SpikeData
+	spikeRatio float64
 }
 
 var requestsSkewCmd = &cobra.Command{
@@ -79,6 +87,7 @@ func init() {
 	requestsSkewCmd.Flags().IntVar(&requestsSkewConfig.minRuntimeDays, "min-runtime-days", 7, "Ignore workloads younger than N days")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.output, "output", "table", "Output format: table|json")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.exportFile, "export-file", "", "Save to file (optional)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.sortBy, "sort-by", "impact", "Sort results by: impact|skew|cpu|memory|name")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.prometheusTimeout, "prometheus-timeout", "30s", "Query timeout")
 
 	// Spike monitoring flags (experimental)
@@ -194,6 +203,14 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, "[kubenow] Analyzing resource requests vs usage...")
 	}
 
+	// Validate sort-by option
+	validSortOptions := map[string]bool{
+		"impact": true, "skew": true, "cpu": true, "memory": true, "name": true,
+	}
+	if !validSortOptions[requestsSkewConfig.sortBy] {
+		return fmt.Errorf("invalid --sort-by option: %s (must be: impact|skew|cpu|memory|name)", requestsSkewConfig.sortBy)
+	}
+
 	// Create analyzer
 	analyzerConfig := analyzer.RequestsSkewConfig{
 		Window:         window,
@@ -201,6 +218,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		Namespace:      GetNamespace(), // Use global --namespace flag if provided
 		NamespaceRegex: requestsSkewConfig.namespaceRegex,
 		MinRuntimeDays: requestsSkewConfig.minRuntimeDays,
+		SortBy:         requestsSkewConfig.sortBy,
 	}
 
 	skewAnalyzer := analyzer.NewRequestsSkewAnalyzer(kubeClient, metricsProvider, analyzerConfig)
@@ -354,6 +372,9 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 
 	// Print warnings about workloads without metrics
 	printWorkloadsWithoutMetricsWarning(result)
+
+	// Print quota information
+	printQuotaInformation(result)
 
 	// Print spike monitoring results if available
 	if len(spikeData) > 0 {
@@ -523,12 +544,6 @@ func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
 	fmt.Printf("═══════════════════════════════════════\n\n")
 
 	// Find workloads with significant spikes
-	type spikeWorkload struct {
-		key       string
-		data      *metrics.SpikeData
-		spikeRatio float64
-	}
-
 	var workloadsWithSpikes []spikeWorkload
 
 	for key, data := range spikeData {
@@ -605,6 +620,9 @@ func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
 
 	table.Render()
 
+	// Print critical signals detected during monitoring
+	printCriticalSignals(workloadsWithSpikes)
+
 	if requestsSkewConfig.showRecommendations {
 		fmt.Printf("\n💡 How to Use These Recommendations:\n")
 		fmt.Printf("═══════════════════════════════════════\n\n")
@@ -628,4 +646,129 @@ func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
 		fmt.Printf("   This adds a 'Recommended CPU' column with safety-factor-adjusted values.\n")
 		fmt.Printf("   See SPIKE-ANALYSIS.md for detailed interpretation guidance.\n\n")
 	}
+}
+
+func printQuotaInformation(result *analyzer.RequestsSkewResult) {
+	if len(result.NamespaceQuotas) == 0 {
+		return // No quota information to display
+	}
+
+	fmt.Printf("\n📊 Namespace ResourceQuota & LimitRange Analysis:\n")
+	fmt.Printf("═══════════════════════════════════════════════════\n\n")
+
+	for _, quota := range result.NamespaceQuotas {
+		fmt.Printf("Namespace: %s\n", quota.Namespace)
+
+		if quota.HasResourceQuota {
+			fmt.Printf("  ResourceQuota:\n")
+			if quota.QuotaCPU.Hard != "" {
+				fmt.Printf("    CPU:    %s used / %s hard (%.1f%% utilized)\n",
+					quota.QuotaCPU.Used, quota.QuotaCPU.Hard, quota.QuotaCPU.Utilization)
+			}
+			if quota.QuotaMemory.Hard != "" {
+				fmt.Printf("    Memory: %s used / %s hard (%.1f%% utilized)\n",
+					quota.QuotaMemory.Used, quota.QuotaMemory.Hard, quota.QuotaMemory.Utilization)
+			}
+
+			if quota.PotentialQuotaSavings != nil {
+				fmt.Printf("  Potential Quota Savings (if requests reduced to p95):\n")
+				if quota.PotentialQuotaSavings.CPUSavings > 0 {
+					fmt.Printf("    CPU:    %.2f cores (%.1f%% of quota)\n",
+						quota.PotentialQuotaSavings.CPUSavings,
+						quota.PotentialQuotaSavings.CPUPercent)
+				}
+				if quota.PotentialQuotaSavings.MemorySavings > 0 {
+					fmt.Printf("    Memory: %.2f GiB (%.1f%% of quota)\n",
+						quota.PotentialQuotaSavings.MemorySavings,
+						quota.PotentialQuotaSavings.MemoryPercent)
+				}
+			}
+		}
+
+		if quota.HasLimitRange && quota.LimitRangeDefaults != nil {
+			fmt.Printf("  LimitRange Defaults:\n")
+			if quota.LimitRangeDefaults.DefaultRequestCPU != "" {
+				fmt.Printf("    Default CPU Request:    %s\n", quota.LimitRangeDefaults.DefaultRequestCPU)
+			}
+			if quota.LimitRangeDefaults.DefaultRequestMemory != "" {
+				fmt.Printf("    Default Memory Request: %s\n", quota.LimitRangeDefaults.DefaultRequestMemory)
+			}
+			if quota.LimitRangeDefaults.DefaultCPU != "" {
+				fmt.Printf("    Default CPU Limit:      %s\n", quota.LimitRangeDefaults.DefaultCPU)
+			}
+			if quota.LimitRangeDefaults.DefaultMemory != "" {
+				fmt.Printf("    Default Memory Limit:   %s\n", quota.LimitRangeDefaults.DefaultMemory)
+			}
+			if quota.LimitRangeDefaults.MinCPU != "" || quota.LimitRangeDefaults.MaxCPU != "" {
+				fmt.Printf("    CPU Range:    %s - %s\n",
+					quota.LimitRangeDefaults.MinCPU, quota.LimitRangeDefaults.MaxCPU)
+			}
+			if quota.LimitRangeDefaults.MinMemory != "" || quota.LimitRangeDefaults.MaxMemory != "" {
+				fmt.Printf("    Memory Range: %s - %s\n",
+					quota.LimitRangeDefaults.MinMemory, quota.LimitRangeDefaults.MaxMemory)
+			}
+		}
+
+		fmt.Println()
+	}
+
+	fmt.Printf("💡 Quota Impact:\n")
+	fmt.Printf("   - Reducing over-provisioned requests frees up quota for new workloads\n")
+	fmt.Printf("   - Workloads using LimitRange defaults may not have intentionally set requests\n")
+	fmt.Printf("   - Consider both actual usage AND quota constraints when right-sizing\n\n")
+}
+
+func printCriticalSignals(workloads []spikeWorkload) {
+	// Collect workloads with critical signals
+	var workloadsWithIssues []spikeWorkload
+	for _, sw := range workloads {
+		if sw.data.OOMKills > 0 || sw.data.Restarts > 0 || sw.data.Evictions > 0 || len(sw.data.CriticalEvents) > 0 {
+			workloadsWithIssues = append(workloadsWithIssues, sw)
+		}
+	}
+
+	if len(workloadsWithIssues) == 0 {
+		fmt.Printf("\n✓ No critical signals detected during monitoring (no OOMKills, restarts, or evictions)\n")
+		return
+	}
+
+	fmt.Printf("\n⚠️  Critical Signals Detected During Monitoring:\n")
+	fmt.Printf("═══════════════════════════════════════════════════\n\n")
+
+	for _, sw := range workloadsWithIssues {
+		fmt.Printf("Workload: %s\n", sw.key)
+
+		if sw.data.OOMKills > 0 {
+			fmt.Printf("  🔴 OOMKills: %d - MEMORY REQUESTS TOO LOW!\n", sw.data.OOMKills)
+		}
+		if sw.data.Restarts > 0 {
+			fmt.Printf("  ⚠️  Container Restarts: %d\n", sw.data.Restarts)
+		}
+		if sw.data.Evictions > 0 {
+			fmt.Printf("  ⚠️  Pod Evictions: %d\n", sw.data.Evictions)
+		}
+
+		if len(sw.data.CriticalEvents) > 0 {
+			fmt.Printf("  Events:\n")
+			// Show only last 5 events to avoid clutter
+			maxEvents := 5
+			startIdx := 0
+			if len(sw.data.CriticalEvents) > maxEvents {
+				startIdx = len(sw.data.CriticalEvents) - maxEvents
+				fmt.Printf("    (showing last %d of %d events)\n", maxEvents, len(sw.data.CriticalEvents))
+			}
+			for _, event := range sw.data.CriticalEvents[startIdx:] {
+				fmt.Printf("    • %s\n", event)
+			}
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("💡 Critical Signal Interpretation:\n")
+	fmt.Printf("   • OOMKills: Memory requests are TOO LOW - increase memory requests immediately\n")
+	fmt.Printf("   • Restarts: May indicate instability, check logs for root cause\n")
+	fmt.Printf("   • Evictions: Node resource pressure, may need more cluster capacity\n")
+	fmt.Printf("   • High spike ratio + OOMKills: Classic sign of bursty workload needing higher limits\n\n")
+	fmt.Printf("⚠️  WARNING: Do NOT reduce requests for workloads with OOMKills or frequent restarts!\n")
+	fmt.Printf("   These signals indicate the workload is already under-resourced.\n\n")
 }
