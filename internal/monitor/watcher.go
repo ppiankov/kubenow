@@ -203,21 +203,105 @@ func (w *Watcher) processPodStatus(pod *corev1.Pod) {
 			)
 		}
 
-		// Check for OOMKilled
+		// Check for OOMKilled (only if recent - within last hour)
 		if containerStatus.LastTerminationState.Terminated != nil &&
 			containerStatus.LastTerminationState.Terminated.Reason == "OOMKilled" {
+			terminatedAt := containerStatus.LastTerminationState.Terminated.FinishedAt.Time
+			if time.Since(terminatedAt) < 1*time.Hour {
+				w.addProblem(
+					SeverityFatal,
+					"OOMKilled",
+					pod.Namespace,
+					pod.Name,
+					containerStatus.Name,
+					fmt.Sprintf("Container killed due to out of memory (%s ago)", formatDuration(time.Since(terminatedAt))),
+					map[string]string{
+						"exit_code":     fmt.Sprintf("%d", containerStatus.LastTerminationState.Terminated.ExitCode),
+						"terminated_at": terminatedAt.Format(time.RFC3339),
+					},
+				)
+			}
+		}
+
+		// Check for ImagePullBackOff / ErrImagePull
+		if containerStatus.State.Waiting != nil {
+			reason := containerStatus.State.Waiting.Reason
+			if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+				w.addProblem(
+					SeverityCritical,
+					reason,
+					pod.Namespace,
+					pod.Name,
+					containerStatus.Name,
+					fmt.Sprintf("Cannot pull image: %s", containerStatus.State.Waiting.Message),
+					map[string]string{
+						"image": containerStatus.Image,
+					},
+				)
+			}
+		}
+
+		// Check for high restart count (possible instability)
+		if containerStatus.RestartCount > 5 {
 			w.addProblem(
-				SeverityFatal,
-				"OOMKilled",
+				SeverityWarning,
+				"HighRestarts",
 				pod.Namespace,
 				pod.Name,
 				containerStatus.Name,
-				"Container killed due to out of memory",
+				fmt.Sprintf("Container has %d restarts (may indicate instability)", containerStatus.RestartCount),
 				map[string]string{
-					"exit_code": fmt.Sprintf("%d", containerStatus.LastTerminationState.Terminated.ExitCode),
+					"restart_count": fmt.Sprintf("%d", containerStatus.RestartCount),
 				},
 			)
 		}
+	}
+
+	// Check for Pending pods (stuck for more than 5 minutes)
+	if pod.Status.Phase == corev1.PodPending {
+		podAge := time.Since(pod.CreationTimestamp.Time)
+		if podAge > 5*time.Minute {
+			reason := "Unknown"
+			message := "Pod stuck in Pending state"
+
+			// Try to determine why it's pending
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
+					reason = condition.Reason
+					message = condition.Message
+					break
+				}
+			}
+
+			w.addProblem(
+				SeverityCritical,
+				"PodPending",
+				pod.Namespace,
+				pod.Name,
+				"", // No specific container
+				fmt.Sprintf("Pod pending for %s: %s", formatDuration(podAge), message),
+				map[string]string{
+					"reason":    reason,
+					"pod_age":   podAge.String(),
+					"node_name": pod.Spec.NodeName,
+				},
+			)
+		}
+	}
+
+	// Check for pod eviction
+	if pod.Status.Reason == "Evicted" {
+		w.addProblem(
+			SeverityCritical,
+			"Evicted",
+			pod.Namespace,
+			pod.Name,
+			"",
+			fmt.Sprintf("Pod evicted: %s", pod.Status.Message),
+			map[string]string{
+				"eviction_reason": pod.Status.Reason,
+			},
+		)
 	}
 
 	w.updateChan <- struct{}{}
@@ -266,6 +350,7 @@ func (w *Watcher) updateStats(ctx context.Context) {
 			return
 		case <-ticker.C:
 			w.refreshStats()
+			w.cleanupOldProblems()
 		}
 	}
 }
@@ -315,6 +400,21 @@ func (w *Watcher) refreshStats() {
 		w.mu.Unlock()
 
 		w.updateChan <- struct{}{}
+	}
+}
+
+// cleanupOldProblems removes problems that haven't been seen in a while
+func (w *Watcher) cleanupOldProblems() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	now := time.Now()
+	maxAge := 15 * time.Minute // Problems disappear after 15 minutes of not being seen
+
+	for key, problem := range w.problems {
+		if now.Sub(problem.LastSeen) > maxAge {
+			delete(w.problems, key)
+		}
 	}
 }
 

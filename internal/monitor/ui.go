@@ -49,6 +49,7 @@ type Model struct {
 	watcher         *Watcher
 	spinner         spinner.Model
 	problems        []Problem
+	allProblems     []Problem // Unfiltered problems
 	events          []RecentEvent
 	stats           ClusterStats
 	lastUpdate      time.Time
@@ -59,7 +60,10 @@ type Model struct {
 	scrollOffset    int
 	exportRequested bool
 	printRequested  bool
-	sortMode        int // 0=severity, 1=recency, 2=count
+	sortMode        int    // 0=severity, 1=recency, 2=count
+	searchMode      bool   // True when in search input mode
+	searchQuery     string // Current search filter
+	filteredCount   int    // Number of filtered out problems
 }
 
 // tickMsg is sent on timer tick for heartbeat
@@ -94,12 +98,50 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle search mode input first
+		if m.searchMode {
+			switch msg.String() {
+			case "esc", "ctrl+c":
+				m.searchMode = false
+				m.searchQuery = ""
+				m.filterProblems()
+				return m, nil
+			case "enter":
+				m.searchMode = false
+				m.filterProblems()
+				return m, nil
+			case "backspace":
+				if len(m.searchQuery) > 0 {
+					m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+					m.filterProblems()
+				}
+				return m, nil
+			default:
+				// Add character to search (ignore special keys)
+				if len(msg.String()) == 1 {
+					m.searchQuery += msg.String()
+					m.filterProblems()
+				}
+				return m, nil
+			}
+		}
+
+		// Normal mode key handling
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+		case "esc":
+			// Clear search filter
+			m.searchQuery = ""
+			m.filterProblems()
+			return m, nil
 		case "p", " ": // p or space to pause/resume
 			m.paused = !m.paused
+			return m, nil
+		case "/": // Enter search mode
+			m.searchMode = true
+			m.searchQuery = ""
 			return m, nil
 		case "1": // Sort by severity
 			m.sortMode = 0
@@ -160,7 +202,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updateMsg:
 		// Update data from watcher (only if not paused)
 		if !m.paused {
-			m.problems, m.events, m.stats = m.watcher.GetState()
+			m.allProblems, m.events, m.stats = m.watcher.GetState()
+			m.filterProblems() // Apply current search filter
 			m.lastUpdate = time.Now()
 		}
 		return m, waitForUpdate(m.watcher.GetUpdateChannel())
@@ -172,6 +215,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// filterProblems applies the search query to filter problems
+func (m *Model) filterProblems() {
+	if m.searchQuery == "" {
+		m.problems = m.allProblems
+		m.filteredCount = 0
+		m.scrollOffset = 0 // Reset scroll when clearing filter
+		return
+	}
+
+	// Filter problems based on search query
+	filtered := make([]Problem, 0)
+	query := strings.ToLower(m.searchQuery)
+
+	for _, p := range m.allProblems {
+		// Search in namespace, pod, container, problem type, severity, message, reason
+		if strings.Contains(strings.ToLower(p.Namespace), query) ||
+			strings.Contains(strings.ToLower(p.PodName), query) ||
+			strings.Contains(strings.ToLower(p.ContainerName), query) ||
+			strings.Contains(strings.ToLower(p.Type), query) ||
+			strings.Contains(strings.ToLower(string(p.Severity)), query) ||
+			strings.Contains(strings.ToLower(p.Message), query) ||
+			strings.Contains(strings.ToLower(p.Reason), query) {
+			filtered = append(filtered, p)
+		}
+	}
+
+	m.problems = filtered
+	m.filteredCount = len(m.allProblems) - len(filtered)
+	m.scrollOffset = 0 // Reset scroll when applying new filter
 }
 
 // View renders the UI
@@ -191,10 +265,28 @@ func (m Model) View() string {
 		status = "Live"
 	}
 
-	headerLine := fmt.Sprintf("kubenow monitor [%s] | Sort: %s (1/2/3) | C=Copy Space=Pause ↑↓=Scroll Q=Quit",
+	headerLine := fmt.Sprintf("kubenow monitor [%s] | Sort: %s (1/2/3) | /=Search C=Copy Space=Pause ↑↓=Scroll Q=Quit",
 		status, sortName)
 	b.WriteString(titleStyle.Render(headerLine))
 	b.WriteString("\n")
+
+	// Search bar (if active)
+	if m.searchMode {
+		searchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+		dimHelpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+		b.WriteString(searchStyle.Render(fmt.Sprintf("Search: %s_", m.searchQuery)))
+		b.WriteString(dimHelpStyle.Render("  (enter: apply  esc: cancel)"))
+		b.WriteString("\n")
+	} else if m.searchQuery != "" {
+		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+		dimHelpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+		b.WriteString(filterStyle.Render(fmt.Sprintf("Filter: %s", m.searchQuery)))
+		if m.filteredCount > 0 {
+			b.WriteString(dimHelpStyle.Render(fmt.Sprintf(" (%d hidden)", m.filteredCount)))
+		}
+		b.WriteString(dimHelpStyle.Render("  (esc: clear)"))
+		b.WriteString("\n")
+	}
 
 	// Active problems section
 	if len(m.problems) == 0 {

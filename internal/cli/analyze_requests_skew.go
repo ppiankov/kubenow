@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/olekukonko/tablewriter"
@@ -24,6 +26,7 @@ var requestsSkewConfig struct {
 	minRuntimeDays      int
 	output              string
 	exportFile          string
+	exportFormat        string
 	prometheusTimeout   string
 	watchForSpikes      bool
 	spikeDuration       string
@@ -87,6 +90,7 @@ func init() {
 	requestsSkewCmd.Flags().IntVar(&requestsSkewConfig.minRuntimeDays, "min-runtime-days", 7, "Ignore workloads younger than N days")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.output, "output", "table", "Output format: table|json")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.exportFile, "export-file", "", "Save to file (optional)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.exportFormat, "export-format", "json", "Export file format: json|table")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.sortBy, "sort-by", "impact", "Sort results by: impact|skew|cpu|memory|name")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.prometheusTimeout, "prometheus-timeout", "30s", "Query timeout")
 
@@ -114,6 +118,10 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 
 	if requestsSkewConfig.output != "table" && requestsSkewConfig.output != "json" {
 		return fmt.Errorf("--output must be 'table' or 'json'")
+	}
+
+	if requestsSkewConfig.exportFormat != "table" && requestsSkewConfig.exportFormat != "json" {
+		return fmt.Errorf("--export-format must be 'table' or 'json'")
 	}
 
 	// Parse window duration
@@ -252,7 +260,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		return outputRequestsSkewJSON(result, requestsSkewConfig.exportFile)
 	}
 
-	return outputRequestsSkewTable(result, spikeData, requestsSkewConfig.exportFile)
+	return outputRequestsSkewTable(result, spikeData, requestsSkewConfig.exportFile, requestsSkewConfig.exportFormat)
 }
 
 // runSpikeMonitoring runs the latch monitor to detect sub-scrape-interval spikes
@@ -317,17 +325,27 @@ func outputRequestsSkewJSON(result *analyzer.RequestsSkewResult, exportFile stri
 	return nil
 }
 
-func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile string) error {
-	// If export file is specified, save JSON to file (in addition to showing table)
+func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile string, exportFormat string) error {
+	// If export file is specified, save to file in requested format
 	if exportFile != "" {
-		data, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal JSON for export: %w", err)
+		if exportFormat == "json" {
+			data, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				return fmt.Errorf("failed to marshal JSON for export: %w", err)
+			}
+			if err := os.WriteFile(exportFile, data, 0644); err != nil {
+				return fmt.Errorf("failed to write export file: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "[kubenow] Full results exported to: %s (JSON format)\n", exportFile)
+		} else if exportFormat == "table" {
+			// Defer the table export until after we render it
+			// We'll capture the table output and save it
+			defer func() {
+				if err := exportTableToFile(result, spikeData, exportFile); err != nil {
+					fmt.Fprintf(os.Stderr, "[kubenow] Warning: failed to export table: %v\n", err)
+				}
+			}()
 		}
-		if err := os.WriteFile(exportFile, data, 0644); err != nil {
-			return fmt.Errorf("failed to write export file: %w", err)
-		}
-		fmt.Fprintf(os.Stderr, "[kubenow] Full results exported to: %s\n", exportFile)
 	}
 
 	// Create table
@@ -778,10 +796,10 @@ func printCriticalSignals(workloads []spikeWorkload) {
 			fmt.Printf("  Termination Reasons:\n")
 			for reason, count := range sw.data.TerminationReasons {
 				// Mark normal completions vs problematic terminations
-				icon := "  "
+				icon := "⚠️ " // Default to warning for unknown reasons
 				if reason == "OOMKilled" {
 					icon = "🔴"
-				} else if reason == "Error" || reason == "CrashLoopBackOff" {
+				} else if reason == "Error" || reason == "CrashLoopBackOff" || reason == "Unknown" || reason == "ContainerCannotRun" {
 					icon = "⚠️ "
 				} else if reason == "Completed" {
 					icon = "✓ "
@@ -873,4 +891,148 @@ func getExitCodeMeaning(exitCode int) string {
 		}
 		return "Unknown error"
 	}
+}
+
+// exportTableToFile renders the table output and saves it to a file
+func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile string) error {
+	// Create a bytes buffer to capture table output
+	var buf bytes.Buffer
+
+	// Create table writing to buffer
+	table := tablewriter.NewWriter(&buf)
+	table.Header([]string{"Namespace", "Workload", "Req CPU", "P99 CPU", "Skew", "Safety", "Impact"})
+
+	for _, w := range result.Results {
+		safetyLabel := "?"
+		if w.Safety != nil {
+			safetyLabel = string(w.Safety.Rating)
+			// Add emoji indicators
+			switch w.Safety.Rating {
+			case "SAFE":
+				safetyLabel = "✓ SAFE"
+			case "CAUTION":
+				safetyLabel = "⚠ CAUTION"
+			case "RISKY":
+				safetyLabel = "⚠ RISKY"
+			case "UNSAFE":
+				safetyLabel = "✗ UNSAFE"
+			}
+		}
+
+		table.Append([]string{
+			w.Namespace,
+			w.Workload,
+			fmt.Sprintf("%.2f", w.RequestedCPU),
+			fmt.Sprintf("%.2f", w.P99UsedCPU),
+			fmt.Sprintf("%.1fx", w.SkewCPU),
+			safetyLabel,
+			fmt.Sprintf("%.2f cores", w.ImpactScore),
+		})
+	}
+
+	table.Render()
+
+	// Add spike data if available
+	if len(spikeData) > 0 {
+		buf.WriteString("\n=== Spike Monitoring Results ===\n\n")
+
+		// Collect and sort spike workloads
+		var spikes []spikeWorkload
+		for key, data := range spikeData {
+			ratio := 0.0
+			if data.AvgCPU > 0 {
+				ratio = data.MaxCPU / data.AvgCPU
+			}
+			spikes = append(spikes, spikeWorkload{
+				key:        key,
+				data:       data,
+				spikeRatio: ratio,
+			})
+		}
+
+		// Sort by spike ratio descending
+		sort.Slice(spikes, func(i, j int) bool {
+			return spikes[i].spikeRatio > spikes[j].spikeRatio
+		})
+
+		// Write spike data
+		for _, sw := range spikes {
+			buf.WriteString(fmt.Sprintf("Workload: %s\n", sw.key))
+			buf.WriteString(fmt.Sprintf("  Max CPU: %.4f cores (spike)\n", sw.data.MaxCPU))
+			buf.WriteString(fmt.Sprintf("  Avg CPU: %.4f cores (baseline)\n", sw.data.AvgCPU))
+			buf.WriteString(fmt.Sprintf("  Spike Ratio: %.2fx\n", sw.spikeRatio))
+			buf.WriteString(fmt.Sprintf("  Samples: %d over %s\n", sw.data.SampleCount,
+				sw.data.LastSeen.Sub(sw.data.FirstSeen).Round(time.Second)))
+
+			if sw.data.OOMKills > 0 {
+				buf.WriteString(fmt.Sprintf("  🔴 OOMKills: %d - MEMORY REQUESTS TOO LOW!\n", sw.data.OOMKills))
+			}
+			if sw.data.Restarts > 0 {
+				buf.WriteString(fmt.Sprintf("  ⚠️  Container Restarts: %d", sw.data.Restarts))
+				if sw.data.LastTerminationTime != nil {
+					ago := time.Since(*sw.data.LastTerminationTime)
+					buf.WriteString(fmt.Sprintf(" (last: %s ago)", formatDuration(ago)))
+				}
+				buf.WriteString("\n")
+			}
+			if sw.data.Evictions > 0 {
+				buf.WriteString(fmt.Sprintf("  ⚠️  Pod Evictions: %d\n", sw.data.Evictions))
+			}
+
+			// Show termination reasons
+			if len(sw.data.TerminationReasons) > 0 {
+				buf.WriteString("  Termination Reasons:\n")
+				for reason, count := range sw.data.TerminationReasons {
+					icon := "⚠️ "
+					if reason == "OOMKilled" {
+						icon = "🔴"
+					} else if reason == "Error" || reason == "CrashLoopBackOff" || reason == "Unknown" || reason == "ContainerCannotRun" {
+						icon = "⚠️ "
+					} else if reason == "Completed" {
+						icon = "✓ "
+					}
+					buf.WriteString(fmt.Sprintf("    %s %s: %d times\n", icon, reason, count))
+				}
+			}
+
+			// Show exit codes
+			if len(sw.data.ExitCodes) > 0 {
+				buf.WriteString("  Exit Codes:\n")
+				for code, count := range sw.data.ExitCodes {
+					meaning := getExitCodeMeaning(code)
+					icon := "⚠️ "
+					if code == 137 {
+						icon = "🔴"
+					} else if code != 0 {
+						icon = "⚠️ "
+					} else {
+						icon = "✓ "
+					}
+					buf.WriteString(fmt.Sprintf("    %s %d (%s): %d times\n", icon, code, meaning, count))
+				}
+			}
+
+			if len(sw.data.CriticalEvents) > 0 {
+				buf.WriteString("  Recent Events:\n")
+				maxEvents := 5
+				startIdx := 0
+				if len(sw.data.CriticalEvents) > maxEvents {
+					startIdx = len(sw.data.CriticalEvents) - maxEvents
+					buf.WriteString(fmt.Sprintf("    (showing last %d of %d events)\n", maxEvents, len(sw.data.CriticalEvents)))
+				}
+				for _, event := range sw.data.CriticalEvents[startIdx:] {
+					buf.WriteString(fmt.Sprintf("    • %s\n", event))
+				}
+			}
+			buf.WriteString("\n")
+		}
+	}
+
+	// Write to file
+	if err := os.WriteFile(exportFile, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write export file: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "[kubenow] Table results exported to: %s\n", exportFile)
+	return nil
 }

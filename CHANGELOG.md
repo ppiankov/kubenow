@@ -15,6 +15,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.9] - 2026-02-06
+
+### Added
+
+#### Export Format Flag for Requests-Skew Analysis
+Added `--export-format` flag to control export file format:
+
+- **json** (default): Structured data for automation and parsing
+- **table**: Human-readable text output including all spike monitoring data
+- Usage: `--export-file report.txt --export-format table`
+- Impact: Users can now export human-readable reports alongside JSON data
+
+#### Vim-Style Search/Filter in Monitor Mode
+Implemented real-time search/filter functionality inspired by infranow:
+
+- **Search Mode**: Press `/` to enter search, type to filter in real-time
+- **Search Scope**: Filters across namespace, pod, container, problem type, severity, message, reason
+- **Visual Feedback**:
+  - Search mode: `Search: query_  (enter: apply  esc: cancel)`
+  - Active filter: `Filter: query (X hidden)  (esc: clear)`
+- **Keyboard Controls**:
+  - `/` - Enter search mode
+  - Type to filter in real-time
+  - `enter` - Apply filter and exit search mode
+  - `esc` - Clear filter or cancel search
+  - `backspace` - Delete character
+- Impact: Users can quickly find specific problems in large clusters
+
+#### Enhanced Problem Detection in Monitor Mode
+Expanded signal detection from 2 to 6 problem types:
+
+**New Detectors**:
+1. **ImagePullBackOff / ErrImagePull** (CRITICAL)
+   - Detects containers unable to pull images
+   - Shows image name and error message
+
+2. **Pending Pods** (CRITICAL)
+   - Detects pods stuck in Pending state > 5 minutes
+   - Shows scheduling reason (insufficient resources, node selector mismatch, etc.)
+   - Displays pod age
+
+3. **Pod Evictions** (CRITICAL)
+   - Detects evicted pods
+   - Shows eviction reason and message
+
+4. **High Restart Count** (WARNING)
+   - Flags containers with > 5 restarts
+   - Indicates potential instability
+
+**Existing Detectors** (unchanged):
+- CrashLoopBackOff (FATAL)
+- OOMKilled (FATAL)
+
+### Fixed
+
+#### Stale Problem Cleanup in Monitor Mode
+Fixed critical issue where old problems persisted indefinitely:
+
+1. **OOMKill Time Filtering**
+   - Previously: OOMKills from months ago kept showing forever
+   - Now: Only show OOMKills from last **1 hour**
+   - Shows recency: `"Container killed due to out of memory (45m ago)"`
+   - Impact: Monitor shows only relevant, recent problems
+
+2. **Automatic Problem Cleanup**
+   - Added background cleanup process (runs every 5 seconds)
+   - Problems disappear after **15 minutes** of not being seen
+   - Prevents stale problems from cluttering the UI
+   - Impact: Monitor stays accurate and relevant
+
+3. **Enhanced Problem Messages**
+   - OOMKill messages include time since termination
+   - Pending pod messages include pod age
+   - High restart messages include exact restart count
+
+#### Icon Display for "Unknown" Termination Reasons
+Fixed missing warning icon in spike monitoring output:
+
+- Previously: "Unknown" termination reasons showed blank spaces
+- Now: Shows ⚠️  icon for "Unknown" and other problematic terminations
+- Consistent visual indicators across all termination types
+
+**User Impact**: Monitor mode now provides accurate, time-relevant problem detection with comprehensive signal coverage across common Kubernetes failure modes.
+
+---
+
 ## [0.1.8] - 2026-02-06
 
 ### Fixed
@@ -434,7 +520,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.8...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.9...HEAD
+- [0.1.9]: https://github.com/ppiankov/kubenow/compare/v0.1.8...v0.1.9
 - [0.1.8]: https://github.com/ppiankov/kubenow/compare/v0.1.7...v0.1.8
 - [0.1.7]: https://github.com/ppiankov/kubenow/compare/v0.1.6...v0.1.7
 - [0.1.6]: https://github.com/ppiankov/kubenow/compare/v0.1.5...v0.1.6
