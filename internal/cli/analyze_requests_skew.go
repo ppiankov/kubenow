@@ -11,7 +11,9 @@ import (
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/ppiankov/kubenow/internal/analyzer"
+	"github.com/ppiankov/kubenow/internal/baseline"
 	"github.com/ppiankov/kubenow/internal/metrics"
+	"github.com/ppiankov/kubenow/internal/output"
 	"github.com/ppiankov/kubenow/internal/util"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
@@ -44,6 +46,9 @@ var requestsSkewConfig struct {
 	obfuscate      bool
 	// CI/CD options
 	failOn         string
+	// Baseline options
+	saveBaseline    string
+	compareBaseline string
 }
 
 // spikeWorkload holds spike data with calculated ratios
@@ -128,6 +133,10 @@ func init() {
 
 	// CI/CD flags
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.failOn, "fail-on", "", "Exit with code 1 if problems at or above severity found (fatal|critical|warning)")
+
+	// Baseline/drift flags
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.saveBaseline, "save-baseline", "", "Save analysis results as baseline to file")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.compareBaseline, "compare-baseline", "", "Compare current results to saved baseline")
 }
 
 func runRequestsSkew(cmd *cobra.Command, args []string) error {
@@ -180,8 +189,8 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("either --prometheus-url, --k8s-service, or --auto-detect-prometheus is required")
 	}
 
-	if requestsSkewConfig.output != "table" && requestsSkewConfig.output != "json" {
-		return fmt.Errorf("--output must be 'table' or 'json'")
+	if requestsSkewConfig.output != "table" && requestsSkewConfig.output != "json" && requestsSkewConfig.output != "sarif" {
+		return fmt.Errorf("--output must be 'table', 'json', or 'sarif'")
 	}
 
 	if requestsSkewConfig.exportFormat != "table" && requestsSkewConfig.exportFormat != "json" {
@@ -330,11 +339,38 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Save baseline if requested
+	if requestsSkewConfig.saveBaseline != "" {
+		if err := baseline.SaveBaseline(result, requestsSkewConfig.saveBaseline, version); err != nil {
+			return fmt.Errorf("failed to save baseline: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[kubenow] Baseline saved to: %s\n", requestsSkewConfig.saveBaseline)
+	}
+
+	// Compare to baseline if requested
+	if requestsSkewConfig.compareBaseline != "" {
+		baselineData, err := baseline.LoadBaseline(requestsSkewConfig.compareBaseline)
+		if err != nil {
+			return fmt.Errorf("failed to load baseline: %w", err)
+		}
+
+		driftReport := baseline.CompareToBaseline(baselineData, result)
+
+		// Print drift report
+		printDriftReport(driftReport)
+
+		// If drift mode, skip normal output
+		return nil
+	}
+
 	// Output results
 	var outputErr error
-	if requestsSkewConfig.output == "json" {
+	switch requestsSkewConfig.output {
+	case "json":
 		outputErr = outputRequestsSkewJSON(result, requestsSkewConfig.exportFile)
-	} else {
+	case "sarif":
+		outputErr = outputRequestsSkewSARIF(result, requestsSkewConfig.exportFile)
+	default:
 		outputErr = outputRequestsSkewTable(result, spikeData, requestsSkewConfig.exportFile, requestsSkewConfig.exportFormat)
 	}
 
@@ -460,6 +496,27 @@ func outputRequestsSkewJSON(result *analyzer.RequestsSkewResult, exportFile stri
 			return fmt.Errorf("failed to write file: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", exportFile)
+		return nil
+	}
+
+	// Print to stdout
+	fmt.Println(string(data))
+	return nil
+}
+
+func outputRequestsSkewSARIF(result *analyzer.RequestsSkewResult, exportFile string) error {
+	data, err := output.GenerateSARIFFromRequestsSkew(result, version)
+	if err != nil {
+		return fmt.Errorf("failed to generate SARIF: %w", err)
+	}
+
+	// Export to file if specified
+	if exportFile != "" {
+		if err := os.WriteFile(exportFile, data, 0644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[kubenow] SARIF report saved to: %s\n", exportFile)
+		fmt.Fprintf(os.Stderr, "[kubenow] Upload to GitHub: gh api repos/{owner}/{repo}/code-scanning/sarifs -F sarif=@%s\n", exportFile)
 		return nil
 	}
 
@@ -1178,4 +1235,95 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 
 	fmt.Fprintf(os.Stderr, "[kubenow] Table results exported to: %s\n", exportFile)
 	return nil
+}
+
+// printDriftReport prints the baseline drift report
+func printDriftReport(report *baseline.DriftReport) {
+	fmt.Printf("\n📊 Baseline Drift Report\n")
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	// Summary
+	fmt.Printf("Summary:\n")
+	fmt.Printf("  Baseline: %d workloads (%s)\n", report.Summary.TotalBaseline,
+		report.BaselineTime.Format("2006-01-02 15:04"))
+	fmt.Printf("  Current:  %d workloads (%s)\n", report.Summary.TotalCurrent,
+		report.CurrentTime.Format("2006-01-02 15:04"))
+	fmt.Printf("\n")
+
+	// Changes
+	fmt.Printf("Changes:\n")
+	fmt.Printf("  ✅ Improved:  %d workloads\n", report.Summary.Improved)
+	fmt.Printf("  ⚠️  Degraded:  %d workloads\n", report.Summary.Degraded)
+	fmt.Printf("  ➕ New:       %d workloads\n", report.Summary.New)
+	fmt.Printf("  ➖ Removed:   %d workloads\n", report.Summary.Removed)
+	fmt.Printf("  ═ Unchanged: %d workloads\n", report.Summary.Unchanged)
+	fmt.Printf("\n")
+
+	// Details for degraded (most important)
+	if len(report.Degraded) > 0 {
+		fmt.Printf("⚠️  Degraded Workloads:\n")
+		for _, d := range report.Degraded {
+			fmt.Printf("  • %s/%s\n", d.Namespace, d.Workload)
+			if d.BaselineSkew > 0 && d.CurrentSkew > 0 {
+				fmt.Printf("    Skew: %.1fx → %.1fx (%.1fx worse)\n",
+					d.BaselineSkew, d.CurrentSkew, d.SkewChange)
+			}
+			if d.BaselineSafety != "" && d.CurrentSafety != "" {
+				fmt.Printf("    Safety: %s → %s\n", d.BaselineSafety, d.CurrentSafety)
+			}
+		}
+		fmt.Printf("\n")
+	}
+
+	// Details for improved
+	if len(report.Improved) > 0 {
+		fmt.Printf("✅ Improved Workloads:\n")
+		for _, d := range report.Improved {
+			fmt.Printf("  • %s/%s\n", d.Namespace, d.Workload)
+			if d.BaselineSkew > 0 && d.CurrentSkew > 0 {
+				fmt.Printf("    Skew: %.1fx → %.1fx (%.1fx better)\n",
+					d.BaselineSkew, d.CurrentSkew, -d.SkewChange)
+			}
+			if d.BaselineSafety != "" && d.CurrentSafety != "" {
+				fmt.Printf("    Safety: %s → %s\n", d.BaselineSafety, d.CurrentSafety)
+			}
+		}
+		fmt.Printf("\n")
+	}
+
+	// New workloads (summary only unless verbose)
+	if len(report.New) > 0 {
+		fmt.Printf("➕ New Workloads: %d\n", len(report.New))
+		if len(report.New) <= 5 {
+			for _, d := range report.New {
+				fmt.Printf("  • %s/%s (skew: %.1fx)\n", d.Namespace, d.Workload, d.CurrentSkew)
+			}
+		} else {
+			fmt.Printf("  (showing first 5)\n")
+			for i := 0; i < 5; i++ {
+				d := report.New[i]
+				fmt.Printf("  • %s/%s (skew: %.1fx)\n", d.Namespace, d.Workload, d.CurrentSkew)
+			}
+		}
+		fmt.Printf("\n")
+	}
+
+	// Removed workloads (summary only)
+	if len(report.Removed) > 0 {
+		fmt.Printf("➖ Removed Workloads: %d\n", len(report.Removed))
+		if len(report.Removed) <= 5 {
+			for _, d := range report.Removed {
+				fmt.Printf("  • %s/%s\n", d.Namespace, d.Workload)
+			}
+		} else {
+			fmt.Printf("  (showing first 5)\n")
+			for i := 0; i < 5; i++ {
+				d := report.Removed[i]
+				fmt.Printf("  • %s/%s\n", d.Namespace, d.Workload)
+			}
+		}
+		fmt.Printf("\n")
+	}
+
+	fmt.Printf("💡 Use --save-baseline to update your baseline with current results\n")
 }

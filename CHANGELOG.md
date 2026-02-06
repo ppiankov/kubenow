@@ -15,6 +15,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.12] - 2026-02-06
+
+### Added
+
+#### SARIF Output Format (GitHub Code Scanning Integration)
+Added SARIF 2.1.0 output format for GitHub security integration:
+
+- **Format**: `--output sarif` produces SARIF-compliant JSON
+- **GitHub Integration**: Results appear in Security > Code scanning tab
+- **Rule Mapping**:
+  - Over-provisioned CPU → warning level
+  - Unsafe reductions → error level
+  - Monitor problems → error/warning based on severity
+- **Usage**: `kubenow analyze requests-skew --output sarif > results.sarif`
+- **Upload**: Automatic instructions for `gh` CLI upload
+- **Impact**: Makes kubenow findings visible in GitHub's native security UI
+
+#### Baseline/Drift Tracking
+Added snapshot and comparison mode for tracking changes over time:
+
+- **Save Baseline**: `--save-baseline baseline.json` saves current results
+- **Compare**: `--compare-baseline baseline.json` shows drift
+- **Drift Categories**:
+  - ✅ Improved: Lower skew, better safety rating
+  - ⚠️  Degraded: Higher skew, worse safety, new OOMKills
+  - ➕ New workloads
+  - ➖ Removed workloads
+  - ═ Unchanged (within threshold)
+- **Smart Detection**:
+  - Skew changes > 0.5x trigger categorization
+  - Safety rating changes (SAFE→UNSAFE)
+  - New failures (OOMKills, restarts)
+- **Use Cases**:
+  - Track impact of optimization changes
+  - Detect regressions in resource efficiency
+  - Monitor cluster evolution over time
+- **Impact**: Data-driven tracking of cluster resource health
+
+### Improved
+
+#### SARIF Rules for Common Problems
+- `pod-crashloop`: CrashLoopBackOff detection
+- `pod-oomkilled`: OOM kill tracking
+- `pod-imagepull`: Image pull failures
+- `pod-pending`: Scheduling issues
+- `over-provisioned-cpu`: Resource waste detection
+- `unsafe-reduction`: Safety violations
+
+**User Impact**: kubenow now integrates with GitHub code scanning and provides time-series drift analysis for capacity planning.
+
+---
+
 ## [0.1.11] - 2026-02-06
 
 ### Added
@@ -596,7 +648,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.11...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.12...HEAD
+- [0.1.12]: https://github.com/ppiankov/kubenow/compare/v0.1.11...v0.1.12
 - [0.1.11]: https://github.com/ppiankov/kubenow/compare/v0.1.10...v0.1.11
 - [0.1.10]: https://github.com/ppiankov/kubenow/compare/v0.1.9...v0.1.10
 - [0.1.9]: https://github.com/ppiankov/kubenow/compare/v0.1.8...v0.1.9
