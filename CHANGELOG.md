@@ -15,6 +15,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.6] - 2026-02-06
+
+### Added
+
+#### Comprehensive Container Termination Tracking
+- **ALL termination reasons tracked**, not just OOMKilled:
+  - `OOMKilled` - Out of memory (exit code 137)
+  - `Error` - Container exited with error
+  - `ContainerCannotRun` - Configuration issue
+  - `CrashLoopBackOff` - Repeatedly failing to start
+  - `ImagePullBackOff` / `ErrImagePull` - Image issues
+  - And all other Kubernetes termination reasons
+- **Exit code tracking and interpretation**:
+  - Exit code 137 (SIGKILL) - Usually OOMKilled or killed by system
+  - Exit code 143 (SIGTERM) - Graceful shutdown
+  - Exit code 139 (SIGSEGV) - Segmentation fault
+  - Exit code 1/2 - Application errors
+  - Exit code 126/127 - Command execution issues
+  - All exit codes tracked with frequency counts
+- **Termination reason statistics**: Shows how many times each reason occurred
+- **Enhanced output**:
+  - Separate sections for termination reasons and exit codes
+  - Human-readable explanations for each exit code
+- **Better interpretation guidance**: Explains what each signal means for resource sizing
+
+### Fixed
+
+#### Export File Functionality
+- **Fixed `--export-file` flag** - now works with table output
+  - Previously: only worked with `--output json`
+  - Now: works with default table output
+  - Behavior: Shows table on screen, saves JSON to file
+  - Best of both worlds: human-readable output + machine-parseable export
+  - Example: `kubenow analyze requests-skew --export-file report.json` (table output + JSON export)
+
+### Why This Matters
+- **Comprehensive failure detection**: Linux kills containers for many reasons (OOM, CPU limits, cgroups, etc.)
+- **Root cause analysis**: Exit codes reveal exact failure mode
+- **Better safety decisions**: Understand stability before reducing resources
+- **Automation support**: Export always works, regardless of output format
+
+---
+
 ## [0.1.5] - 2026-02-06
 
 ### Fixed
@@ -314,7 +357,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.5...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.6...HEAD
+- [0.1.6]: https://github.com/ppiankov/kubenow/compare/v0.1.5...v0.1.6
 - [0.1.5]: https://github.com/ppiankov/kubenow/compare/v0.1.4...v0.1.5
 - [0.1.4]: https://github.com/ppiankov/kubenow/compare/v0.1.3...v0.1.4
 - [0.1.3]: https://github.com/ppiankov/kubenow/compare/v0.1.2...v0.1.3

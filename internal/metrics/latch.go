@@ -37,11 +37,13 @@ type SpikeData struct {
 	MemSamples   []float64 `json:"memory_samples"` // All memory samples
 
 	// Critical signals during monitoring
-	OOMKills        int      `json:"oom_kills"`         // Number of OOMKills detected
-	Restarts        int      `json:"restarts"`          // Container restarts during monitoring
-	Evictions       int      `json:"evictions"`         // Pod evictions during monitoring
-	CriticalEvents  []string `json:"critical_events"`   // List of critical event messages
-	ThrottlingDetected bool  `json:"throttling_detected"` // CPU throttling detected
+	OOMKills           int               `json:"oom_kills"`            // Number of OOMKills detected
+	Restarts           int               `json:"restarts"`             // Container restarts during monitoring
+	Evictions          int               `json:"evictions"`            // Pod evictions during monitoring
+	CriticalEvents     []string          `json:"critical_events"`      // List of critical event messages
+	ThrottlingDetected bool              `json:"throttling_detected"`  // CPU throttling detected
+	TerminationReasons map[string]int    `json:"termination_reasons"`  // Reasons for container terminations
+	ExitCodes          map[int]int       `json:"exit_codes"`           // Exit codes and their frequencies
 }
 
 // LatchMonitor monitors for sub-scrape-interval spikes
@@ -189,12 +191,14 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 		data, exists := m.spikeData[key]
 		if !exists {
 			data = &SpikeData{
-				Namespace:    podMetrics.Namespace,
-				WorkloadName: workloadName,
-				PodName:      podMetrics.Name,
-				FirstSeen:    now,
-				CPUSamples:   make([]float64, 0),
-				MemSamples:   make([]float64, 0),
+				Namespace:          podMetrics.Namespace,
+				WorkloadName:       workloadName,
+				PodName:            podMetrics.Name,
+				FirstSeen:          now,
+				CPUSamples:         make([]float64, 0),
+				MemSamples:         make([]float64, 0),
+				TerminationReasons: make(map[string]int),
+				ExitCodes:          make(map[int]int),
 			}
 			m.spikeData[key] = data
 		}
@@ -353,14 +357,46 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 				data.CriticalEvents = make([]string, 0)
 			}
 
-			// Check container statuses for OOMKills and restarts
+			// Check container statuses for ALL termination reasons and exit codes
 			for _, containerStatus := range pod.Status.ContainerStatuses {
-				// Check for OOMKills
+				// Track ALL termination reasons (not just OOMKilled)
 				if containerStatus.LastTerminationState.Terminated != nil {
-					if containerStatus.LastTerminationState.Terminated.Reason == "OOMKilled" {
+					terminated := containerStatus.LastTerminationState.Terminated
+					reason := terminated.Reason
+					exitCode := int(terminated.ExitCode)
+
+					// Count termination reason
+					if data.TerminationReasons == nil {
+						data.TerminationReasons = make(map[string]int)
+					}
+					data.TerminationReasons[reason]++
+
+					// Count exit code
+					if data.ExitCodes == nil {
+						data.ExitCodes = make(map[int]int)
+					}
+					data.ExitCodes[exitCode]++
+
+					// Special handling for known critical reasons
+					switch reason {
+					case "OOMKilled":
 						data.OOMKills++
-						event := fmt.Sprintf("OOMKill detected in container %s", containerStatus.Name)
+						event := fmt.Sprintf("OOMKilled: container %s (exit code %d)", containerStatus.Name, exitCode)
 						data.CriticalEvents = append(data.CriticalEvents, event)
+					case "Error":
+						event := fmt.Sprintf("Error: container %s exited with code %d - %s",
+							containerStatus.Name, exitCode, getExitCodeMeaning(exitCode))
+						data.CriticalEvents = append(data.CriticalEvents, event)
+					case "ContainerCannotRun":
+						event := fmt.Sprintf("ContainerCannotRun: %s - %s",
+							containerStatus.Name, terminated.Message)
+						data.CriticalEvents = append(data.CriticalEvents, event)
+					default:
+						if reason != "Completed" && reason != "" {
+							event := fmt.Sprintf("Terminated: container %s - reason: %s (exit code %d)",
+								containerStatus.Name, reason, exitCode)
+							data.CriticalEvents = append(data.CriticalEvents, event)
+						}
 					}
 				}
 
@@ -368,17 +404,32 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 				if containerStatus.RestartCount > 0 {
 					data.Restarts = int(containerStatus.RestartCount)
 					if containerStatus.RestartCount > 5 {
-						event := fmt.Sprintf("Container %s has %d restarts", containerStatus.Name, containerStatus.RestartCount)
+						event := fmt.Sprintf("High restart count: container %s has %d restarts",
+							containerStatus.Name, containerStatus.RestartCount)
 						data.CriticalEvents = append(data.CriticalEvents, event)
 					}
 				}
 
-				// Check if container is in CrashLoopBackOff
+				// Check current state for issues
 				if containerStatus.State.Waiting != nil {
-					if containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
-						event := fmt.Sprintf("Container %s in CrashLoopBackOff", containerStatus.Name)
+					reason := containerStatus.State.Waiting.Reason
+					switch reason {
+					case "CrashLoopBackOff":
+						event := fmt.Sprintf("CrashLoopBackOff: container %s", containerStatus.Name)
+						data.CriticalEvents = append(data.CriticalEvents, event)
+					case "ImagePullBackOff", "ErrImagePull":
+						event := fmt.Sprintf("Image issue: container %s - %s", containerStatus.Name, reason)
+						data.CriticalEvents = append(data.CriticalEvents, event)
+					case "CreateContainerConfigError", "CreateContainerError":
+						event := fmt.Sprintf("Container creation issue: %s - %s", containerStatus.Name, reason)
 						data.CriticalEvents = append(data.CriticalEvents, event)
 					}
+				}
+
+				// Check for CPU throttling in current state
+				if containerStatus.State.Running != nil {
+					// Note: actual throttling detection would require cgroup metrics
+					// This is a placeholder for future enhancement
 				}
 			}
 
@@ -448,4 +499,39 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// getExitCodeMeaning returns human-readable explanation for common exit codes
+func getExitCodeMeaning(exitCode int) string {
+	switch exitCode {
+	case 0:
+		return "Success"
+	case 1:
+		return "General error"
+	case 2:
+		return "Misuse of shell command"
+	case 126:
+		return "Command cannot execute"
+	case 127:
+		return "Command not found"
+	case 128:
+		return "Invalid exit argument"
+	case 130:
+		return "SIGINT (Ctrl+C)"
+	case 137:
+		return "SIGKILL (usually OOMKilled or killed by system)"
+	case 139:
+		return "SIGSEGV (segmentation fault)"
+	case 143:
+		return "SIGTERM (graceful termination)"
+	case 255:
+		return "Exit status out of range"
+	default:
+		// Check if it's a signal (128 + signal number)
+		if exitCode > 128 && exitCode < 256 {
+			signal := exitCode - 128
+			return fmt.Sprintf("Killed by signal %d", signal)
+		}
+		return "Unknown error"
+	}
 }
