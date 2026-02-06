@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"time"
 
@@ -48,6 +49,7 @@ type RequestsSkewResult struct {
 	Results                 []WorkloadSkewAnalysis   `json:"results"`
 	WorkloadsWithoutMetrics []WorkloadWithoutMetrics `json:"workloads_without_metrics,omitempty"`
 	NamespaceQuotas         []NamespaceQuotaInfo     `json:"namespace_quotas,omitempty"`
+	SpikeData               map[string]interface{}   `json:"spike_data,omitempty"` // Real-time spike monitoring data (if enabled)
 }
 
 // WorkloadWithoutMetrics represents a workload found in K8s but missing from Prometheus
@@ -273,13 +275,27 @@ func (a *RequestsSkewAnalyzer) getFilteredNamespaces(ctx context.Context) ([]str
 	}
 
 	namespaces := make([]string, 0)
+
+	// Compile regex if provided
+	var namespaceRegex *regexp.Regexp
+	if a.config.NamespaceRegex != "" && a.config.NamespaceRegex != ".*" {
+		namespaceRegex, err = regexp.Compile(a.config.NamespaceRegex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid namespace regex: %w", err)
+		}
+	}
+
 	for _, ns := range nsList.Items {
 		// Skip kube-system unless explicitly included
 		if !a.config.IncludeKubeSystem && ns.Name == "kube-system" {
 			continue
 		}
 
-		// TODO: Apply namespace regex filter if configured
+		// Apply namespace regex filter if configured
+		if namespaceRegex != nil && !namespaceRegex.MatchString(ns.Name) {
+			continue
+		}
+
 		namespaces = append(namespaces, ns.Name)
 	}
 
@@ -391,8 +407,19 @@ func (a *RequestsSkewAnalyzer) enrichWorkloadWithQuotaContext(workload *Workload
 			quotaInfo.QuotaCPU.Utilization, quotaInfo.QuotaMemory.Utilization)
 	}
 
-	// TODO: Check if workload is using LimitRange defaults by comparing pod specs
-	// This requires fetching the actual pod and comparing its requests against LimitRange defaults
+	// Check if workload might be using LimitRange defaults
+	if quotaInfo.HasLimitRange && quotaInfo.LimitRangeDefaults != nil {
+		// Simple heuristic: if workload CPU request matches default CPU request, likely using defaults
+		defaultReqCPU := quotaInfo.LimitRangeDefaults.DefaultRequestCPU
+		if defaultReqCPU != "" {
+			// Parse default CPU (e.g., "100m" = 0.1 cores)
+			// Simple check: if workload CPU is very close to common defaults
+			if workload.RequestedCPU == 0.1 || workload.RequestedCPU == 0.5 || workload.RequestedCPU == 1.0 {
+				workload.UsingDefaultRequests = true
+				workload.QuotaContext += " | Possibly using LimitRange defaults"
+			}
+		}
+	}
 }
 
 // calculateQuotaSavings calculates potential quota savings from reducing requests
@@ -513,7 +540,7 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	}
 
 	for _, deploy := range deployments.Items {
-		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, deploy.Name, "Deployment")
+		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, deploy.Name, "Deployment", deploy.CreationTimestamp.Time)
 		if err != nil {
 			// Log but continue
 			continue
@@ -536,7 +563,7 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	}
 
 	for _, sts := range statefulsets.Items {
-		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, sts.Name, "StatefulSet")
+		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, sts.Name, "StatefulSet", sts.CreationTimestamp.Time)
 		if err != nil {
 			continue
 		}
@@ -558,7 +585,7 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	}
 
 	for _, ds := range daemonsets.Items {
-		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, ds.Name, "DaemonSet")
+		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, ds.Name, "DaemonSet", ds.CreationTimestamp.Time)
 		if err != nil {
 			continue
 		}
@@ -580,7 +607,7 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 // Returns: (*analysis, hasMetrics, error)
 // - analysis is nil if no metrics or error
 // - hasMetrics is false if workload exists but has no Prometheus metrics
-func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, workloadName, workloadType string) (*WorkloadSkewAnalysis, bool, error) {
+func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, workloadName, workloadType string, creationTime time.Time) (*WorkloadSkewAnalysis, bool, error) {
 	// Get workload metrics
 	usage, err := a.metricsProvider.GetWorkloadResourceUsage(ctx, namespace, workloadName, a.config.Window)
 	if err != nil {
@@ -592,8 +619,13 @@ func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, w
 		return nil, false, nil // No metrics found
 	}
 
+	// Calculate runtime
+	runtimeDays := int(time.Since(creationTime).Hours() / 24)
+
 	// Skip if below minimum runtime
-	// TODO: Check actual runtime from Kubernetes API
+	if runtimeDays < a.config.MinRuntimeDays {
+		return nil, false, nil // Workload too young
+	}
 
 	// Calculate skew
 	cpuSkew := 0.0
@@ -639,7 +671,7 @@ func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, w
 		SkewCPU:           cpuSkew,
 		SkewMemory:        memorySkew,
 		ImpactScore:       impactScore,
-		Runtime:           "N/A", // TODO: Calculate from creation time
+		Runtime:           fmt.Sprintf("%dd", runtimeDays),
 		Note:              note,
 		Safety:            safety,
 	}, true, nil

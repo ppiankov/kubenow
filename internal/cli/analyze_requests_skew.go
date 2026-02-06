@@ -237,6 +237,14 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "[kubenow] Warning: Spike monitoring failed: %v\n", err)
 			// Continue with analysis results even if spike monitoring fails
 		}
+
+		// Attach spike data to result for export
+		if spikeData != nil && len(spikeData) > 0 {
+			result.SpikeData = make(map[string]interface{})
+			for key, data := range spikeData {
+				result.SpikeData[key] = data
+			}
+		}
 	}
 
 	// Output results

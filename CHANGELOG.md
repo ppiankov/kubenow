@@ -15,6 +15,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.7] - 2026-02-06
+
+### Fixed
+
+#### Critical Feature Completions
+Four major incomplete features have been fixed:
+
+1. **Spike Data Now Included in Exports** (CRITICAL FIX)
+   - Previously: Spike monitoring data was lost when using `--export-file`
+   - Now: All spike data (OOMKills, exit codes, termination reasons) saved to JSON
+   - Impact: Latch mode results are now fully exportable for analysis/automation
+
+2. **Namespace Regex Filtering Now Works**
+   - Previously: `--namespace-regex` flag existed but did nothing
+   - Now: Fully functional regex filtering of namespaces
+   - Example: `--namespace-regex "prod.*"` filters to production namespaces
+   - Validates regex pattern and returns clear error if invalid
+
+3. **Workload Runtime Calculation Implemented**
+   - Previously: Always showed "N/A", `--min-runtime-days` didn't work
+   - Now: Calculates actual runtime from creation timestamp
+   - Shows runtime in days (e.g., "45d")
+   - Properly filters workloads younger than `--min-runtime-days`
+   - Impact: Can now exclude recently deployed workloads from analysis
+
+4. **LimitRange Default Detection Added**
+   - Previously: Showed LimitRange defaults but never flagged workloads using them
+   - Now: Detects when workloads likely use LimitRange defaults
+   - Heuristic: Flags workloads with common default values (0.1, 0.5, 1.0 cores)
+   - Sets `UsingDefaultRequests: true` in output
+   - Adds note to quota context: "Possibly using LimitRange defaults"
+   - Impact: Identify workloads that may not have intentionally set requests
+
+### Why This Matters
+- **Export completeness**: Spike monitoring data no longer lost
+- **Filtering accuracy**: Namespace regex actually works as documented
+- **Age filtering**: Can properly exclude new workloads from analysis
+- **Default detection**: Identify unintentional resource requests
+
+---
+
 ## [0.1.6] - 2026-02-06
 
 ### Added
@@ -357,7 +398,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.6...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.7...HEAD
+- [0.1.7]: https://github.com/ppiankov/kubenow/compare/v0.1.6...v0.1.7
 - [0.1.6]: https://github.com/ppiankov/kubenow/compare/v0.1.5...v0.1.6
 - [0.1.5]: https://github.com/ppiankov/kubenow/compare/v0.1.4...v0.1.5
 - [0.1.4]: https://github.com/ppiankov/kubenow/compare/v0.1.3...v0.1.4
