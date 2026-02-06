@@ -37,6 +37,8 @@ type RequestsSkewConfig struct {
 	Top               int           // Top N results (0 = all)
 	Namespace         string        // Specific namespace to analyze (overrides regex)
 	NamespaceRegex    string        // Namespace filter regex
+	NamespaceInclude  string        // Comma-separated namespace patterns to include (wildcards supported)
+	NamespaceExclude  string        // Comma-separated namespace patterns to exclude (wildcards supported)
 	MinRuntimeDays    int           // Minimum runtime in days to consider
 	IncludeKubeSystem bool          // Include kube-system namespace
 	SortBy            string        // Sort by: impact|skew|cpu|memory|name (default: impact)
@@ -285,21 +287,71 @@ func (a *RequestsSkewAnalyzer) getFilteredNamespaces(ctx context.Context) ([]str
 		}
 	}
 
+	// Parse include/exclude patterns
+	var includePatterns, excludePatterns []string
+	if a.config.NamespaceInclude != "" {
+		includePatterns = parseCommaSeparated(a.config.NamespaceInclude)
+	}
+	if a.config.NamespaceExclude != "" {
+		excludePatterns = parseCommaSeparated(a.config.NamespaceExclude)
+	}
+
 	for _, ns := range nsList.Items {
+		nsName := ns.Name
+
 		// Skip kube-system unless explicitly included
-		if !a.config.IncludeKubeSystem && ns.Name == "kube-system" {
+		if !a.config.IncludeKubeSystem && nsName == "kube-system" {
 			continue
 		}
 
 		// Apply namespace regex filter if configured
-		if namespaceRegex != nil && !namespaceRegex.MatchString(ns.Name) {
+		if namespaceRegex != nil && !namespaceRegex.MatchString(nsName) {
 			continue
 		}
 
-		namespaces = append(namespaces, ns.Name)
+		// Apply exclude patterns (most restrictive)
+		if len(excludePatterns) > 0 && matchesAnyPattern(nsName, excludePatterns) {
+			continue
+		}
+
+		// Apply include patterns (if specified, must match at least one)
+		if len(includePatterns) > 0 && !matchesAnyPattern(nsName, includePatterns) {
+			continue
+		}
+
+		namespaces = append(namespaces, nsName)
 	}
 
 	return namespaces, nil
+}
+
+// parseCommaSeparated splits a comma-separated string into trimmed patterns
+func parseCommaSeparated(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := regexp.MustCompile(`\s*,\s*`).Split(s, -1)
+	patterns := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := regexp.MustCompile(`^\s+|\s+$`).ReplaceAllString(p, ""); trimmed != "" {
+			patterns = append(patterns, trimmed)
+		}
+	}
+	return patterns
+}
+
+// matchesAnyPattern checks if a string matches any of the given wildcard patterns
+func matchesAnyPattern(s string, patterns []string) bool {
+	for _, pattern := range patterns {
+		// Simple wildcard matching: convert "*" to ".*" for regex
+		regexPattern := "^" + regexp.QuoteMeta(pattern) + "$"
+		regexPattern = regexp.MustCompile(`\\\*`).ReplaceAllString(regexPattern, ".*")
+		matched, _ := regexp.MatchString(regexPattern, s)
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 // getNamespaceQuotaInfo fetches ResourceQuota and LimitRange information for a namespace

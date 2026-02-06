@@ -486,6 +486,22 @@ kubenow analyze requests-skew \
   --window 7d \
   --namespace-regex "prod.*"
 
+# Include only specific namespaces (wildcard patterns)
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --namespace-include "prod-*,staging-*"
+
+# Exclude test/dev namespaces
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --namespace-exclude "*-test,*-dev"
+
+# Combined: production only, but skip prod-test
+kubenow analyze requests-skew \
+  --prometheus-url http://prometheus:9090 \
+  --namespace-include "prod-*" \
+  --namespace-exclude "prod-test"
+
 # Top 20 results as JSON
 kubenow analyze requests-skew \
   --prometheus-url http://prometheus:9090 \

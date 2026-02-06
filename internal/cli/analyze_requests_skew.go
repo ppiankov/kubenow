@@ -25,6 +25,8 @@ var requestsSkewConfig struct {
 	window              string
 	top                 int
 	namespaceRegex      string
+	namespaceInclude    string
+	namespaceExclude    string
 	minRuntimeDays      int
 	output              string
 	exportFile          string
@@ -105,6 +107,8 @@ func init() {
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.window, "window", "30d", "Time window for analysis (e.g., 7d, 24h, 30d)")
 	requestsSkewCmd.Flags().IntVar(&requestsSkewConfig.top, "top", 10, "Top N results (0 = all)")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.namespaceRegex, "namespace-regex", ".*", "Namespace filter regex")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.namespaceInclude, "namespace-include", "", "Include only these namespaces (comma-separated patterns)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.namespaceExclude, "namespace-exclude", "", "Exclude these namespaces (comma-separated patterns)")
 	requestsSkewCmd.Flags().IntVar(&requestsSkewConfig.minRuntimeDays, "min-runtime-days", 7, "Ignore workloads younger than N days")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.output, "output", "table", "Output format: table|json")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.exportFile, "export-file", "", "Save to file (optional)")
@@ -294,12 +298,14 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 
 	// Create analyzer
 	analyzerConfig := analyzer.RequestsSkewConfig{
-		Window:         window,
-		Top:            requestsSkewConfig.top,
-		Namespace:      GetNamespace(), // Use global --namespace flag if provided
-		NamespaceRegex: requestsSkewConfig.namespaceRegex,
-		MinRuntimeDays: requestsSkewConfig.minRuntimeDays,
-		SortBy:         requestsSkewConfig.sortBy,
+		Window:           window,
+		Top:              requestsSkewConfig.top,
+		Namespace:        GetNamespace(), // Use global --namespace flag if provided
+		NamespaceRegex:   requestsSkewConfig.namespaceRegex,
+		NamespaceInclude: requestsSkewConfig.namespaceInclude,
+		NamespaceExclude: requestsSkewConfig.namespaceExclude,
+		MinRuntimeDays:   requestsSkewConfig.minRuntimeDays,
+		SortBy:           requestsSkewConfig.sortBy,
 	}
 
 	skewAnalyzer := analyzer.NewRequestsSkewAnalyzer(kubeClient, metricsProvider, analyzerConfig)

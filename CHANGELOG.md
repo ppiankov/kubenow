@@ -12,6 +12,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloud provider cost integration (AWS, GCP, Azure)
 - Historical trend tracking for analyze commands
 - Recommendation patches (kubectl apply-able YAML)
+- Context safety with production confirmation prompts
+- Concurrency controls (--workers, --query-timeout)
+- Prometheus metrics endpoint for meta-monitoring
+
+---
+
+## [0.1.13] - 2026-02-06
+
+### Added
+
+#### Namespace Include/Exclude Filters
+Added flexible namespace filtering with wildcard pattern support:
+
+- **Include Filter**: `--namespace-include "prod-*,staging-*"` analyzes only matching namespaces
+- **Exclude Filter**: `--namespace-exclude "*-test,*-dev"` excludes matching namespaces
+- **Combined Mode**: Use both filters together for precise control
+- **Wildcard Support**: `*` matches any characters (e.g., `prod-*` matches `prod-api`, `prod-web`)
+- **Comma-Separated**: Multiple patterns separated by commas
+- **Priority**: Exclude patterns take precedence over include patterns
+- **Coexistence**: Works alongside existing `--namespace` and `--namespace-regex` flags
+- **Use Cases**:
+  - CI/CD: `--include-namespaces "prod-*" --exclude-namespaces "prod-test"` for production analysis
+  - Testing: `--exclude-namespaces "*-test,*-dev,*-staging"` to skip non-prod environments
+  - Multi-tenant: `--include-namespaces "tenant-a-*,tenant-b-*"` for specific tenants
+- **Examples**:
+  ```bash
+  # Include only production namespaces
+  kubenow analyze requests-skew --namespace-include "prod-*"
+
+  # Exclude all test/dev namespaces
+  kubenow analyze requests-skew --namespace-exclude "*-test,*-dev"
+
+  # Combined: production only, but skip prod-test
+  kubenow analyze requests-skew --namespace-include "prod-*" --namespace-exclude "prod-test"
+  ```
+
+### Technical Details
+- Pattern matching uses regex-based wildcard expansion
+- Empty patterns are ignored (gracefully handles trailing commas)
+- Filter logic: specific namespace > regex > exclude > include > kube-system
+- No breaking changes to existing namespace filtering behavior
 
 ---
 
