@@ -1,0 +1,65 @@
+# kubenow admin policy file
+# This file is owned by cluster administrators. kubenow reads it, never writes it.
+# Place at /etc/kubenow/policy.yaml or set $KUBENOW_POLICY to a custom path.
+#
+# Validate with: kubenow pro-monitor validate-policy --policy /path/to/policy.yaml
+
+apiVersion: kubenow/v1alpha1
+kind: Policy
+
+global:
+  # Master kill switch. Set to false to disable all pro-monitor behavior.
+  enabled: true
+
+audit:
+  # Where audit bundles are stored. Currently only "filesystem" is supported.
+  backend: filesystem
+  # Directory for audit bundles. Required when apply.enabled is true.
+  path: /var/lib/kubenow/audit
+  # Days to retain audit bundles. 0 = keep forever.
+  retention_days: 90
+
+apply:
+  # Whether live apply is permitted. When false, pro-monitor is observe-only.
+  enabled: true
+  # Require an active latch (high-res sampling session) before apply.
+  require_latch: true
+  # Maximum allowed change to resource requests, as a percentage.
+  max_request_delta_percent: 30
+  # Maximum allowed change to resource limits, as a percentage.
+  max_limit_delta_percent: 50
+  # Whether limits can be decreased (risky if workload has memory spikes).
+  allow_limit_decrease: false
+  # Minimum duration a latch must have been running before its data is trusted.
+  min_latch_duration: 1h
+  # Maximum age of a latch session. Stale latches are rejected.
+  max_latch_age: 7d
+  # Minimum safety rating required for apply. Options: SAFE, CAUTION
+  min_safety_rating: SAFE
+
+namespaces:
+  # Namespaces where apply is never allowed.
+  deny:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+  # Optional allowlist. If set, only these namespaces permit apply.
+  # allow:
+  #   - staging
+  #   - production
+
+identity:
+  # Require a named kube context (reject default/unnamed).
+  require_kube_context: true
+  # Record the OS user who ran kubenow in audit bundles.
+  record_os_user: true
+  # Record git user.name / user.email if available.
+  record_git_identity: false
+
+rate_limits:
+  # Maximum applies across all workloads per hour. 0 = unlimited.
+  max_applies_per_hour: 10
+  # Maximum applies to a single workload within the rate window. 0 = unlimited.
+  max_applies_per_workload: 3
+  # Time window for rate limiting. Supports h (hours) and d (days).
+  rate_window: 24h
