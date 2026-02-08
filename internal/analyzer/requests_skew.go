@@ -74,31 +74,31 @@ type NamespaceQuotaInfo struct {
 
 // QuotaUsage represents resource quota usage
 type QuotaUsage struct {
-	Hard string  `json:"hard"`           // e.g., "100" cores or "200Gi"
-	Used string  `json:"used"`           // e.g., "75" cores or "150Gi"
-	HardValue float64 `json:"hard_value"` // Numeric value for calculations
-	UsedValue float64 `json:"used_value"` // Numeric value for calculations
+	Hard        string  `json:"hard"`                // e.g., "100" cores or "200Gi"
+	Used        string  `json:"used"`                // e.g., "75" cores or "150Gi"
+	HardValue   float64 `json:"hard_value"`          // Numeric value for calculations
+	UsedValue   float64 `json:"used_value"`          // Numeric value for calculations
 	Utilization float64 `json:"utilization_percent"` // Used/Hard * 100
 }
 
 // LimitRangeDefaults contains default resource values from LimitRange
 type LimitRangeDefaults struct {
-	DefaultCPU        string `json:"default_cpu,omitempty"`         // e.g., "100m"
-	DefaultMemory     string `json:"default_memory,omitempty"`      // e.g., "128Mi"
-	DefaultRequestCPU string `json:"default_request_cpu,omitempty"` // e.g., "100m"
+	DefaultCPU           string `json:"default_cpu,omitempty"`            // e.g., "100m"
+	DefaultMemory        string `json:"default_memory,omitempty"`         // e.g., "128Mi"
+	DefaultRequestCPU    string `json:"default_request_cpu,omitempty"`    // e.g., "100m"
 	DefaultRequestMemory string `json:"default_request_memory,omitempty"` // e.g., "128Mi"
-	MinCPU            string `json:"min_cpu,omitempty"`
-	MinMemory         string `json:"min_memory,omitempty"`
-	MaxCPU            string `json:"max_cpu,omitempty"`
-	MaxMemory         string `json:"max_memory,omitempty"`
+	MinCPU               string `json:"min_cpu,omitempty"`
+	MinMemory            string `json:"min_memory,omitempty"`
+	MaxCPU               string `json:"max_cpu,omitempty"`
+	MaxMemory            string `json:"max_memory,omitempty"`
 }
 
 // PotentialQuotaSavings shows how much quota could be freed by reducing requests
 type PotentialQuotaSavings struct {
-	CPUSavings    float64 `json:"cpu_savings"`     // Cores that could be freed
+	CPUSavings    float64 `json:"cpu_savings"`       // Cores that could be freed
 	MemorySavings float64 `json:"memory_savings_gi"` // GiB that could be freed
-	CPUPercent    float64 `json:"cpu_percent"`     // % of quota
-	MemoryPercent float64 `json:"memory_percent"`  // % of quota
+	CPUPercent    float64 `json:"cpu_percent"`       // % of quota
+	MemoryPercent float64 `json:"memory_percent"`    // % of quota
 }
 
 // RequestsSkewMetadata contains metadata about the analysis

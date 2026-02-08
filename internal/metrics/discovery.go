@@ -43,18 +43,18 @@ func (d *MetricDiscovery) DiscoverMetrics(ctx context.Context) (*AvailableMetric
 
 	// Find CPU metrics
 	cpuMetrics := findMetrics(allMetrics, []string{
-		"container_cpu_usage_seconds_total",     // cAdvisor standard
-		"container_cpu_usage",                    // Alternative naming
-		"kubelet_container_cpu_usage_seconds",    // Kubelet metrics
-		"kube_pod_container_resource_requests",   // kube-state-metrics fallback
+		"container_cpu_usage_seconds_total",    // cAdvisor standard
+		"container_cpu_usage",                  // Alternative naming
+		"kubelet_container_cpu_usage_seconds",  // Kubelet metrics
+		"kube_pod_container_resource_requests", // kube-state-metrics fallback
 	})
 
 	// Find memory metrics
 	memoryMetrics := findMetrics(allMetrics, []string{
-		"container_memory_working_set_bytes",        // cAdvisor standard
-		"container_memory_usage_bytes",              // Alternative
+		"container_memory_working_set_bytes",         // cAdvisor standard
+		"container_memory_usage_bytes",               // Alternative
 		"kubelet_container_memory_working_set_bytes", // Kubelet metrics
-		"kube_pod_container_resource_requests",      // kube-state-metrics fallback
+		"kube_pod_container_resource_requests",       // kube-state-metrics fallback
 	})
 
 	result := &AvailableMetrics{

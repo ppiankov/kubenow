@@ -40,14 +40,14 @@ var requestsSkewConfig struct {
 	silent              bool
 	sortBy              string
 	// Port-forward options
-	k8sService     string
-	k8sNamespace   string
-	k8sLocalPort   string
-	k8sRemotePort  string
+	k8sService    string
+	k8sNamespace  string
+	k8sLocalPort  string
+	k8sRemotePort string
 	// Security options
-	obfuscate      bool
+	obfuscate bool
 	// CI/CD options
-	failOn         string
+	failOn string
 	// Baseline options
 	saveBaseline    string
 	compareBaseline string
