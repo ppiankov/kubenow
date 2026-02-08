@@ -242,7 +242,13 @@ func renderRecommendation(rec *AlignmentRecommendation) string {
 	// Container recommendations
 	if len(rec.Containers) == 0 {
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  No actionable recommendation produced."))
+		if rec.Safety == SafetyRatingUnsafe {
+			b.WriteString(warnStyle.Render("  Increase resources manually — current allocation is"))
+			b.WriteString("\n")
+			b.WriteString(warnStyle.Render("  insufficient for observed workload behavior."))
+		} else {
+			b.WriteString(dimStyle.Render("  No actionable recommendation produced."))
+		}
 		b.WriteString("\n")
 	}
 
