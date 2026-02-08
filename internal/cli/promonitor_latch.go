@@ -175,6 +175,14 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		}
 		model.SetPolicy(bounds)
 	}
+	// Wire audit infrastructure
+	if loadedPolicy != nil && loadedPolicy.Audit.Path != "" {
+		model.SetAuditPath(loadedPolicy.Audit.Path)
+		model.SetFullPolicy(loadedPolicy)
+		model.SetKubeconfigPath(GetKubeconfig())
+		model.SetKubeClient(kubeClient)
+	}
+
 	model.SetHPAAcknowledged(latchConfig.acknowledgeHPA)
 
 	// Create the TUI program first, then start the latch goroutine

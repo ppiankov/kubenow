@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ppiankov/kubenow/internal/audit"
+	"github.com/ppiankov/kubenow/internal/policy"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -17,6 +19,7 @@ type KubeApplier interface {
 	PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fieldManager string) error
 	GetContainerResources(ctx context.Context, ref WorkloadRef) ([]ContainerResources, error)
 	GetManagedFields(ctx context.Context, ref WorkloadRef) ([]metav1.ManagedFieldsEntry, error)
+	GetWorkloadObject(ctx context.Context, ref WorkloadRef) (map[string]interface{}, error)
 }
 
 // ClientsetApplier implements KubeApplier using a real Kubernetes clientset.
@@ -72,16 +75,55 @@ func (a *ClientsetApplier) GetManagedFields(ctx context.Context, ref WorkloadRef
 	}
 }
 
+func (a *ClientsetApplier) GetWorkloadObject(ctx context.Context, ref WorkloadRef) (map[string]interface{}, error) {
+	var raw interface{}
+	switch ref.Kind {
+	case "Deployment":
+		obj, err := a.Client.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		raw = obj
+	case "StatefulSet":
+		obj, err := a.Client.AppsV1().StatefulSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		raw = obj
+	case "DaemonSet":
+		obj, err := a.Client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		raw = obj
+	default:
+		return nil, fmt.Errorf("unsupported kind: %s", ref.Kind)
+	}
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("marshal workload: %w", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal workload: %w", err)
+	}
+	return result, nil
+}
+
 // ApplyInput holds all inputs required for the apply operation.
 type ApplyInput struct {
-	Recommendation  *AlignmentRecommendation
-	Workload        WorkloadRef
-	Mode            Mode
-	Policy          *PolicyBounds
-	HPAInfo         *HPAInfo
-	HPAAcknowledged bool
-	LatchTimestamp  time.Time
-	LatchDuration   time.Duration
+	Recommendation   *AlignmentRecommendation
+	Workload         WorkloadRef
+	Mode             Mode
+	Policy           *PolicyBounds
+	HPAInfo          *HPAInfo
+	HPAAcknowledged  bool
+	LatchTimestamp   time.Time
+	LatchDuration    time.Duration
+	AuditWritable    bool
+	IdentityRecorded bool
+	RateLimitOK      bool
 }
 
 // ApplyResult holds the outcome of an apply operation.
@@ -182,7 +224,16 @@ func CheckActionable(input *ApplyInput) []string {
 		}
 	}
 
-	// TODO(PR7): audit/identity/rate-limit checks
+	// Audit/identity/rate-limit checks
+	if input.Policy != nil && !input.AuditWritable {
+		reasons = append(reasons, "audit path is not writable")
+	}
+	if input.Policy != nil && !input.IdentityRecorded {
+		reasons = append(reasons, "identity not recorded (required for audit)")
+	}
+	if input.Policy != nil && !input.RateLimitOK {
+		reasons = append(reasons, "rate limit exceeded")
+	}
 
 	return reasons
 }
@@ -441,4 +492,154 @@ func buildContainerResourceSummary(containers []ContainerResources) map[string]s
 			formatMemResource(c.MemoryLimit))
 	}
 	return m
+}
+
+// AuditApplyConfig holds all parameters for an audit-wrapped apply.
+type AuditApplyConfig struct {
+	AuditPath      string
+	Client         KubeApplier
+	KubeClient     kubernetes.Interface
+	KubeconfigPath string
+	Input          *ApplyInput
+	Version        string
+	FullPolicy     *policy.Policy
+	RateLimitCfg   audit.RateLimitConfig
+}
+
+// ExecuteApplyWithAudit is the orchestrator that wraps ExecuteApply with
+// identity resolution, rate limiting, and audit bundle creation.
+func ExecuteApplyWithAudit(ctx context.Context, cfg *AuditApplyConfig) *ApplyResult {
+	result := &ApplyResult{}
+
+	// 1. Resolve identity
+	identity := audit.ResolveIdentity(ctx, cfg.KubeClient, cfg.KubeconfigPath)
+
+	// 2. Fetch before-object
+	beforeObj, err := cfg.Client.GetWorkloadObject(ctx, cfg.Input.Workload)
+	if err != nil {
+		result.Error = fmt.Errorf("fetch before-object: %w", err)
+		return result
+	}
+
+	// 3. Extract workload UID
+	workloadUID := extractUID(beforeObj)
+
+	// 4. Check rate limit
+	rateLimitResult, err := audit.CheckAndIncrement(cfg.RateLimitCfg,
+		workloadUID, cfg.Input.Workload.FullString(), identity.KubeUser)
+	if err != nil {
+		result.Error = fmt.Errorf("rate limit check: %w", err)
+		return result
+	}
+
+	// 5. Set flags on input
+	cfg.Input.AuditWritable = true // we got this far, path is writable
+	cfg.Input.IdentityRecorded = identity.IdentitySource != "unknown"
+	cfg.Input.RateLimitOK = rateLimitResult.Allowed
+
+	// 6. Run CheckActionable — if denied, return denial result
+	reasons := CheckActionable(cfg.Input)
+	if len(reasons) > 0 {
+		result.DenialReasons = reasons
+		return result
+	}
+
+	// 7. Map promonitor types → audit BundleConfig
+	ts := time.Now()
+	bundleCfg := audit.BundleConfig{
+		AuditPath: cfg.AuditPath,
+		Timestamp: ts,
+		Workload: audit.BundleWorkload{
+			Kind:      cfg.Input.Workload.Kind,
+			Name:      cfg.Input.Workload.Name,
+			Namespace: cfg.Input.Workload.Namespace,
+			UID:       workloadUID,
+		},
+		BeforeObject: beforeObj,
+		Recommendation: audit.BundleRecommendation{
+			Safety:     string(cfg.Input.Recommendation.Safety),
+			Confidence: string(cfg.Input.Recommendation.Confidence),
+		},
+		Identity: identity,
+		Version:  cfg.Version,
+		Changes:  mapChanges(cfg.Input.Recommendation.Containers),
+	}
+
+	if cfg.Input.Recommendation.Evidence != nil {
+		bundleCfg.Latch = audit.BundleLatch{
+			Duration:       cfg.Input.Recommendation.Evidence.Duration,
+			SampleCount:    cfg.Input.Recommendation.Evidence.SampleCount,
+			SampleInterval: cfg.Input.Recommendation.Evidence.SampleInterval,
+		}
+	}
+
+	// 8. CreateBundle — if fails, abort
+	bundle, err := audit.CreateBundle(bundleCfg)
+	if err != nil {
+		result.Error = fmt.Errorf("create audit bundle: %w", err)
+		return result
+	}
+
+	// 9. ExecuteApply
+	applyResult := ExecuteApply(ctx, cfg.Client, cfg.Input)
+
+	// 10. Fetch after-object (best-effort)
+	afterObj, afterErr := cfg.Client.GetWorkloadObject(ctx, cfg.Input.Workload)
+	if afterErr != nil {
+		afterObj = beforeObj // fallback to before if fetch fails
+	}
+
+	// 11. FinalizeBundle
+	status := "applied"
+	if applyResult.Error != nil {
+		status = "failed"
+	}
+	if !applyResult.Applied && len(applyResult.DenialReasons) > 0 {
+		status = "denied"
+	}
+	_ = audit.FinalizeBundle(bundle, afterObj, status, ts, applyResult.Error) // best-effort
+
+	return applyResult
+}
+
+// extractUID pulls the UID from a workload object's metadata.
+func extractUID(obj map[string]interface{}) string {
+	metadata, ok := obj["metadata"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	uid, _ := metadata["uid"].(string)
+	return uid
+}
+
+// mapChanges converts container alignment data to audit bundle changes.
+func mapChanges(containers []ContainerAlignment) []audit.BundleChange {
+	var changes []audit.BundleChange
+	for _, c := range containers {
+		changes = append(changes, audit.BundleChange{
+			Field:        fmt.Sprintf("%s/cpu_request", c.Name),
+			Before:       formatCPUResource(c.Current.CPURequest),
+			After:        formatCPUResource(c.Recommended.CPURequest),
+			DeltaPercent: c.Delta.CPURequestPercent,
+		})
+		changes = append(changes, audit.BundleChange{
+			Field:        fmt.Sprintf("%s/cpu_limit", c.Name),
+			Before:       formatCPUResource(c.Current.CPULimit),
+			After:        formatCPUResource(c.Recommended.CPULimit),
+			DeltaPercent: c.Delta.CPULimitPercent,
+		})
+		changes = append(changes, audit.BundleChange{
+			Field:        fmt.Sprintf("%s/memory_request", c.Name),
+			Before:       formatMemResource(c.Current.MemoryRequest),
+			After:        formatMemResource(c.Recommended.MemoryRequest),
+			DeltaPercent: c.Delta.MemoryRequestPercent,
+		})
+		changes = append(changes, audit.BundleChange{
+			Field:        fmt.Sprintf("%s/memory_limit", c.Name),
+			Before:       formatMemResource(c.Current.MemoryLimit),
+			After:        formatMemResource(c.Recommended.MemoryLimit),
+			DeltaPercent: c.Delta.MemoryLimitPercent,
+		})
+	}
+	return changes
 }

@@ -7,7 +7,10 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ppiankov/kubenow/internal/audit"
 	"github.com/ppiankov/kubenow/internal/metrics"
+	"github.com/ppiankov/kubenow/internal/policy"
+	"k8s.io/client-go/kubernetes"
 )
 
 // Mode describes what operations the policy allows.
@@ -57,6 +60,12 @@ type Model struct {
 	kubeApplier     KubeApplier     // K8s client for SSA apply
 	policy          *PolicyBounds   // policy bounds for apply checks
 	latchTimestamp  time.Time       // when latch completed (for freshness check)
+
+	// Audit state
+	auditPath      string
+	fullPolicy     *policy.Policy
+	kubeconfigPath string
+	kubeClient     kubernetes.Interface
 
 	// UI state
 	spinner  spinner.Model
@@ -272,8 +281,33 @@ func (m Model) buildApplyInput() *ApplyInput {
 func (m Model) executeApplyCmd() tea.Cmd {
 	client := m.kubeApplier
 	input := m.buildApplyInput()
+	auditPath := m.auditPath
+	fullPolicy := m.fullPolicy
+	kubeconfigPath := m.kubeconfigPath
+	kubeClient := m.kubeClient
+
 	return func() tea.Msg {
-		result := ExecuteApply(context.Background(), client, input)
+		var result *ApplyResult
+		if auditPath != "" && fullPolicy != nil {
+			cfg := &AuditApplyConfig{
+				AuditPath:      auditPath,
+				Client:         client,
+				KubeClient:     kubeClient,
+				KubeconfigPath: kubeconfigPath,
+				Input:          input,
+				Version:        "0.2.0",
+				FullPolicy:     fullPolicy,
+				RateLimitCfg: audit.RateLimitConfig{
+					MaxGlobal:      fullPolicy.RateLimits.MaxAppliesPerHour,
+					MaxPerWorkload: fullPolicy.RateLimits.MaxAppliesPerWorkload,
+					Window:         fullPolicy.RateWindowParsed(),
+					AuditPath:      auditPath,
+				},
+			}
+			result = ExecuteApplyWithAudit(context.Background(), cfg)
+		} else {
+			result = ExecuteApply(context.Background(), client, input)
+		}
 		return applyDoneMsg{result: result}
 	}
 }
@@ -316,6 +350,26 @@ func (m *Model) SetPolicy(p *PolicyBounds) {
 // SetHPAAcknowledged sets whether the user acknowledged HPA presence.
 func (m *Model) SetHPAAcknowledged(ack bool) {
 	m.hpaAcknowledged = ack
+}
+
+// SetAuditPath sets the audit bundle output path.
+func (m *Model) SetAuditPath(path string) {
+	m.auditPath = path
+}
+
+// SetFullPolicy sets the full loaded policy for audit config.
+func (m *Model) SetFullPolicy(p *policy.Policy) {
+	m.fullPolicy = p
+}
+
+// SetKubeconfigPath sets the kubeconfig path for identity resolution.
+func (m *Model) SetKubeconfigPath(path string) {
+	m.kubeconfigPath = path
+}
+
+// SetKubeClient sets the Kubernetes client for identity resolution.
+func (m *Model) SetKubeClient(client kubernetes.Interface) {
+	m.kubeClient = client
 }
 
 func tickCmd() tea.Cmd {

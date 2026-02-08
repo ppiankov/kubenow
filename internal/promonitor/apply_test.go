@@ -14,13 +14,15 @@ import (
 
 // mockKubeApplier implements KubeApplier for testing.
 type mockKubeApplier struct {
-	patchErr      error
-	patchCalled   bool
-	patchJSON     []byte
-	containers    []ContainerResources
-	containersErr error
-	managedFields []metav1.ManagedFieldsEntry
-	managedErr    error
+	patchErr       error
+	patchCalled    bool
+	patchJSON      []byte
+	containers     []ContainerResources
+	containersErr  error
+	managedFields  []metav1.ManagedFieldsEntry
+	managedErr     error
+	workloadObject map[string]interface{}
+	workloadErr    error
 }
 
 func (m *mockKubeApplier) PatchWorkload(_ context.Context, _ WorkloadRef, patchJSON []byte, _ string) error {
@@ -35,6 +37,10 @@ func (m *mockKubeApplier) GetContainerResources(_ context.Context, _ WorkloadRef
 
 func (m *mockKubeApplier) GetManagedFields(_ context.Context, _ WorkloadRef) ([]metav1.ManagedFieldsEntry, error) {
 	return m.managedFields, m.managedErr
+}
+
+func (m *mockKubeApplier) GetWorkloadObject(_ context.Context, _ WorkloadRef) (map[string]interface{}, error) {
+	return m.workloadObject, m.workloadErr
 }
 
 func validApplyInput() *ApplyInput {
@@ -58,11 +64,14 @@ func validApplyInput() *ApplyInput {
 			},
 			Policy: &PolicyResult{ApplyPermitted: true, ExportPermitted: true},
 		},
-		Workload:       WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"},
-		Mode:           ModeApplyReady,
-		Policy:         &PolicyBounds{MinSafetyRating: SafetyRatingSafe},
-		LatchTimestamp: time.Now(),
-		LatchDuration:  2 * time.Hour,
+		Workload:         WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"},
+		Mode:             ModeApplyReady,
+		Policy:           &PolicyBounds{MinSafetyRating: SafetyRatingSafe},
+		LatchTimestamp:   time.Now(),
+		LatchDuration:    2 * time.Hour,
+		AuditWritable:    true,
+		IdentityRecorded: true,
+		RateLimitOK:      true,
 	}
 }
 
@@ -164,6 +173,45 @@ func TestCheckActionable_ShortLatch(t *testing.T) {
 	found := false
 	for _, r := range reasons {
 		if r == "latch duration 5m0s below policy minimum 1h0m0s" {
+			found = true
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestCheckActionable_AuditNotWritable(t *testing.T) {
+	input := validApplyInput()
+	input.AuditWritable = false
+	reasons := CheckActionable(input)
+	found := false
+	for _, r := range reasons {
+		if r == "audit path is not writable" {
+			found = true
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestCheckActionable_IdentityNotRecorded(t *testing.T) {
+	input := validApplyInput()
+	input.IdentityRecorded = false
+	reasons := CheckActionable(input)
+	found := false
+	for _, r := range reasons {
+		if r == "identity not recorded (required for audit)" {
+			found = true
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestCheckActionable_RateLimitExceeded(t *testing.T) {
+	input := validApplyInput()
+	input.RateLimitOK = false
+	reasons := CheckActionable(input)
+	found := false
+	for _, r := range reasons {
+		if r == "rate limit exceeded" {
 			found = true
 		}
 	}
