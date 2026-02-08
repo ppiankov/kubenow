@@ -1,6 +1,6 @@
 # kubenow v0.2.0 — Pro-Monitor & Resource Alignment
 
-## Status: DRAFT
+## Status: SHIPPED (v0.2.0, 2026-02-08)
 ## Authors: ppiankov
 ## Date: 2026-02-07
 
@@ -1567,14 +1567,20 @@ These were open questions that have been resolved:
 
 ---
 
-## Open Questions
+## Open Questions (Resolved or Deferred)
 
-1. **Multi-container pods**: The recommendation engine handles multiple containers independently, but the TUI needs a container selector. Options: tab-based navigation, stacked view (all containers visible), or default to primary container with `Tab` to cycle. The stacked view is simpler but may not scale to pods with 5+ sidecars.
-
-2. **CronJobs / Jobs**: These have fundamentally different resource patterns (burst then idle). Should pro-monitor support them? Current design: Deployment, StatefulSet, DaemonSet only. Jobs could be added later with a different latch strategy (observe N runs instead of continuous).
-
-3. **Policy versioning**: When the policy schema changes in future versions, how to handle backward compatibility? `apiVersion` field exists but migration strategy is undefined. Options: strict version matching (refuse unknown versions), forward-compatible parsing (ignore unknown fields), or explicit migration command.
+The following items were open during v0.2.0 development. They are now deferred to future versions as planned features.
 
 ---
 
-*This document describes the design for kubenow v0.2.0. It will be updated as implementation progresses and open questions are resolved.*
+## Planned Features (v0.3.0 candidates)
+
+1. **Multi-container TUI UX** — The recommendation engine handles multiple containers independently, but the TUI currently shows all containers in a stacked view. For pods with many sidecars (5+), a container selector with tab-based navigation or filtering would improve usability.
+
+2. **CronJob / Job support** — CronJobs and Jobs have fundamentally different resource patterns (burst then idle). The current latch strategy (continuous sampling) does not suit them. A future latch mode could observe N job runs instead of a continuous window, computing percentiles across runs rather than within a single window.
+
+3. **Policy versioning and migration** — The `apiVersion` field exists but there is no migration strategy for schema changes. Options for future versions: strict version matching (refuse unknown versions), forward-compatible parsing (ignore unknown fields), or an explicit `kubenow policy migrate` command.
+
+---
+
+*This document describes the design for kubenow v0.2.0. All 7 PRs shipped on 2026-02-08.*
