@@ -134,11 +134,12 @@ func runLatch(cmd *cobra.Command, args []string) error {
 	// Load policy
 	mode, policyMsg := resolveMode(policyPath, ref)
 
-	// Create latch monitor
+	// Create latch monitor (filtered to target workload)
 	latchMon, err := metrics.NewLatchMonitor(kubeClient, metrics.LatchConfig{
 		SampleInterval: interval,
 		Duration:       duration,
 		Namespaces:     []string{ref.Namespace},
+		WorkloadFilter: ref.Name,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create latch monitor: %w", err)

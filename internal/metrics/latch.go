@@ -18,6 +18,7 @@ type LatchConfig struct {
 	SampleInterval time.Duration // How often to sample (e.g., 1s, 5s)
 	Duration       time.Duration // How long to monitor (e.g., 15m, 1h, 24h)
 	Namespaces     []string      // Namespaces to monitor (empty = all)
+	WorkloadFilter string        // If set, only sample this workload name (pro-monitor mode)
 }
 
 // SpikeData contains captured spike information
@@ -37,14 +38,14 @@ type SpikeData struct {
 	MemSamples   []float64 `json:"memory_samples"` // All memory samples
 
 	// Critical signals during monitoring
-	OOMKills            int               `json:"oom_kills"`             // Number of OOMKills detected
-	Restarts            int               `json:"restarts"`              // Container restarts during monitoring
-	Evictions           int               `json:"evictions"`             // Pod evictions during monitoring
-	CriticalEvents      []string          `json:"critical_events"`       // List of critical event messages
-	ThrottlingDetected  bool              `json:"throttling_detected"`   // CPU throttling detected
-	TerminationReasons  map[string]int    `json:"termination_reasons"`   // Reasons for container terminations
-	ExitCodes           map[int]int       `json:"exit_codes"`            // Exit codes and their frequencies
-	LastTerminationTime *time.Time        `json:"last_termination_time"` // When the last termination happened
+	OOMKills            int            `json:"oom_kills"`             // Number of OOMKills detected
+	Restarts            int            `json:"restarts"`              // Container restarts during monitoring
+	Evictions           int            `json:"evictions"`             // Pod evictions during monitoring
+	CriticalEvents      []string       `json:"critical_events"`       // List of critical event messages
+	ThrottlingDetected  bool           `json:"throttling_detected"`   // CPU throttling detected
+	TerminationReasons  map[string]int `json:"termination_reasons"`   // Reasons for container terminations
+	ExitCodes           map[int]int    `json:"exit_codes"`            // Exit codes and their frequencies
+	LastTerminationTime *time.Time     `json:"last_termination_time"` // When the last termination happened
 }
 
 // LatchMonitor monitors for sub-scrape-interval spikes
@@ -176,6 +177,12 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 
 		// Extract workload name from pod name (remove replica suffix)
 		workloadName := extractWorkloadName(podMetrics.Name)
+
+		// Skip if workload filter is set and doesn't match
+		if m.config.WorkloadFilter != "" && workloadName != m.config.WorkloadFilter {
+			continue
+		}
+
 		key := fmt.Sprintf("%s/%s", podMetrics.Namespace, workloadName)
 
 		// Calculate total CPU and memory for pod
@@ -488,6 +495,96 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 				}
 			}
 		}
+	}
+}
+
+// Percentiles holds computed percentile values for a sample set.
+type Percentiles struct {
+	P50 float64 `json:"p50"`
+	P95 float64 `json:"p95"`
+	P99 float64 `json:"p99"`
+	Max float64 `json:"max"`
+	Avg float64 `json:"avg"`
+}
+
+// ComputePercentiles computes p50, p95, p99, max, and avg from the CPU and memory samples.
+// Returns nil if there are no samples.
+func (d *SpikeData) ComputePercentiles() (cpu *Percentiles, mem *Percentiles) {
+	if len(d.CPUSamples) == 0 {
+		return nil, nil
+	}
+
+	cpu = computePercentiles(d.CPUSamples)
+	mem = computePercentiles(d.MemSamples)
+	return cpu, mem
+}
+
+// GapCount returns the number of expected samples that were missed.
+// A gap is defined as expectedSamples - actualSamples.
+func (d *SpikeData) GapCount(interval time.Duration) int {
+	if interval <= 0 || d.SampleCount == 0 {
+		return 0
+	}
+	duration := d.LastSeen.Sub(d.FirstSeen)
+	if duration <= 0 {
+		return 0
+	}
+	expected := int(duration/interval) + 1
+	gaps := expected - d.SampleCount
+	if gaps < 0 {
+		return 0
+	}
+	return gaps
+}
+
+func computePercentiles(samples []float64) *Percentiles {
+	n := len(samples)
+	if n == 0 {
+		return &Percentiles{}
+	}
+
+	// Sort a copy to avoid mutating the original
+	sorted := make([]float64, n)
+	copy(sorted, samples)
+	sortFloat64s(sorted)
+
+	return &Percentiles{
+		P50: percentile(sorted, 0.50),
+		P95: percentile(sorted, 0.95),
+		P99: percentile(sorted, 0.99),
+		Max: sorted[n-1],
+		Avg: calculateFloatAverage(samples),
+	}
+}
+
+func percentile(sorted []float64, p float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	if n == 1 {
+		return sorted[0]
+	}
+	idx := p * float64(n-1)
+	lower := int(idx)
+	upper := lower + 1
+	if upper >= n {
+		return sorted[n-1]
+	}
+	frac := idx - float64(lower)
+	return sorted[lower]*(1-frac) + sorted[upper]*frac
+}
+
+func sortFloat64s(a []float64) {
+	// Simple insertion sort — fast for typical latch sample sizes (<10k)
+	for i := 1; i < len(a); i++ {
+		key := a[i]
+		j := i - 1
+		for j >= 0 && a[j] > key {
+			a[j+1] = a[j]
+			j--
+		}
+		a[j+1] = key
 	}
 }
 
