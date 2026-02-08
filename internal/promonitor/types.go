@@ -105,13 +105,15 @@ type LatchEvidence struct {
 	Memory         *metrics.Percentiles `json:"memory_percentiles"`
 }
 
-// PolicyBounds holds the policy guardrails relevant to recommendation.
+// PolicyBounds holds the policy guardrails relevant to recommendation and apply.
 // Decoupled from the policy package for testability.
 type PolicyBounds struct {
 	MaxRequestDeltaPct int
 	MaxLimitDeltaPct   int
 	AllowLimitDecrease bool
 	MinSafetyRating    SafetyRating
+	MaxLatchAge        time.Duration
+	MinLatchDuration   time.Duration
 }
 
 // PolicyResult summarizes policy evaluation for a recommendation.

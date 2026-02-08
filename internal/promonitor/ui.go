@@ -41,6 +41,10 @@ var (
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("255"))
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
 )
 
 func renderView(m Model) string {
@@ -99,10 +103,26 @@ func renderView(m Model) string {
 		b.WriteString("\n")
 	}
 
+	// Apply status
+	if m.confirming {
+		b.WriteString(renderConfirmationPrompt(m))
+		b.WriteString("\n")
+	} else if m.applying {
+		b.WriteString(m.spinner.View())
+		b.WriteString(dimStyle.Render(" Applying via Server-Side Apply..."))
+		b.WriteString("\n")
+	} else if m.applyResult != nil {
+		b.WriteString(renderApplyResult(m.applyResult))
+		b.WriteString("\n")
+	}
+
 	// Key bindings
 	var keys []string
 	if m.recommendation != nil && !m.exported {
 		keys = append(keys, "e: export")
+	}
+	if m.recommendation != nil && m.mode == ModeApplyReady && m.applyResult == nil && !m.applying && !m.confirming {
+		keys = append(keys, "a: apply")
 	}
 	keys = append(keys, "q: quit")
 	b.WriteString(dimStyle.Render(strings.Join(keys, "  ")))
@@ -246,6 +266,90 @@ func renderRecommendation(rec *AlignmentRecommendation) string {
 		b.WriteString(labelStyle.Render(fmt.Sprintf("  Evidence: %d samples, %d gaps, %s latch",
 			rec.Evidence.SampleCount, rec.Evidence.Gaps, rec.Evidence.Duration.String())))
 		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+func renderConfirmationPrompt(m Model) string {
+	var b strings.Builder
+
+	b.WriteString(warnStyle.Render("--- Apply Confirmation ---"))
+	b.WriteString("\n")
+	b.WriteString(labelStyle.Render("Target: "))
+	b.WriteString(valueStyle.Render(m.workload.FullString()))
+	b.WriteString("\n")
+
+	if m.recommendation != nil {
+		for _, c := range m.recommendation.Containers {
+			b.WriteString(fmt.Sprintf("  %s: cpu %s→%s  mem %s→%s\n",
+				c.Name,
+				fmtCPU(c.Current.CPURequest), fmtCPU(c.Recommended.CPURequest),
+				fmtMem(c.Current.MemoryRequest), fmtMem(c.Recommended.MemoryRequest)))
+		}
+	}
+
+	b.WriteString(warnStyle.Render("This will trigger a rolling restart."))
+	b.WriteString("\n")
+	b.WriteString(m.confirmInput.View())
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("esc: cancel"))
+
+	return b.String()
+}
+
+func renderApplyResult(result *ApplyResult) string {
+	var b strings.Builder
+
+	if len(result.DenialReasons) > 0 {
+		b.WriteString(warnStyle.Render("Apply denied:"))
+		b.WriteString("\n")
+		for _, r := range result.DenialReasons {
+			b.WriteString(warnStyle.Render(fmt.Sprintf("  - %s", r)))
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+
+	if result.GitOpsConflict {
+		b.WriteString(errorStyle.Render("SSA conflict with GitOps controller"))
+		b.WriteString("\n")
+		b.WriteString(warnStyle.Render(fmt.Sprintf("  Field manager: %s", result.ConflictManager)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  This workload is managed by a GitOps controller."))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  Update resources via your GitOps pipeline instead."))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	if result.ConflictManager != "" {
+		b.WriteString(errorStyle.Render("SSA conflict"))
+		b.WriteString("\n")
+		b.WriteString(warnStyle.Render(fmt.Sprintf("  Conflicting field manager: %s", result.ConflictManager)))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	if result.Error != nil {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("Apply failed: %v", result.Error)))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	if result.Applied {
+		b.WriteString(okStyle.Render("Applied successfully via Server-Side Apply"))
+		b.WriteString("\n")
+
+		if len(result.Drifts) > 0 {
+			b.WriteString(warnStyle.Render("  Drift detected (webhook may have mutated values):"))
+			b.WriteString("\n")
+			for _, d := range result.Drifts {
+				b.WriteString(warnStyle.Render(fmt.Sprintf("    %s.%s: requested=%s admitted=%s",
+					d.Container, d.Field, d.Requested, d.Admitted)))
+				b.WriteString("\n")
+			}
+		}
 	}
 
 	return b.String()

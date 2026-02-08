@@ -1,9 +1,11 @@
 package promonitor
 
 import (
+	"context"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ppiankov/kubenow/internal/metrics"
 )
@@ -46,6 +48,16 @@ type Model struct {
 	exportPath  string // path to exported file
 	exportError error  // export error if any
 
+	// Apply state
+	confirming      bool            // true when confirmation prompt is active
+	confirmInput    textinput.Model // textinput for "apply" confirmation
+	applying        bool            // true while SSA patch is in flight
+	applyResult     *ApplyResult    // set after apply completes
+	hpaAcknowledged bool            // set via --acknowledge-hpa
+	kubeApplier     KubeApplier     // K8s client for SSA apply
+	policy          *PolicyBounds   // policy bounds for apply checks
+	latchTimestamp  time.Time       // when latch completed (for freshness check)
+
 	// UI state
 	spinner  spinner.Model
 	width    int
@@ -69,6 +81,11 @@ type recommendDoneMsg struct {
 type exportDoneMsg struct {
 	path string
 	err  error
+}
+
+// applyDoneMsg carries the apply result back to the model.
+type applyDoneMsg struct {
+	result *ApplyResult
 }
 
 // NewModel creates a new pro-monitor TUI model.
@@ -97,6 +114,11 @@ func (m Model) Init() tea.Cmd {
 
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// When confirming, route input to the textinput first
+	if m.confirming {
+		return m.updateConfirming(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -114,6 +136,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					path, err := ExportToFile(rec, workload)
 					return exportDoneMsg{path: path, err: err}
 				}
+			}
+		case "a":
+			if m.recommendation != nil && m.mode == ModeApplyReady && m.applyResult == nil && !m.applying {
+				// Run pre-flight checks before showing confirmation
+				input := m.buildApplyInput()
+				reasons := CheckActionable(input)
+				if len(reasons) > 0 {
+					m.applyResult = &ApplyResult{DenialReasons: reasons}
+					return m, nil
+				}
+				// Enter confirmation mode
+				ti := textinput.New()
+				ti.Placeholder = `type "apply" to confirm`
+				ti.Focus()
+				ti.CharLimit = 10
+				m.confirmInput = ti
+				m.confirming = true
+				return m, ti.Focus()
 			}
 		}
 
@@ -138,6 +178,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LatchDoneMsg:
 		m.latchDone = true
+		m.latchTimestamp = time.Now()
 		if msg.Err != nil {
 			m.err = msg.Err
 			return m, nil
@@ -170,6 +211,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case applyDoneMsg:
+		m.applying = false
+		m.applyResult = msg.result
+		return m, nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -177,6 +223,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// updateConfirming handles input while the confirmation prompt is active.
+func (m Model) updateConfirming(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyEnter:
+			if m.confirmInput.Value() == "apply" {
+				m.confirming = false
+				m.applying = true
+				return m, m.executeApplyCmd()
+			}
+			// Wrong input — cancel
+			m.confirming = false
+			return m, nil
+		case tea.KeyEsc:
+			m.confirming = false
+			return m, nil
+		case tea.KeyCtrlC:
+			m.quitting = true
+			return m, tea.Quit
+		}
+	}
+
+	// Forward to textinput
+	var cmd tea.Cmd
+	m.confirmInput, cmd = m.confirmInput.Update(msg)
+	return m, cmd
+}
+
+// buildApplyInput assembles the ApplyInput from model state.
+func (m Model) buildApplyInput() *ApplyInput {
+	return &ApplyInput{
+		Recommendation:  m.recommendation,
+		Workload:        m.workload,
+		Mode:            m.mode,
+		Policy:          m.policy,
+		HPAInfo:         m.hpaInfo,
+		HPAAcknowledged: m.hpaAcknowledged,
+		LatchTimestamp:  m.latchTimestamp,
+		LatchDuration:   m.latchDuration,
+	}
+}
+
+// executeApplyCmd returns a Cmd that runs the SSA apply in a goroutine.
+func (m Model) executeApplyCmd() tea.Cmd {
+	client := m.kubeApplier
+	input := m.buildApplyInput()
+	return func() tea.Msg {
+		result := ExecuteApply(context.Background(), client, input)
+		return applyDoneMsg{result: result}
+	}
 }
 
 // View renders the TUI — delegated to ui.go.
@@ -202,6 +301,21 @@ func (m *Model) SetPolicyBounds(b *PolicyBounds) {
 // SetInterval sets the sample interval for latch result computation.
 func (m *Model) SetInterval(d time.Duration) {
 	m.latchInterval = d
+}
+
+// SetKubeApplier sets the Kubernetes client for SSA apply.
+func (m *Model) SetKubeApplier(a KubeApplier) {
+	m.kubeApplier = a
+}
+
+// SetPolicy sets the policy bounds for apply checks.
+func (m *Model) SetPolicy(p *PolicyBounds) {
+	m.policy = p
+}
+
+// SetHPAAcknowledged sets whether the user acknowledged HPA presence.
+func (m *Model) SetHPAAcknowledged(ack bool) {
+	m.hpaAcknowledged = ack
 }
 
 func tickCmd() tea.Cmd {

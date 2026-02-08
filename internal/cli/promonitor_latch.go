@@ -16,8 +16,9 @@ import (
 )
 
 var latchConfig struct {
-	duration string
-	interval string
+	duration       string
+	interval       string
+	acknowledgeHPA bool
 }
 
 var latchCmd = &cobra.Command{
@@ -55,6 +56,7 @@ func init() {
 	proMonitorCmd.AddCommand(latchCmd)
 	latchCmd.Flags().StringVar(&latchConfig.duration, "duration", "15m", "latch duration (e.g., 15m, 1h, 24h)")
 	latchCmd.Flags().StringVar(&latchConfig.interval, "interval", "5s", "sample interval (e.g., 1s, 5s)")
+	latchCmd.Flags().BoolVar(&latchConfig.acknowledgeHPA, "acknowledge-hpa", false, "acknowledge HPA presence and allow apply despite HPA")
 }
 
 func runLatch(cmd *cobra.Command, args []string) error {
@@ -132,7 +134,7 @@ func runLatch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load policy
-	mode, policyMsg, bounds := resolveMode(policyPath, ref)
+	mode, policyMsg, bounds, loadedPolicy := resolveMode(policyPath, ref)
 
 	// Pre-fetch current container resources for recommendation
 	containers, err := promonitor.FetchContainerResources(ctx, kubeClient, ref)
@@ -163,6 +165,18 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		model.SetPolicyBounds(bounds)
 	}
 
+	// Wire apply infrastructure
+	if mode == promonitor.ModeApplyReady {
+		model.SetKubeApplier(&promonitor.ClientsetApplier{Client: kubeClient})
+		// Extend bounds with parsed durations from the full policy
+		if bounds != nil && loadedPolicy != nil {
+			bounds.MaxLatchAge = loadedPolicy.MaxLatchAgeParsed()
+			bounds.MinLatchDuration = loadedPolicy.MinLatchDurationParsed()
+		}
+		model.SetPolicy(bounds)
+	}
+	model.SetHPAAcknowledged(latchConfig.acknowledgeHPA)
+
 	// Create the TUI program first, then start the latch goroutine
 	// so it can signal completion via p.Send
 	latchCtx, latchCancel := context.WithCancel(ctx)
@@ -189,23 +203,24 @@ func runLatch(cmd *cobra.Command, args []string) error {
 }
 
 // resolveMode loads the policy and determines the operating mode.
-// Returns the mode, a human-readable status message, and optional policy bounds.
-func resolveMode(policyFile string, ref *promonitor.WorkloadRef) (promonitor.Mode, string, *promonitor.PolicyBounds) {
+// Returns the mode, a human-readable status message, optional policy bounds,
+// and the loaded policy (nil if absent/invalid).
+func resolveMode(policyFile string, ref *promonitor.WorkloadRef) (promonitor.Mode, string, *promonitor.PolicyBounds, *policy.Policy) {
 	result := policy.Load(policyFile)
 
 	if result.Absent {
-		return promonitor.ModeObserveOnly, fmt.Sprintf("none (%s)", result.Path), nil
+		return promonitor.ModeObserveOnly, fmt.Sprintf("none (%s)", result.Path), nil, nil
 	}
 
 	if result.ErrorMsg != "" {
-		return promonitor.ModeObserveOnly, fmt.Sprintf("invalid: %s", result.ErrorMsg), nil
+		return promonitor.ModeObserveOnly, fmt.Sprintf("invalid: %s", result.ErrorMsg), nil, nil
 	}
 
 	p := result.Policy
 
 	vr := policy.Validate(p)
 	if !vr.Valid {
-		return promonitor.ModeObserveOnly, fmt.Sprintf("validation failed (%d errors)", len(vr.Errors)), nil
+		return promonitor.ModeObserveOnly, fmt.Sprintf("validation failed (%d errors)", len(vr.Errors)), nil, nil
 	}
 
 	// Extract policy bounds for recommendation engine
@@ -217,16 +232,16 @@ func resolveMode(policyFile string, ref *promonitor.WorkloadRef) (promonitor.Mod
 	}
 
 	if !p.Global.Enabled {
-		return promonitor.ModeObserveOnly, "disabled (global.enabled=false)", bounds
+		return promonitor.ModeObserveOnly, "disabled (global.enabled=false)", bounds, p
 	}
 
 	if p.IsNamespaceDenied(ref.Namespace) {
-		return promonitor.ModeExportOnly, fmt.Sprintf("namespace %q denied", ref.Namespace), bounds
+		return promonitor.ModeExportOnly, fmt.Sprintf("namespace %q denied", ref.Namespace), bounds, p
 	}
 
 	if !p.Apply.Enabled {
-		return promonitor.ModeExportOnly, "suggest+export (apply.enabled=false)", bounds
+		return promonitor.ModeExportOnly, "suggest+export (apply.enabled=false)", bounds, p
 	}
 
-	return promonitor.ModeApplyReady, fmt.Sprintf("loaded from %s", result.Path), bounds
+	return promonitor.ModeApplyReady, fmt.Sprintf("loaded from %s", result.Path), bounds, p
 }
