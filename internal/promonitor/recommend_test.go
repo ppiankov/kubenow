@@ -216,6 +216,93 @@ func TestRecommend_Unsafe(t *testing.T) {
 	assert.NotNil(t, rec.Evidence)
 }
 
+func TestRecommend_UnsafeConfidence(t *testing.T) {
+	latch := &LatchResult{
+		Valid:    true,
+		Duration: 15 * time.Minute,
+		Interval: 5 * time.Second,
+		Data: &metrics.SpikeData{
+			OOMKills:    5,
+			SampleCount: 180,
+			CPUSamples:  make([]float64, 180),
+			MemSamples:  make([]float64, 180),
+		},
+		CPU:    &metrics.Percentiles{P50: 0.1, P95: 0.15, P99: 0.2, Max: 0.25, Avg: 0.12},
+		Memory: &metrics.Percentiles{P50: 1e8, P95: 1.5e8, P99: 1.8e8, Max: 2e8, Avg: 1.2e8},
+	}
+	rec := Recommend(&RecommendInput{
+		Latch:      latch,
+		Containers: []ContainerResources{{Name: "app", CPURequest: 0.1, CPULimit: 0.5, MemoryRequest: 1e8, MemoryLimit: 5e8}},
+	})
+	assert.Equal(t, SafetyRatingUnsafe, rec.Safety)
+	assert.Equal(t, ConfidenceLow, rec.Confidence)
+	assert.Empty(t, rec.Containers)
+	assert.NotEmpty(t, rec.Warnings)
+}
+
+func TestRecommend_UnsafeRestartsConfidence(t *testing.T) {
+	latch := &LatchResult{
+		Valid:    true,
+		Duration: 15 * time.Minute,
+		Interval: 5 * time.Second,
+		Data: &metrics.SpikeData{
+			Restarts:    20,
+			SampleCount: 180,
+			CPUSamples:  make([]float64, 180),
+			MemSamples:  make([]float64, 180),
+		},
+		CPU:    &metrics.Percentiles{P50: 0.1, P95: 0.15, P99: 0.2, Max: 0.25, Avg: 0.12},
+		Memory: &metrics.Percentiles{P50: 1e8, P95: 1.5e8, P99: 1.8e8, Max: 2e8, Avg: 1.2e8},
+	}
+	rec := Recommend(&RecommendInput{
+		Latch:      latch,
+		Containers: []ContainerResources{{Name: "app", CPURequest: 0.1, CPULimit: 0.5, MemoryRequest: 1e8, MemoryLimit: 5e8}},
+	})
+	assert.Equal(t, SafetyRatingUnsafe, rec.Safety)
+	assert.Equal(t, ConfidenceLow, rec.Confidence)
+	assert.Empty(t, rec.Containers)
+}
+
+func TestRecommend_UnsafeDetailWarnings(t *testing.T) {
+	latch := &LatchResult{
+		Valid:    true,
+		Duration: 15 * time.Minute,
+		Interval: 5 * time.Second,
+		Data: &metrics.SpikeData{
+			OOMKills:    7,
+			Restarts:    25,
+			Evictions:   2,
+			SampleCount: 180,
+			CPUSamples:  make([]float64, 180),
+			MemSamples:  make([]float64, 180),
+		},
+		CPU:    &metrics.Percentiles{P50: 0.1, P95: 0.15, P99: 0.2, Max: 0.25, Avg: 0.12},
+		Memory: &metrics.Percentiles{P50: 1e8, P95: 1.5e8, P99: 1.8e8, Max: 2e8, Avg: 1.2e8},
+	}
+	rec := Recommend(&RecommendInput{
+		Latch:      latch,
+		Containers: []ContainerResources{{Name: "app", CPURequest: 0.1, CPULimit: 0.5, MemoryRequest: 1e8, MemoryLimit: 5e8}},
+	})
+	found := map[string]bool{"oom": false, "restart": false, "eviction": false, "UNSAFE": false}
+	for _, w := range rec.Warnings {
+		if strings.Contains(w, "OOMKill") {
+			found["oom"] = true
+		}
+		if strings.Contains(w, "restart") {
+			found["restart"] = true
+		}
+		if strings.Contains(w, "eviction") {
+			found["eviction"] = true
+		}
+		if strings.Contains(w, "UNSAFE") {
+			found["UNSAFE"] = true
+		}
+	}
+	for key, v := range found {
+		assert.True(t, v, "missing warning for %s", key)
+	}
+}
+
 func TestRecommend_SingleContainer_Safe(t *testing.T) {
 	// Safe workload: no signals
 	data := &metrics.SpikeData{SampleCount: 180}
