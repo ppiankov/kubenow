@@ -53,11 +53,8 @@ test-*.sh
 !WORKLOADS-WITHOUT-METRICS.md
 !CI-CD-READY.md
 !MONITOR-MODE.md
+!CLAUDE.md
 
-# Claude Code — auto-generated and personal (skills/ and agents/ are committed)
+# Claude Code
+.claude/
 CLAUDE.local.md
-.claude/settings.local.json
-.claude/projects/
-.claude/todos/
-.claude/plans/
-.claude/checkpoints.log

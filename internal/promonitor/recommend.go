@@ -115,8 +115,10 @@ func Recommend(input *RecommendInput) *AlignmentRecommendation {
 	safety := ComputeSafetyRating(latch.Data)
 	result.Safety = safety
 
-	// UNSAFE: no recommendation produced
+	// UNSAFE: no recommendation produced — evidence is inherently low-confidence
+	// when the workload is actively crashing.
 	if safety == SafetyRatingUnsafe {
+		result.Confidence = ConfidenceLow
 		result.Warnings = append(result.Warnings, "safety rating UNSAFE: no recommendation produced")
 		result.Evidence = buildEvidence(latch)
 		return result
