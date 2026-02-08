@@ -36,6 +36,15 @@ type RecentEvent struct {
 	Message   string
 }
 
+// ConnectionStatus represents the cluster connection state
+type ConnectionStatus int
+
+const (
+	ConnectionUnknown     ConnectionStatus = iota // Not yet attempted
+	ConnectionOK                                  // Successfully connected
+	ConnectionUnreachable                         // Cluster unreachable
+)
+
 // ClusterStats holds cluster statistics
 type ClusterStats struct {
 	TotalPods      int
@@ -46,6 +55,8 @@ type ClusterStats struct {
 	NotReadyNodes  int
 	EventsLast5Min int
 	CriticalCount  int
+	Connection     ConnectionStatus
+	LastError      string // Last connection error message
 }
 
 // Config holds monitor configuration

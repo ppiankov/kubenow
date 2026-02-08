@@ -42,6 +42,10 @@ var (
 
 	heartbeatStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("46")) // Green
+
+	disconnectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("196")). // Bright red
+				Bold(true)
 )
 
 // Model holds the bubbletea model
@@ -259,7 +263,9 @@ func (m Model) View() string {
 	// Compact header
 	sortName := []string{"Severity", "Recency", "Count"}[m.sortMode]
 	var status string
-	if m.paused {
+	if m.stats.Connection == ConnectionUnreachable {
+		status = "DISCONNECTED"
+	} else if m.paused {
 		status = "[PAUSED]"
 	} else {
 		status = "Live"
@@ -289,8 +295,11 @@ func (m Model) View() string {
 	}
 
 	// Active problems section
-	if len(m.problems) == 0 {
-		// Healthy state
+	if m.stats.Connection == ConnectionUnreachable {
+		// Connection failure — never show false green
+		b.WriteString(m.renderDisconnected())
+	} else if len(m.problems) == 0 {
+		// Healthy state (only when connection is verified)
 		b.WriteString(m.renderHealthyState())
 	} else {
 		// Problems detected
@@ -326,6 +335,21 @@ func (m Model) renderHealthyState() string {
 	} else {
 		b.WriteString(dimStyle.Render("No recent events"))
 	}
+
+	return b.String()
+}
+
+// renderDisconnected renders the connection failure state
+func (m Model) renderDisconnected() string {
+	var b strings.Builder
+
+	b.WriteString(disconnectedStyle.Render("✗ Cluster unreachable"))
+	b.WriteString("\n")
+	if m.stats.LastError != "" {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("Error: %s", truncate(m.stats.LastError, 80))))
+		b.WriteString("\n")
+	}
+	b.WriteString(dimStyle.Render("Retrying connection..."))
 
 	return b.String()
 }
