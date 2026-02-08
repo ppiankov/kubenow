@@ -22,6 +22,8 @@ type Watcher struct {
 	stats      ClusterStats
 	mu         sync.RWMutex
 	updateChan chan struct{}
+	connStatus ConnectionStatus
+	lastErr    string
 }
 
 // NewWatcher creates a new cluster watcher
@@ -35,8 +37,23 @@ func NewWatcher(clientset *kubernetes.Clientset, config Config) *Watcher {
 	}
 }
 
-// Start begins watching cluster events and pods
+// Start begins watching cluster events and pods.
+// Performs an initial connectivity probe before starting background watchers.
 func (w *Watcher) Start(ctx context.Context) error {
+	// Probe connectivity: a lightweight server version check
+	_, err := w.clientset.Discovery().ServerVersion()
+	if err != nil {
+		w.mu.Lock()
+		w.connStatus = ConnectionUnreachable
+		w.lastErr = err.Error()
+		w.mu.Unlock()
+		// Still start watchers — they will retry and update status on recovery
+	} else {
+		w.mu.Lock()
+		w.connStatus = ConnectionOK
+		w.mu.Unlock()
+	}
+
 	// Start event watcher
 	go w.watchEvents(ctx)
 
@@ -67,7 +84,11 @@ func (w *Watcher) GetState() ([]Problem, []RecentEvent, ClusterStats) {
 	events := make([]RecentEvent, len(w.events))
 	copy(events, w.events)
 
-	return problems, events, w.stats
+	stats := w.stats
+	stats.Connection = w.connStatus
+	stats.LastError = w.lastErr
+
+	return problems, events, stats
 }
 
 // watchEvents watches Kubernetes events for problems
@@ -83,9 +104,11 @@ func (w *Watcher) watchEvents(ctx context.Context) {
 			Watch: true,
 		})
 		if err != nil {
+			w.setConnectionError(err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
+		w.setConnectionOK()
 
 		for event := range watcher.ResultChan() {
 			if event.Type == watch.Error {
@@ -117,9 +140,11 @@ func (w *Watcher) watchPods(ctx context.Context) {
 			Watch: true,
 		})
 		if err != nil {
+			w.setConnectionError(err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
+		w.setConnectionOK()
 
 		for event := range watcher.ResultChan() {
 			if event.Type == watch.Error {
@@ -359,48 +384,56 @@ func (w *Watcher) updateStats(ctx context.Context) {
 func (w *Watcher) refreshStats() {
 	// Get pod stats
 	pods, err := w.clientset.CoreV1().Pods(w.config.Namespace).List(context.Background(), metav1.ListOptions{})
-	if err == nil {
-		running := 0
-		problem := 0
-		for _, pod := range pods.Items {
-			if pod.Status.Phase == corev1.PodRunning {
-				running++
-			} else if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodPending {
-				problem++
-			}
-		}
-
-		w.mu.Lock()
-		w.stats.TotalPods = len(pods.Items)
-		w.stats.RunningPods = running
-		w.stats.ProblemPods = problem
-		w.stats.CriticalCount = len(w.problems)
-		w.mu.Unlock()
-
-		w.updateChan <- struct{}{}
+	if err != nil {
+		w.setConnectionError(err)
+		return
 	}
+
+	running := 0
+	problem := 0
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodRunning {
+			running++
+		} else if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodPending {
+			problem++
+		}
+	}
+
+	w.mu.Lock()
+	w.stats.TotalPods = len(pods.Items)
+	w.stats.RunningPods = running
+	w.stats.ProblemPods = problem
+	w.stats.CriticalCount = len(w.problems)
+	w.mu.Unlock()
+
+	w.updateChan <- struct{}{}
 
 	// Get node stats
 	nodes, err := w.clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
-	if err == nil {
-		ready := 0
-		for _, node := range nodes.Items {
-			for _, condition := range node.Status.Conditions {
-				if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
-					ready++
-					break
-				}
+	if err != nil {
+		w.setConnectionError(err)
+		return
+	}
+
+	w.setConnectionOK()
+
+	ready := 0
+	for _, node := range nodes.Items {
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
+				ready++
+				break
 			}
 		}
-
-		w.mu.Lock()
-		w.stats.TotalNodes = len(nodes.Items)
-		w.stats.ReadyNodes = ready
-		w.stats.NotReadyNodes = len(nodes.Items) - ready
-		w.mu.Unlock()
-
-		w.updateChan <- struct{}{}
 	}
+
+	w.mu.Lock()
+	w.stats.TotalNodes = len(nodes.Items)
+	w.stats.ReadyNodes = ready
+	w.stats.NotReadyNodes = len(nodes.Items) - ready
+	w.mu.Unlock()
+
+	w.updateChan <- struct{}{}
 }
 
 // cleanupOldProblems removes problems that haven't been seen in a while
@@ -415,6 +448,27 @@ func (w *Watcher) cleanupOldProblems() {
 		if now.Sub(problem.LastSeen) > maxAge {
 			delete(w.problems, key)
 		}
+	}
+}
+
+// setConnectionError records a connection failure and notifies the UI
+func (w *Watcher) setConnectionError(err error) {
+	w.mu.Lock()
+	w.connStatus = ConnectionUnreachable
+	w.lastErr = err.Error()
+	w.mu.Unlock()
+	w.updateChan <- struct{}{}
+}
+
+// setConnectionOK marks the connection as healthy
+func (w *Watcher) setConnectionOK() {
+	w.mu.Lock()
+	changed := w.connStatus != ConnectionOK
+	w.connStatus = ConnectionOK
+	w.lastErr = ""
+	w.mu.Unlock()
+	if changed {
+		w.updateChan <- struct{}{}
 	}
 }
 
