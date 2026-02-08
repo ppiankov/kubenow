@@ -82,32 +82,35 @@ jobs:
           REPO=${{ github.repository }}
           TAG=${GITHUB_REF_NAME}
 
-          CHANGELOG=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{found=0} found" CHANGELOG.md 2>/dev/null || echo "Release ${TAG}")
+          CHANGELOG=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{found=0} found" CHANGELOG.md 2>/dev/null || true)
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="Release ${TAG}"
+          fi
 
           cat > /tmp/release-body.md <<NOTES_EOF
-          ${CHANGELOG}
+${CHANGELOG}
 
-          ## Install
+## Install
 
-          \`\`\`bash
-          # macOS (Apple Silicon)
-          curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_arm64.tar.gz
-          tar -xzf ${PROJECT}_${VERSION}_darwin_arm64.tar.gz
-          sudo mv ${PROJECT} /usr/local/bin/
+\`\`\`bash
+# macOS (Apple Silicon)
+curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_arm64.tar.gz
+tar -xzf ${PROJECT}_${VERSION}_darwin_arm64.tar.gz
+sudo mv ${PROJECT} /usr/local/bin/
 
-          # macOS (Intel)
-          curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_amd64.tar.gz
-          tar -xzf ${PROJECT}_${VERSION}_darwin_amd64.tar.gz
-          sudo mv ${PROJECT} /usr/local/bin/
+# macOS (Intel)
+curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_amd64.tar.gz
+tar -xzf ${PROJECT}_${VERSION}_darwin_amd64.tar.gz
+sudo mv ${PROJECT} /usr/local/bin/
 
-          # Linux (amd64)
-          curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_linux_amd64.tar.gz
-          tar -xzf ${PROJECT}_${VERSION}_linux_amd64.tar.gz
-          sudo mv ${PROJECT} /usr/local/bin/
-          \`\`\`
+# Linux (amd64)
+curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_linux_amd64.tar.gz
+tar -xzf ${PROJECT}_${VERSION}_linux_amd64.tar.gz
+sudo mv ${PROJECT} /usr/local/bin/
+\`\`\`
 
-          **Verify checksums:** \`sha256sum -c checksums.txt\`
-          NOTES_EOF
+**Verify checksums:** \`sha256sum -c checksums.txt\`
+NOTES_EOF
 
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           cat /tmp/release-body.md >> $GITHUB_OUTPUT

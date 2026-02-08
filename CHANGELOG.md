@@ -18,6 +18,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] - 2026-02-09
+
+### Fixed
+
+#### Connection Failure False-Green Prevention
+- Monitor mode now tracks cluster connection status structurally
+- Added `ConnectionStatus` enum (`Unknown`/`OK`/`Unreachable`) to prevent false-green UI
+- All watcher goroutines propagate API errors to UI instead of swallowing them silently
+- Disconnected state shows "Cluster unreachable" with error details and retry indicator
+- Header shows `DISCONNECTED` badge when cluster is unreachable
+- Empty problems list no longer triggers "No active problems" when connection is down
+
+#### KUBECONFIG Tilde Expansion
+- `~/.kube/config` paths in KUBECONFIG now expand correctly via `expandTilde()`
+
+---
+
+## [0.2.0] - 2026-02-08
+
+### Added
+
+#### Latch Stdout Mode
+- Monitor latch output now writes to stdout for pipeline integration
+
+### Improved
+
+#### Unsafe UX Guardrails
+- Enhanced safety warnings and confirmation prompts for destructive operations
+
+### Changed
+- Removed GoReleaser in favor of standard CI release workflow
+- Release workflow builds cross-platform binaries directly
+
+---
+
 ## [0.1.13] - 2026-02-06
 
 ### Added
@@ -689,7 +724,10 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.1.12...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.1...HEAD
+- [0.2.1]: https://github.com/ppiankov/kubenow/compare/v0.2.0...v0.2.1
+- [0.2.0]: https://github.com/ppiankov/kubenow/compare/v0.1.13...v0.2.0
+- [0.1.13]: https://github.com/ppiankov/kubenow/compare/v0.1.12...v0.1.13
 - [0.1.12]: https://github.com/ppiankov/kubenow/compare/v0.1.11...v0.1.12
 - [0.1.11]: https://github.com/ppiankov/kubenow/compare/v0.1.10...v0.1.11
 - [0.1.10]: https://github.com/ppiankov/kubenow/compare/v0.1.9...v0.1.10
