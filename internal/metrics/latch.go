@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -15,10 +16,11 @@ import (
 
 // LatchConfig holds configuration for spike monitoring
 type LatchConfig struct {
-	SampleInterval time.Duration // How often to sample (e.g., 1s, 5s)
-	Duration       time.Duration // How long to monitor (e.g., 15m, 1h, 24h)
-	Namespaces     []string      // Namespaces to monitor (empty = all)
-	WorkloadFilter string        // If set, only sample this workload name (pro-monitor mode)
+	SampleInterval time.Duration    // How often to sample (e.g., 1s, 5s)
+	Duration       time.Duration    // How long to monitor (e.g., 15m, 1h, 24h)
+	Namespaces     []string         // Namespaces to monitor (empty = all)
+	WorkloadFilter string           // If set, only sample this workload name (pro-monitor mode)
+	ProgressFunc   func(msg string) // Optional progress callback. If nil, print to stderr.
 }
 
 // SpikeData contains captured spike information
@@ -90,6 +92,14 @@ func NewLatchMonitor(kubeClient *kubernetes.Clientset, config LatchConfig) (*Lat
 	}, nil
 }
 
+func (m *LatchMonitor) progress(msg string) {
+	if m.config.ProgressFunc != nil {
+		m.config.ProgressFunc(msg)
+	} else {
+		fmt.Fprintln(os.Stderr, msg)
+	}
+}
+
 // Start begins monitoring for spikes
 func (m *LatchMonitor) Start(ctx context.Context) error {
 	ticker := time.NewTicker(m.config.SampleInterval)
@@ -97,8 +107,8 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 
 	timeout := time.After(m.config.Duration)
 
-	fmt.Printf("[latch] Starting spike monitoring for %s (sampling every %s)\n",
-		m.config.Duration, m.config.SampleInterval)
+	m.progress(fmt.Sprintf("[latch] Starting spike monitoring for %s (sampling every %s)",
+		m.config.Duration, m.config.SampleInterval))
 
 	sampleCount := 0
 	expectedSamples := int(m.config.Duration / m.config.SampleInterval)
@@ -112,21 +122,21 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 			close(m.doneCh)
 			return nil
 		case <-timeout:
-			fmt.Printf("[latch] Monitoring complete. Captured %d samples.\n", sampleCount)
-			fmt.Printf("[latch] Checking for critical signals (OOMKills, restarts, evictions)...\n")
+			m.progress(fmt.Sprintf("[latch] Monitoring complete. Captured %d samples.", sampleCount))
+			m.progress(fmt.Sprintf("[latch] Checking for critical signals (OOMKills, restarts, evictions)..."))
 			m.checkAllCriticalSignals(ctx)
 			close(m.doneCh)
 			return nil
 		case <-ticker.C:
 			if err := m.sample(ctx); err != nil {
-				fmt.Printf("[latch] Sample error: %v\n", err)
+				m.progress(fmt.Sprintf("[latch] Sample error: %v", err))
 				continue
 			}
 			sampleCount++
 			// Progress indicator every 10%
 			if expectedSamples > 0 && sampleCount%(expectedSamples/10+1) == 0 {
 				progress := float64(sampleCount) / float64(expectedSamples) * 100
-				fmt.Printf("[latch] Progress: %.0f%% (%d/%d samples)\n", progress, sampleCount, expectedSamples)
+				m.progress(fmt.Sprintf("[latch] Progress: %.0f%% (%d/%d samples)", progress, sampleCount, expectedSamples))
 			}
 		}
 	}
@@ -347,7 +357,7 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 	for namespace := range namespacesMap {
 		pods, err := m.kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			fmt.Printf("[latch] Warning: failed to list pods in namespace %s: %v\n", namespace, err)
+			m.progress(fmt.Sprintf("[latch] Warning: failed to list pods in namespace %s: %v", namespace, err))
 			continue
 		}
 

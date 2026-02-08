@@ -58,3 +58,6 @@ test-*.sh
 # Claude Code
 .claude/
 CLAUDE.local.md
+
+# Codex — auto-generated and personal
+.codex/
