@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
@@ -127,4 +128,45 @@ func DetectHPA(ctx context.Context, client *kubernetes.Clientset, ref *WorkloadR
 func matchesHPATarget(hpa autoscalingv2.HorizontalPodAutoscaler, ref *WorkloadRef) bool {
 	target := hpa.Spec.ScaleTargetRef
 	return target.Name == ref.Name && target.Kind == ref.Kind
+}
+
+// FetchContainerResources reads the current resource values from the
+// workload's pod template spec.
+func FetchContainerResources(ctx context.Context, client *kubernetes.Clientset, ref *WorkloadRef) ([]ContainerResources, error) {
+	switch ref.Kind {
+	case "Deployment":
+		obj, err := client.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("cannot read deployment: %w", err)
+		}
+		return extractContainerResources(obj.Spec.Template.Spec.Containers), nil
+	case "StatefulSet":
+		obj, err := client.AppsV1().StatefulSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("cannot read statefulset: %w", err)
+		}
+		return extractContainerResources(obj.Spec.Template.Spec.Containers), nil
+	case "DaemonSet":
+		obj, err := client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("cannot read daemonset: %w", err)
+		}
+		return extractContainerResources(obj.Spec.Template.Spec.Containers), nil
+	default:
+		return nil, fmt.Errorf("unsupported kind: %s", ref.Kind)
+	}
+}
+
+func extractContainerResources(containers []corev1.Container) []ContainerResources {
+	result := make([]ContainerResources, len(containers))
+	for i, c := range containers {
+		result[i] = ContainerResources{
+			Name:          c.Name,
+			CPURequest:    c.Resources.Requests.Cpu().AsApproximateFloat64(),
+			CPULimit:      c.Resources.Limits.Cpu().AsApproximateFloat64(),
+			MemoryRequest: float64(c.Resources.Requests.Memory().Value()),
+			MemoryLimit:   float64(c.Resources.Limits.Memory().Value()),
+		}
+	}
+	return result
 }

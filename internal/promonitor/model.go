@@ -28,9 +28,18 @@ type Model struct {
 	// Latch state
 	latch         *metrics.LatchMonitor
 	latchDuration time.Duration
+	latchInterval time.Duration
 	latchStart    time.Time
 	latchDone     bool
 	sampleCount   int
+
+	// Recommendation inputs (set before TUI starts)
+	containers   []ContainerResources
+	policyBounds *PolicyBounds
+
+	// Recommendation output (set after latch completes)
+	recommendation *AlignmentRecommendation
+	computing      bool // true while recommendation is being computed
 
 	// UI state
 	spinner  spinner.Model
@@ -43,8 +52,13 @@ type Model struct {
 // tickMsg fires every second for progress updates.
 type tickMsg time.Time
 
-// latchDoneMsg signals latch completion.
-type latchDoneMsg struct{ err error }
+// LatchDoneMsg signals latch completion. Exported so the CLI can send it via p.Send.
+type LatchDoneMsg struct{ Err error }
+
+// recommendDoneMsg carries the computed recommendation back to the model.
+type recommendDoneMsg struct {
+	rec *AlignmentRecommendation
+}
 
 // NewModel creates a new pro-monitor TUI model.
 func NewModel(ref WorkloadRef, latch *metrics.LatchMonitor, duration time.Duration, mode Mode, policyMsg string, hpa *HPAInfo) Model {
@@ -102,11 +116,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickCmd()
 
-	case latchDoneMsg:
+	case LatchDoneMsg:
 		m.latchDone = true
-		if msg.err != nil {
-			m.err = msg.err
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
 		}
+		// Final sample count update
+		if m.latch != nil {
+			data := m.latch.GetSpikeData()
+			total := 0
+			for _, d := range data {
+				if d.SampleCount > total {
+					total = d.SampleCount
+				}
+			}
+			m.sampleCount = total
+		}
+		m.computing = true
+		return m, m.computeRecommendationCmd()
+
+	case recommendDoneMsg:
+		m.computing = false
+		m.recommendation = msg.rec
 		return m, nil
 
 	case spinner.TickMsg:
@@ -128,8 +160,57 @@ func (m *Model) SetLatchStart(t time.Time) {
 	m.latchStart = t
 }
 
+// SetContainers sets the current container resources for recommendation.
+func (m *Model) SetContainers(c []ContainerResources) {
+	m.containers = c
+}
+
+// SetPolicyBounds sets the policy guardrails for recommendation.
+func (m *Model) SetPolicyBounds(b *PolicyBounds) {
+	m.policyBounds = b
+}
+
+// SetInterval sets the sample interval for latch result computation.
+func (m *Model) SetInterval(d time.Duration) {
+	m.latchInterval = d
+}
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+// computeRecommendationCmd returns a Cmd that builds the latch result,
+// persists it, and runs the recommendation algorithm.
+func (m Model) computeRecommendationCmd() tea.Cmd {
+	latch := m.latch
+	workload := m.workload
+	duration := m.latchDuration
+	interval := m.latchInterval
+	containers := m.containers
+	bounds := m.policyBounds
+	hpa := m.hpaInfo
+
+	return func() tea.Msg {
+		// Get latch data for the target workload
+		var data *metrics.SpikeData
+		if latch != nil {
+			data = latch.GetWorkloadSpikeData(workload.Namespace, workload.Name)
+		}
+
+		// Build and persist latch result
+		latchResult := BuildLatchResult(workload, data, duration, interval)
+		_ = SaveLatch(latchResult) // best-effort persistence
+
+		// Run recommendation engine
+		rec := Recommend(&RecommendInput{
+			Latch:      latchResult,
+			Containers: containers,
+			Bounds:     bounds,
+			HPA:        hpa,
+		})
+
+		return recommendDoneMsg{rec: rec}
+	}
 }

@@ -35,8 +35,8 @@ The red-framed TUI shows:
   - HPA warning if detected (blocks apply unless acknowledged)
   - Policy status (observe-only, suggest+export, or suggest+export+apply)
 
-After the latch completes, recommendation data will be available for
-export or apply (in future PRs).
+After the latch completes, a resource alignment recommendation is computed
+and displayed with before/after values, safety rating, and confidence level.
 
 Examples:
   # Latch a deployment for 15 minutes
@@ -132,7 +132,16 @@ func runLatch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load policy
-	mode, policyMsg := resolveMode(policyPath, ref)
+	mode, policyMsg, bounds := resolveMode(policyPath, ref)
+
+	// Pre-fetch current container resources for recommendation
+	containers, err := promonitor.FetchContainerResources(ctx, kubeClient, ref)
+	if err != nil {
+		// Non-fatal: recommendation will still run but without current values
+		if IsVerbose() {
+			fmt.Fprintf(os.Stderr, "[pro-monitor] Warning: could not read container resources: %v\n", err)
+		}
+	}
 
 	// Create latch monitor (filtered to target workload)
 	latchMon, err := metrics.NewLatchMonitor(kubeClient, metrics.LatchConfig{
@@ -145,25 +154,30 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create latch monitor: %w", err)
 	}
 
-	// Create and run TUI
+	// Create TUI model with recommendation inputs
 	model := promonitor.NewModel(*ref, latchMon, duration, mode, policyMsg, hpa)
+	model.SetLatchStart(time.Now())
+	model.SetInterval(interval)
+	model.SetContainers(containers)
+	if bounds != nil {
+		model.SetPolicyBounds(bounds)
+	}
 
-	// Start latch in background
+	// Create the TUI program first, then start the latch goroutine
+	// so it can signal completion via p.Send
 	latchCtx, latchCancel := context.WithCancel(ctx)
 	defer latchCancel()
-
-	latchStart := time.Now()
-	model.SetLatchStart(latchStart)
-
-	go func() {
-		_ = latchMon.Start(latchCtx)
-	}()
 
 	p := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
+
+	go func() {
+		err := latchMon.Start(latchCtx)
+		p.Send(promonitor.LatchDoneMsg{Err: err})
+	}()
 
 	if _, err := p.Run(); err != nil {
 		latchCancel()
@@ -175,35 +189,44 @@ func runLatch(cmd *cobra.Command, args []string) error {
 }
 
 // resolveMode loads the policy and determines the operating mode.
-func resolveMode(policyFile string, ref *promonitor.WorkloadRef) (promonitor.Mode, string) {
+// Returns the mode, a human-readable status message, and optional policy bounds.
+func resolveMode(policyFile string, ref *promonitor.WorkloadRef) (promonitor.Mode, string, *promonitor.PolicyBounds) {
 	result := policy.Load(policyFile)
 
 	if result.Absent {
-		return promonitor.ModeObserveOnly, fmt.Sprintf("none (%s)", result.Path)
+		return promonitor.ModeObserveOnly, fmt.Sprintf("none (%s)", result.Path), nil
 	}
 
 	if result.ErrorMsg != "" {
-		return promonitor.ModeObserveOnly, fmt.Sprintf("invalid: %s", result.ErrorMsg)
+		return promonitor.ModeObserveOnly, fmt.Sprintf("invalid: %s", result.ErrorMsg), nil
 	}
 
 	p := result.Policy
 
 	vr := policy.Validate(p)
 	if !vr.Valid {
-		return promonitor.ModeObserveOnly, fmt.Sprintf("validation failed (%d errors)", len(vr.Errors))
+		return promonitor.ModeObserveOnly, fmt.Sprintf("validation failed (%d errors)", len(vr.Errors)), nil
+	}
+
+	// Extract policy bounds for recommendation engine
+	bounds := &promonitor.PolicyBounds{
+		MaxRequestDeltaPct: p.Apply.MaxRequestDeltaPct,
+		MaxLimitDeltaPct:   p.Apply.MaxLimitDeltaPct,
+		AllowLimitDecrease: p.Apply.AllowLimitDecrease,
+		MinSafetyRating:    promonitor.ParseSafetyRating(p.Apply.MinSafetyRating),
 	}
 
 	if !p.Global.Enabled {
-		return promonitor.ModeObserveOnly, "disabled (global.enabled=false)"
+		return promonitor.ModeObserveOnly, "disabled (global.enabled=false)", bounds
 	}
 
 	if p.IsNamespaceDenied(ref.Namespace) {
-		return promonitor.ModeExportOnly, fmt.Sprintf("namespace %q denied", ref.Namespace)
+		return promonitor.ModeExportOnly, fmt.Sprintf("namespace %q denied", ref.Namespace), bounds
 	}
 
 	if !p.Apply.Enabled {
-		return promonitor.ModeExportOnly, "suggest+export (apply.enabled=false)"
+		return promonitor.ModeExportOnly, "suggest+export (apply.enabled=false)", bounds
 	}
 
-	return promonitor.ModeApplyReady, fmt.Sprintf("loaded from %s", result.Path)
+	return promonitor.ModeApplyReady, fmt.Sprintf("loaded from %s", result.Path), bounds
 }

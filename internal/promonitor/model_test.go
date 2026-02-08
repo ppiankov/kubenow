@@ -98,3 +98,55 @@ func TestFormatDuration(t *testing.T) {
 		assert.Equal(t, tt.want, formatDuration(tt.d))
 	}
 }
+
+func TestModel_Update_LatchDone(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
+
+	updated, cmd := m.Update(LatchDoneMsg{Err: nil})
+	model := updated.(Model)
+	assert.True(t, model.latchDone)
+	assert.True(t, model.computing)
+	assert.NotNil(t, cmd) // computeRecommendationCmd
+}
+
+func TestModel_Update_RecommendDone(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
+	m.computing = true
+
+	rec := &AlignmentRecommendation{
+		Safety:     SafetyRatingSafe,
+		Confidence: ConfidenceLow,
+	}
+	updated, _ := m.Update(recommendDoneMsg{rec: rec})
+	model := updated.(Model)
+	assert.False(t, model.computing)
+	assert.NotNil(t, model.recommendation)
+	assert.Equal(t, SafetyRatingSafe, model.recommendation.Safety)
+}
+
+func TestModel_View_WithRecommendation(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
+	m.latchDone = true
+	m.width = 100
+	m.height = 40
+	m.recommendation = &AlignmentRecommendation{
+		Safety:     SafetyRatingCaution,
+		Confidence: ConfidenceLow,
+		Containers: []ContainerAlignment{
+			{
+				Name:        "api",
+				Current:     ResourceValues{CPURequest: 0.1, CPULimit: 0.5, MemoryRequest: 128e6, MemoryLimit: 512e6},
+				Recommended: ResourceValues{CPURequest: 0.13, CPULimit: 0.35, MemoryRequest: 200e6, MemoryLimit: 400e6},
+				Delta:       ResourceDelta{CPURequestPercent: 30, CPULimitPercent: -30, MemoryRequestPercent: 56, MemoryLimitPercent: -22},
+			},
+		},
+	}
+
+	view := m.View()
+	assert.Contains(t, view, "Recommendation")
+	assert.Contains(t, view, "CAUTION")
+	assert.Contains(t, view, "Container: api")
+}
