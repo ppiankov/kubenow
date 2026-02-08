@@ -21,11 +21,11 @@ type Baseline struct {
 type DriftReport struct {
 	BaselineTime time.Time       `json:"baseline_time"`
 	CurrentTime  time.Time       `json:"current_time"`
-	New          []WorkloadDrift `json:"new"`           // New workloads
-	Removed      []WorkloadDrift `json:"removed"`       // Removed workloads
-	Improved     []WorkloadDrift `json:"improved"`      // Better now
-	Degraded     []WorkloadDrift `json:"degraded"`      // Worse now
-	Unchanged    []WorkloadDrift `json:"unchanged"`     // No significant change
+	New          []WorkloadDrift `json:"new"`       // New workloads
+	Removed      []WorkloadDrift `json:"removed"`   // Removed workloads
+	Improved     []WorkloadDrift `json:"improved"`  // Better now
+	Degraded     []WorkloadDrift `json:"degraded"`  // Worse now
+	Unchanged    []WorkloadDrift `json:"unchanged"` // No significant change
 	Summary      DriftSummary    `json:"summary"`
 }
 
@@ -116,12 +116,12 @@ func CompareToBaseline(baseline *Baseline, current *analyzer.RequestsSkewResult)
 		if base, exists := baselineMap[key]; exists {
 			// Workload exists in both - check for changes
 			drift := WorkloadDrift{
-				Namespace:      curr.Namespace,
-				Workload:       curr.Workload,
-				Type:           curr.Type,
-				BaselineSkew:   base.SkewCPU,
-				CurrentSkew:    curr.SkewCPU,
-				SkewChange:     curr.SkewCPU - base.SkewCPU,
+				Namespace:    curr.Namespace,
+				Workload:     curr.Workload,
+				Type:         curr.Type,
+				BaselineSkew: base.SkewCPU,
+				CurrentSkew:  curr.SkewCPU,
+				SkewChange:   curr.SkewCPU - base.SkewCPU,
 			}
 
 			if base.Safety != nil {
@@ -222,7 +222,7 @@ func isDegraded(base, curr analyzer.WorkloadSkewAnalysis) bool {
 	// New OOMKills or crashes
 	if base.Safety != nil && curr.Safety != nil {
 		if curr.Safety.OOMKills > base.Safety.OOMKills ||
-		   curr.Safety.Restarts > base.Safety.Restarts {
+			curr.Safety.Restarts > base.Safety.Restarts {
 			return true
 		}
 	}

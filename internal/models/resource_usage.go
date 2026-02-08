@@ -63,19 +63,19 @@ type SkewMetrics struct {
 type SafetyRating string
 
 const (
-	SafetyRatingSafe     SafetyRating = "SAFE"      // No issues detected, recommendation safe
-	SafetyRatingCaution  SafetyRating = "CAUTION"   // Minor concerns, proceed carefully
-	SafetyRatingRisky    SafetyRating = "RISKY"     // Significant concerns, needs review
-	SafetyRatingUnsafe   SafetyRating = "UNSAFE"    // Critical issues, do not reduce resources
-	SafetyRatingUnknown  SafetyRating = "UNKNOWN"   // Insufficient data to determine safety
+	SafetyRatingSafe    SafetyRating = "SAFE"    // No issues detected, recommendation safe
+	SafetyRatingCaution SafetyRating = "CAUTION" // Minor concerns, proceed carefully
+	SafetyRatingRisky   SafetyRating = "RISKY"   // Significant concerns, needs review
+	SafetyRatingUnsafe  SafetyRating = "UNSAFE"  // Critical issues, do not reduce resources
+	SafetyRatingUnknown SafetyRating = "UNKNOWN" // Insufficient data to determine safety
 )
 
 // SafetyAnalysis contains spike detection and stability metrics
 type SafetyAnalysis struct {
 	// Failure indicators
-	OOMKills            int     `json:"oom_kills"`              // OOM kills in time window
-	Restarts            int     `json:"restarts"`               // Container restarts in time window
-	CrashLoopBackOff    bool    `json:"crash_loop_backoff"`     // Currently in crash loop
+	OOMKills             int    `json:"oom_kills"`              // OOM kills in time window
+	Restarts             int    `json:"restarts"`               // Container restarts in time window
+	CrashLoopBackOff     bool   `json:"crash_loop_backoff"`     // Currently in crash loop
 	LastTerminatedReason string `json:"last_terminated_reason"` // Last termination reason
 
 	// CPU metrics
@@ -83,24 +83,24 @@ type SafetyAnalysis struct {
 	CPUThrottledPercent float64 `json:"cpu_throttled_percent"` // Percent of time throttled
 
 	// Spike detection
-	CPUP999            float64 `json:"cpu_p999"`              // 99.9th percentile CPU
-	MemoryP999         float64 `json:"memory_p999"`           // 99.9th percentile memory
-	CPUSpikeCount      int     `json:"cpu_spike_count"`       // Number of times usage > 2x avg
-	MemorySpikeCount   int     `json:"memory_spike_count"`    // Number of times usage > 2x avg
-	MaxCPUSpike        float64 `json:"max_cpu_spike"`         // Largest CPU spike (ratio)
-	MaxMemorySpike     float64 `json:"max_memory_spike"`      // Largest memory spike (ratio)
+	CPUP999          float64 `json:"cpu_p999"`           // 99.9th percentile CPU
+	MemoryP999       float64 `json:"memory_p999"`        // 99.9th percentile memory
+	CPUSpikeCount    int     `json:"cpu_spike_count"`    // Number of times usage > 2x avg
+	MemorySpikeCount int     `json:"memory_spike_count"` // Number of times usage > 2x avg
+	MaxCPUSpike      float64 `json:"max_cpu_spike"`      // Largest CPU spike (ratio)
+	MaxMemorySpike   float64 `json:"max_memory_spike"`   // Largest memory spike (ratio)
 
 	// Ultra-spike detection (sub-scrape-interval bursts)
-	UltraSpikeLikely    bool    `json:"ultra_spike_likely"`     // Statistical detection of sub-second spikes
-	UltraSpikeRatio     float64 `json:"ultra_spike_ratio"`      // max/p99 ratio (>3.0 suggests ultra-spikes)
-	WorkloadPatternAI   bool    `json:"workload_pattern_ai"`    // Detected AI/inference workload pattern
+	UltraSpikeLikely    bool     `json:"ultra_spike_likely"`    // Statistical detection of sub-second spikes
+	UltraSpikeRatio     float64  `json:"ultra_spike_ratio"`     // max/p99 ratio (>3.0 suggests ultra-spikes)
+	WorkloadPatternAI   bool     `json:"workload_pattern_ai"`   // Detected AI/inference workload pattern
 	WorkloadPatternTags []string `json:"workload_pattern_tags"` // Tags like "llm", "rag", "inference"
 
 	// Safety assessment
-	Rating      SafetyRating `json:"rating"`       // Overall safety rating
-	Warnings    []string     `json:"warnings"`     // Human-readable warnings
-	Reasons     []string     `json:"reasons"`      // Reasons for rating
-	SafeMargin  float64      `json:"safe_margin"`  // Recommended safety margin (e.g., 1.5x = 50% headroom)
+	Rating     SafetyRating `json:"rating"`      // Overall safety rating
+	Warnings   []string     `json:"warnings"`    // Human-readable warnings
+	Reasons    []string     `json:"reasons"`     // Reasons for rating
+	SafeMargin float64      `json:"safe_margin"` // Recommended safety margin (e.g., 1.5x = 50% headroom)
 }
 
 // IsHealthy returns true if no critical issues are detected

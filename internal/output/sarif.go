@@ -12,9 +12,9 @@ import (
 // SARIF represents the SARIF 2.1.0 format for static analysis results
 // Spec: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 type SARIF struct {
-	Schema  string  `json:"$schema"`
-	Version string  `json:"version"`
-	Runs    []Run   `json:"runs"`
+	Schema  string `json:"$schema"`
+	Version string `json:"version"`
+	Runs    []Run  `json:"runs"`
 }
 
 type Run struct {
@@ -35,20 +35,20 @@ type Driver struct {
 }
 
 type Rule struct {
-	ID               string           `json:"id"`
-	Name             string           `json:"name"`
-	ShortDescription MessageString    `json:"shortDescription"`
-	FullDescription  MessageString    `json:"fullDescription"`
-	Help             MessageString    `json:"help"`
-	DefaultLevel     string           `json:"defaultConfiguration.level"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	ShortDescription MessageString          `json:"shortDescription"`
+	FullDescription  MessageString          `json:"fullDescription"`
+	Help             MessageString          `json:"help"`
+	DefaultLevel     string                 `json:"defaultConfiguration.level"`
 	Properties       map[string]interface{} `json:"properties,omitempty"`
 }
 
 type Result struct {
-	RuleID    string        `json:"ruleId"`
-	Level     string        `json:"level"`
-	Message   MessageString `json:"message"`
-	Locations []Location    `json:"locations,omitempty"`
+	RuleID     string                 `json:"ruleId"`
+	Level      string                 `json:"level"`
+	Message    MessageString          `json:"message"`
+	Locations  []Location             `json:"locations,omitempty"`
 	Properties map[string]interface{} `json:"properties,omitempty"`
 }
 
@@ -256,14 +256,14 @@ func convertRequestsSkewToResults(result *analyzer.RequestsSkewResult) []Result 
 				},
 			},
 			Properties: map[string]interface{}{
-				"namespace":      w.Namespace,
-				"workload":       w.Workload,
-				"type":           w.Type,
-				"requested_cpu":  w.RequestedCPU,
-				"p99_used_cpu":   w.P99UsedCPU,
-				"skew_ratio":     w.SkewCPU,
-				"impact_score":   w.ImpactScore,
-				"runtime":        w.Runtime,
+				"namespace":     w.Namespace,
+				"workload":      w.Workload,
+				"type":          w.Type,
+				"requested_cpu": w.RequestedCPU,
+				"p99_used_cpu":  w.P99UsedCPU,
+				"skew_ratio":    w.SkewCPU,
+				"impact_score":  w.ImpactScore,
+				"runtime":       w.Runtime,
 			},
 		}
 
@@ -310,14 +310,14 @@ func convertMonitorToResults(problems []monitor.Problem) []Result {
 				},
 			},
 			Properties: map[string]interface{}{
-				"namespace":      p.Namespace,
-				"pod":            p.PodName,
-				"container":      p.ContainerName,
-				"severity":       string(p.Severity),
-				"type":           p.Type,
-				"count":          p.Count,
-				"first_seen":     p.FirstSeen.Format(time.RFC3339),
-				"last_seen":      p.LastSeen.Format(time.RFC3339),
+				"namespace":  p.Namespace,
+				"pod":        p.PodName,
+				"container":  p.ContainerName,
+				"severity":   string(p.Severity),
+				"type":       p.Type,
+				"count":      p.Count,
+				"first_seen": p.FirstSeen.Format(time.RFC3339),
+				"last_seen":  p.LastSeen.Format(time.RFC3339),
 			},
 		}
 
