@@ -2,20 +2,13 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main]
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [main]
 
 permissions:
   contents: read
   security-events: write
-
-env:
-  GOTOOLCHAIN: auto
 
 jobs:
   test:
@@ -23,61 +16,39 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.23']
-
+        go-version: ['1.24', '1.25']
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
-          cache: true
-
-      - name: Download dependencies
-        run: |
-          go mod download
-          go mod verify
-
-      - name: Run tests
-        run: make test
-
+      - run: make deps
+      - run: make test
       - name: Generate coverage report
-        if: matrix.go-version == '1.23'
+        if: matrix.go-version == '1.25'
         run: make test-coverage
-
       - name: Upload coverage to Codecov
-        if: matrix.go-version == '1.23'
+        if: matrix.go-version == '1.25'
         uses: codecov/codecov-action@v3
         with:
           files: ./coverage.out
           flags: unittests
           name: codecov-kubenow
 
-  # lint:
-  #   name: Lint
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #     - name: Set up Go
-  #       uses: actions/setup-go@v5
-  #       with:
-  #         go-version: '1.23'
-  #         cache: true
-  #     - name: Download dependencies
-  #       run: |
-  #         go mod download
-  #         go mod verify
-  #     - name: Run golangci-lint
-  #       uses: golangci/golangci-lint-action@v4
-  #       with:
-  #         version: latest
-  #         args: --timeout=5m
-  #         skip-cache: true
-  # TODO: Re-enable linting once Go version compatibility is resolved
-  # k8s.io v0.35 requires Go 1.25, golangci-lint built with Go 1.24
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.8.0
+          args: --timeout=5m
+      - run: make fmt
+      - run: git diff --exit-code
 
   build:
     name: Build
@@ -96,17 +67,11 @@ jobs:
             arch: arm64
           - os: windows
             arch: amd64
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
-          cache: true
-
+          go-version: '1.25'
       - name: Build binary
         run: |
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} make build
@@ -115,9 +80,7 @@ jobs:
           else
             mv bin/kubenow bin/kubenow-${{ matrix.os }}-${{ matrix.arch }}
           fi
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: kubenow-${{ matrix.os }}-${{ matrix.arch }}
           path: bin/kubenow-*
@@ -126,21 +89,17 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: trivy-results.sarif
