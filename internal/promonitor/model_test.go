@@ -149,4 +149,58 @@ func TestModel_View_WithRecommendation(t *testing.T) {
 	assert.Contains(t, view, "Recommendation")
 	assert.Contains(t, view, "CAUTION")
 	assert.Contains(t, view, "Container: api")
+	assert.Contains(t, view, "e: export")
+}
+
+func TestModel_Update_ExportKey_NoRecommendation(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
+
+	// 'e' before recommendation should be a no-op
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	assert.Nil(t, cmd)
+}
+
+func TestModel_Update_ExportKey_WithRecommendation(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
+	m.recommendation = &AlignmentRecommendation{
+		Workload:   ref,
+		Safety:     SafetyRatingSafe,
+		Confidence: ConfidenceHigh,
+	}
+
+	// 'e' with recommendation should return a command
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	assert.NotNil(t, cmd)
+}
+
+func TestModel_Update_ExportDone(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
+
+	updated, _ := m.Update(exportDoneMsg{path: "/tmp/test.yaml", err: nil})
+	model := updated.(Model)
+	assert.True(t, model.exported)
+	assert.Equal(t, "/tmp/test.yaml", model.exportPath)
+	assert.Nil(t, model.exportError)
+}
+
+func TestModel_View_ExportedStatus(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
+	m.width = 100
+	m.height = 40
+	m.exported = true
+	m.exportPath = "kubenow-patch-deployment-api.yaml"
+	m.recommendation = &AlignmentRecommendation{
+		Safety:     SafetyRatingSafe,
+		Confidence: ConfidenceHigh,
+	}
+
+	view := m.View()
+	assert.Contains(t, view, "Exported to")
+	assert.Contains(t, view, "kubenow-patch-deployment-api.yaml")
+	// Export key should not be shown after export
+	assert.NotContains(t, view, "e: export")
 }

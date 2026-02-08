@@ -90,8 +90,22 @@ func renderView(m Model) string {
 
 	b.WriteString("\n\n")
 
+	// Export status
+	if m.exported {
+		b.WriteString(okStyle.Render(fmt.Sprintf("Exported to %s", m.exportPath)))
+		b.WriteString("\n")
+	} else if m.exportError != nil {
+		b.WriteString(warnStyle.Render(fmt.Sprintf("Export failed: %v", m.exportError)))
+		b.WriteString("\n")
+	}
+
 	// Key bindings
-	b.WriteString(dimStyle.Render("q: quit"))
+	var keys []string
+	if m.recommendation != nil && !m.exported {
+		keys = append(keys, "e: export")
+	}
+	keys = append(keys, "q: quit")
+	b.WriteString(dimStyle.Render(strings.Join(keys, "  ")))
 
 	// Error display
 	if m.err != nil {

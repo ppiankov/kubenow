@@ -41,6 +41,11 @@ type Model struct {
 	recommendation *AlignmentRecommendation
 	computing      bool // true while recommendation is being computed
 
+	// Export state
+	exported    bool   // true after successful export
+	exportPath  string // path to exported file
+	exportError error  // export error if any
+
 	// UI state
 	spinner  spinner.Model
 	width    int
@@ -58,6 +63,12 @@ type LatchDoneMsg struct{ Err error }
 // recommendDoneMsg carries the computed recommendation back to the model.
 type recommendDoneMsg struct {
 	rec *AlignmentRecommendation
+}
+
+// exportDoneMsg signals that the TUI export completed.
+type exportDoneMsg struct {
+	path string
+	err  error
 }
 
 // NewModel creates a new pro-monitor TUI model.
@@ -95,6 +106,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.latch.Stop()
 			}
 			return m, tea.Quit
+		case "e":
+			if m.recommendation != nil && !m.exported {
+				rec := m.recommendation
+				workload := m.workload
+				return m, func() tea.Msg {
+					path, err := ExportToFile(rec, workload)
+					return exportDoneMsg{path: path, err: err}
+				}
+			}
 		}
 
 	case tea.WindowSizeMsg:
@@ -139,6 +159,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recommendDoneMsg:
 		m.computing = false
 		m.recommendation = msg.rec
+		return m, nil
+
+	case exportDoneMsg:
+		if msg.err != nil {
+			m.exportError = msg.err
+		} else {
+			m.exported = true
+			m.exportPath = msg.path
+		}
 		return m, nil
 
 	case spinner.TickMsg:
