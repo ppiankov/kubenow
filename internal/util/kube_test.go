@@ -14,7 +14,7 @@ func TestExpandTilde_WithTilde(t *testing.T) {
 	require.NoError(t, err)
 
 	result := expandTilde("~/.kube/config")
-	assert.Equal(t, filepath.Join(home, ".kube/config"), result)
+	assert.Equal(t, filepath.Join(home, ".kube", "config"), result)
 }
 
 func TestExpandTilde_WithoutTilde(t *testing.T) {
