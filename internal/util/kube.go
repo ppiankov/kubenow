@@ -5,11 +5,26 @@ package util
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// expandTilde replaces a leading ~ with the user's home directory.
+// Returns the path unchanged if it doesn't start with ~/.
+func expandTilde(path string) string {
+	if !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[2:])
+}
 
 // BuildRestConfig builds a Kubernetes rest config.
 //
@@ -24,12 +39,13 @@ func BuildRestConfig(kubeconfig string) (*rest.Config, error) {
 	)
 
 	if kubeconfig != "" {
-		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		cfg, err = clientcmd.BuildConfigFromFlags("", expandTilde(kubeconfig))
 		if err != nil {
 			return nil, fmt.Errorf("build config from kubeconfig=%s: %w", kubeconfig, err)
 		}
 	} else if env := os.Getenv("KUBECONFIG"); env != "" {
-		cfg, err = clientcmd.BuildConfigFromFlags("", env)
+		expanded := expandTilde(env)
+		cfg, err = clientcmd.BuildConfigFromFlags("", expanded)
 		if err != nil {
 			return nil, fmt.Errorf("build config from $KUBECONFIG=%s: %w", env, err)
 		}
