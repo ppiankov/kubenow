@@ -1,6 +1,7 @@
 package promonitor
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -203,7 +204,14 @@ func TestRecommend_Unsafe(t *testing.T) {
 	})
 
 	assert.Equal(t, SafetyRatingUnsafe, rec.Safety)
-	assert.Contains(t, rec.Warnings[0], "UNSAFE")
+	foundUnsafe := false
+	for _, warning := range rec.Warnings {
+		if strings.Contains(warning, "UNSAFE") {
+			foundUnsafe = true
+			break
+		}
+	}
+	assert.True(t, foundUnsafe)
 	assert.Empty(t, rec.Containers)
 	assert.NotNil(t, rec.Evidence)
 }

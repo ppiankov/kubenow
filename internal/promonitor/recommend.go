@@ -119,6 +119,20 @@ func Recommend(input *RecommendInput) *AlignmentRecommendation {
 	// when the workload is actively crashing.
 	if safety == SafetyRatingUnsafe {
 		result.Confidence = ConfidenceLow
+		if latch.Data != nil {
+			if latch.Data.OOMKills > 0 {
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("observed %d OOMKill(s) during latch", latch.Data.OOMKills))
+			}
+			if latch.Data.Restarts > 0 {
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("observed %d container restart(s) during latch", latch.Data.Restarts))
+			}
+			if latch.Data.Evictions > 0 {
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("observed %d pod eviction(s) during latch", latch.Data.Evictions))
+			}
+		}
 		result.Warnings = append(result.Warnings, "safety rating UNSAFE: no recommendation produced")
 		result.Evidence = buildEvidence(latch)
 		return result
