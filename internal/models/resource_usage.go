@@ -62,6 +62,7 @@ type SkewMetrics struct {
 // SafetyRating represents the safety level of a resource recommendation
 type SafetyRating string
 
+// SafetyRating values ordered by severity.
 const (
 	SafetyRatingSafe    SafetyRating = "SAFE"    // No issues detected, recommendation safe
 	SafetyRatingCaution SafetyRating = "CAUTION" // Minor concerns, proceed carefully
