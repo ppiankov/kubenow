@@ -59,6 +59,12 @@ type LatchMonitor struct {
 	mu            sync.RWMutex
 	stopCh        chan struct{}
 	doneCh        chan struct{}
+
+	// restartBaseline records restart counts at latch start so that
+	// checkAllCriticalSignals only reports restarts that occurred during
+	// the latch window, not historical restarts from before monitoring.
+	// Key: "namespace/pod/container"
+	restartBaseline map[string]int32
 }
 
 // NewLatchMonitor creates a new spike monitor
@@ -102,6 +108,10 @@ func (m *LatchMonitor) progress(msg string) {
 
 // Start begins monitoring for spikes
 func (m *LatchMonitor) Start(ctx context.Context) error {
+	// Snapshot restart counts before monitoring so we only report
+	// restarts that happen during the latch window.
+	m.recordRestartBaseline(ctx)
+
 	ticker := time.NewTicker(m.config.SampleInterval)
 	defer ticker.Stop()
 
@@ -146,6 +156,46 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 func (m *LatchMonitor) Stop() {
 	close(m.stopCh)
 	<-m.doneCh
+}
+
+// recordRestartBaseline snapshots current restart counts for all pods
+// in the monitored namespaces. Called once at the start of Start().
+func (m *LatchMonitor) recordRestartBaseline(ctx context.Context) {
+	m.restartBaseline = make(map[string]int32)
+
+	namespaces := m.config.Namespaces
+	if len(namespaces) == 0 {
+		return // all-namespace mode; baseline will be empty, delta falls back to total
+	}
+
+	for _, ns := range namespaces {
+		pods, err := m.kubeClient.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			continue
+		}
+		for _, pod := range pods.Items {
+			for _, cs := range pod.Status.ContainerStatuses {
+				key := fmt.Sprintf("%s/%s/%s", pod.Namespace, pod.Name, cs.Name)
+				m.restartBaseline[key] = cs.RestartCount
+			}
+		}
+	}
+}
+
+// restartDelta returns the number of restarts that occurred since the
+// baseline was recorded. If no baseline exists for this container,
+// falls back to the full restart count (conservative).
+func (m *LatchMonitor) restartDelta(namespace, podName, containerName string, current int32) int32 {
+	key := fmt.Sprintf("%s/%s/%s", namespace, podName, containerName)
+	baseline, ok := m.restartBaseline[key]
+	if !ok {
+		return current
+	}
+	delta := current - baseline
+	if delta < 0 {
+		return current // pod was recreated; use full count
+	}
+	return delta
 }
 
 // sample takes a single metrics sample
@@ -424,12 +474,13 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 					}
 				}
 
-				// Track restarts
-				if containerStatus.RestartCount > 0 {
-					data.Restarts = int(containerStatus.RestartCount)
-					if containerStatus.RestartCount > 5 {
-						event := fmt.Sprintf("High restart count: container %s has %d restarts",
-							containerStatus.Name, containerStatus.RestartCount)
+				// Track restarts that occurred during the latch window only
+				delta := m.restartDelta(pod.Namespace, pod.Name, containerStatus.Name, containerStatus.RestartCount)
+				if delta > 0 {
+					data.Restarts += int(delta)
+					if delta > 5 {
+						event := fmt.Sprintf("High restart count: container %s had %d restarts during latch",
+							containerStatus.Name, delta)
 						data.CriticalEvents = append(data.CriticalEvents, event)
 					}
 				}

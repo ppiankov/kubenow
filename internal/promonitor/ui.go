@@ -262,8 +262,13 @@ func renderRecommendation(rec *AlignmentRecommendation) string {
 
 		b.WriteString(renderResourceLine("CPU req", c.Current.CPURequest, c.Recommended.CPURequest, c.Delta.CPURequestPercent, fmtCPU))
 		b.WriteString(renderResourceLine("CPU lim", c.Current.CPULimit, c.Recommended.CPULimit, c.Delta.CPULimitPercent, fmtCPU))
-		b.WriteString(renderResourceLine("MEM req", c.Current.MemoryRequest, c.Recommended.MemoryRequest, c.Delta.MemoryRequestPercent, fmtMem))
-		b.WriteString(renderResourceLine("MEM lim", c.Current.MemoryLimit, c.Recommended.MemoryLimit, c.Delta.MemoryLimitPercent, fmtMem))
+		// Only show MEM rows when at least one side has a value set
+		if c.Current.MemoryRequest > 0 || c.Recommended.MemoryRequest > 0 {
+			b.WriteString(renderResourceLine("MEM req", c.Current.MemoryRequest, c.Recommended.MemoryRequest, c.Delta.MemoryRequestPercent, fmtMem))
+		}
+		if c.Current.MemoryLimit > 0 || c.Recommended.MemoryLimit > 0 {
+			b.WriteString(renderResourceLine("MEM lim", c.Current.MemoryLimit, c.Recommended.MemoryLimit, c.Delta.MemoryLimitPercent, fmtMem))
+		}
 	}
 
 	// Evidence

@@ -66,3 +66,39 @@ func TestFmtDelta(t *testing.T) {
 	assert.Equal(t, "-20%", fmtDelta(-20))
 	assert.Equal(t, "0%", fmtDelta(0))
 }
+
+func TestRenderRecommendation_SkipsZeroMemRows(t *testing.T) {
+	rec := &AlignmentRecommendation{
+		Safety:     SafetyRatingSafe,
+		Confidence: ConfidenceHigh,
+		Containers: []ContainerAlignment{{
+			Name:        "wiki",
+			Current:     ResourceValues{CPURequest: 0.05, CPULimit: 0.5, MemoryRequest: 0, MemoryLimit: 0},
+			Recommended: ResourceValues{CPURequest: 0.035, CPULimit: 0.5, MemoryRequest: 0, MemoryLimit: 0},
+			Delta:       ResourceDelta{CPURequestPercent: -30, CPULimitPercent: 0, MemoryRequestPercent: 0, MemoryLimitPercent: 0},
+		}},
+		Evidence: &LatchEvidence{Duration: 15 * time.Minute, SampleCount: 64},
+	}
+	output := renderRecommendation(rec)
+	assert.Contains(t, output, "CPU req")
+	assert.Contains(t, output, "CPU lim")
+	assert.NotContains(t, output, "MEM req")
+	assert.NotContains(t, output, "MEM lim")
+}
+
+func TestRenderRecommendation_ShowsMemWhenSet(t *testing.T) {
+	rec := &AlignmentRecommendation{
+		Safety:     SafetyRatingSafe,
+		Confidence: ConfidenceHigh,
+		Containers: []ContainerAlignment{{
+			Name:        "api",
+			Current:     ResourceValues{CPURequest: 0.1, CPULimit: 0.5, MemoryRequest: 128 * 1024 * 1024, MemoryLimit: 512 * 1024 * 1024},
+			Recommended: ResourceValues{CPURequest: 0.15, CPULimit: 0.6, MemoryRequest: 192 * 1024 * 1024, MemoryLimit: 512 * 1024 * 1024},
+			Delta:       ResourceDelta{CPURequestPercent: 50, CPULimitPercent: 20, MemoryRequestPercent: 50, MemoryLimitPercent: 0},
+		}},
+		Evidence: &LatchEvidence{Duration: 15 * time.Minute, SampleCount: 180},
+	}
+	output := renderRecommendation(rec)
+	assert.Contains(t, output, "MEM req")
+	assert.Contains(t, output, "MEM lim")
+}
