@@ -341,6 +341,8 @@ func buildSSAPatchJSON(rec *AlignmentRecommendation) ([]byte, error) {
 		}
 	}
 
+	annotation := buildApplyAnnotation(rec)
+
 	apiVersion := "apps/v1"
 	doc := ssaPatchDoc{
 		APIVersion: apiVersion,
@@ -348,6 +350,9 @@ func buildSSAPatchJSON(rec *AlignmentRecommendation) ([]byte, error) {
 		Metadata: ssaMetadata{
 			Name:      rec.Workload.Name,
 			Namespace: rec.Workload.Namespace,
+			Annotations: map[string]string{
+				"kubenow.dev/last-apply": annotation,
+			},
 		},
 		Spec: ssaSpec{
 			Template: ssaTemplate{
@@ -361,6 +366,22 @@ func buildSSAPatchJSON(rec *AlignmentRecommendation) ([]byte, error) {
 	return json.Marshal(doc)
 }
 
+// buildApplyAnnotation creates a human-readable summary of the apply.
+func buildApplyAnnotation(rec *AlignmentRecommendation) string {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	var parts []string
+	for _, c := range rec.Containers {
+		parts = append(parts, fmt.Sprintf("%s: cpu-req %s→%s, cpu-lim %s→%s, mem-req %s→%s, mem-lim %s→%s",
+			c.Name,
+			formatCPUResource(c.Current.CPURequest), formatCPUResource(c.Recommended.CPURequest),
+			formatCPUResource(c.Current.CPULimit), formatCPUResource(c.Recommended.CPULimit),
+			formatMemResource(c.Current.MemoryRequest), formatMemResource(c.Recommended.MemoryRequest),
+			formatMemResource(c.Current.MemoryLimit), formatMemResource(c.Recommended.MemoryLimit),
+		))
+	}
+	return fmt.Sprintf("%s | safety=%s | %s", ts, rec.Safety, strings.Join(parts, "; "))
+}
+
 // SSA patch document structs with JSON tags (parallel to patchDoc in export.go which uses YAML).
 type ssaPatchDoc struct {
 	APIVersion string      `json:"apiVersion"`
@@ -370,8 +391,9 @@ type ssaPatchDoc struct {
 }
 
 type ssaMetadata struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
+	Name        string            `json:"name"`
+	Namespace   string            `json:"namespace"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 type ssaSpec struct {
