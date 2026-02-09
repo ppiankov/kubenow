@@ -26,10 +26,11 @@ const (
 // Model is the bubbletea model for the pro-monitor TUI.
 type Model struct {
 	// Workload info
-	workload  WorkloadRef
-	hpaInfo   *HPAInfo
-	mode      Mode
-	policyMsg string // Short policy status line
+	workload     WorkloadRef
+	operatorType string // CRD operator type (e.g. "CNPG", "Strimzi"), empty for standard workloads
+	hpaInfo      *HPAInfo
+	mode         Mode
+	policyMsg    string // Short policy status line
 
 	// Latch state
 	latch         *metrics.LatchMonitor
@@ -227,13 +228,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.Err
 			return m, nil
 		}
-		// Final sample count update
+		// Final sample count update and operator type extraction
 		if m.latch != nil {
 			data := m.latch.GetSpikeData()
 			total := 0
 			for _, d := range data {
 				if d.SampleCount > total {
 					total = d.SampleCount
+				}
+				if d.OperatorType != "" && m.operatorType == "" {
+					m.operatorType = d.OperatorType
 				}
 			}
 			m.sampleCount = total

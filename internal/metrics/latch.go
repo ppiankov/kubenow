@@ -30,6 +30,7 @@ type LatchConfig struct {
 type SpikeData struct {
 	Namespace    string    `json:"namespace"`
 	WorkloadName string    `json:"workload_name"`
+	OperatorType string    `json:"operator_type,omitempty"`
 	PodName      string    `json:"pod_name"`
 	MaxCPU       float64   `json:"max_cpu"`        // Maximum CPU seen (cores)
 	MaxMemory    float64   `json:"max_memory"`     // Maximum memory seen (bytes)
@@ -287,8 +288,9 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 			m.mu.RUnlock()
 		}
 		workloadName := podMetrics.Name
+		var operatorType string
 		if !m.config.PodLevel {
-			workloadName = ResolveWorkloadName(podMetrics.Name, labels)
+			workloadName, operatorType = ResolveWorkloadIdentity(podMetrics.Name, labels)
 		}
 
 		// Skip if workload filter is set and doesn't match
@@ -315,6 +317,7 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 			data = &SpikeData{
 				Namespace:          podMetrics.Namespace,
 				WorkloadName:       workloadName,
+				OperatorType:       operatorType,
 				PodName:            podMetrics.Name,
 				FirstSeen:          now,
 				CPUSamples:         make([]float64, 0),
@@ -425,7 +428,7 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 		for _, pod := range pods.Items {
 			workloadName := pod.Name
 			if !m.config.PodLevel {
-				workloadName = ResolveWorkloadName(pod.Name, pod.Labels)
+				workloadName, _ = ResolveWorkloadIdentity(pod.Name, pod.Labels)
 			}
 			key := fmt.Sprintf("%s/%s", pod.Namespace, workloadName)
 
@@ -546,7 +549,7 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 			labels := m.podLabels[podName]
 			workloadName := podName
 			if !m.config.PodLevel {
-				workloadName = ResolveWorkloadName(podName, labels)
+				workloadName, _ = ResolveWorkloadIdentity(podName, labels)
 			}
 			key := fmt.Sprintf("%s/%s", namespace, workloadName)
 

@@ -11,6 +11,33 @@ var workloadNameLabels = []string{
 	"cnpg.io/cluster",
 }
 
+// operatorLabels maps pod label keys to operator type names.
+// When a pod carries one of these labels, ResolveWorkloadIdentity
+// returns the corresponding operator type string.
+var operatorLabels = map[string]string{
+	"cnpg.io/cluster":               "CNPG",
+	"strimzi.io/cluster":            "Strimzi",
+	"rabbitmq.com/cluster-operator": "RabbitMQ",
+	"redis.redis.opstreelabs.in":    "Redis",
+	"elasticsearch.k8s.elastic.co":  "Elasticsearch",
+}
+
+// managedByOperators maps known managed-by values to operator type names.
+var managedByOperators = map[string]string{
+	"cloudnative-pg":            "CNPG",
+	"strimzi-cluster-operator":  "Strimzi",
+	"rabbitmq-cluster-operator": "RabbitMQ",
+}
+
+// ResolveWorkloadIdentity determines both the workload name and the
+// CRD operator type from pod labels. Returns empty operatorType for
+// standard Deployment/StatefulSet/DaemonSet workloads.
+func ResolveWorkloadIdentity(podName string, labels map[string]string) (name, operatorType string) {
+	name = ResolveWorkloadName(podName, labels)
+	operatorType = detectOperatorType(labels)
+	return name, operatorType
+}
+
 // ResolveWorkloadName determines the workload name from pod labels.
 // Falls back to the dash-stripping heuristic if no label matches.
 func ResolveWorkloadName(podName string, labels map[string]string) string {
@@ -20,6 +47,26 @@ func ResolveWorkloadName(podName string, labels map[string]string) string {
 		}
 	}
 	return extractWorkloadNameHeuristic(podName)
+}
+
+// detectOperatorType checks pod labels for known CRD operator markers.
+func detectOperatorType(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	// Check operator-specific labels first (most precise)
+	for key, op := range operatorLabels {
+		if _, ok := labels[key]; ok {
+			return op
+		}
+	}
+	// Fallback: app.kubernetes.io/managed-by
+	if managedBy, ok := labels["app.kubernetes.io/managed-by"]; ok {
+		if op, ok := managedByOperators[managedBy]; ok {
+			return op
+		}
+	}
+	return ""
 }
 
 // extractWorkloadNameHeuristic strips the last two dash-separated segments.
