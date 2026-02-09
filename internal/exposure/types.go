@@ -1,3 +1,5 @@
+// Package exposure queries Kubernetes APIs to build a structural
+// topology of possible traffic paths to a workload.
 package exposure
 
 import "time"
@@ -28,9 +30,9 @@ type ServiceExposure struct {
 // PortMapping represents a single service port.
 type PortMapping struct {
 	Name       string
-	Port       int32
 	TargetPort string
 	Protocol   string
+	Port       int32
 }
 
 // IngressRoute represents an Ingress rule routing to a service.

@@ -1,3 +1,5 @@
+// Package exposure queries Kubernetes APIs to build a structural
+// topology of possible traffic paths to a workload.
 package exposure
 
 import (
@@ -123,7 +125,7 @@ func (c *ExposureCollector) resolveWorkloadLabels(ctx context.Context, namespace
 }
 
 // findMatchingServices lists services whose selector is a subset of podLabels.
-func (c *ExposureCollector) findMatchingServices(ctx context.Context, namespace string, podLabels map[string]string) ([]ServiceExposure, []string) {
+func (c *ExposureCollector) findMatchingServices(ctx context.Context, namespace string, podLabels map[string]string) (services []ServiceExposure, errs []string) {
 	svcs, err := c.kubeClient.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, []string{fmt.Sprintf("services: %v", err)}
@@ -161,7 +163,7 @@ func (c *ExposureCollector) findMatchingServices(ctx context.Context, namespace 
 }
 
 // findIngressesForServices finds ingresses routing to the given services.
-func (c *ExposureCollector) findIngressesForServices(ctx context.Context, namespace string, serviceNames []string) (map[string][]IngressRoute, []string) {
+func (c *ExposureCollector) findIngressesForServices(ctx context.Context, namespace string, serviceNames []string) (routes map[string][]IngressRoute, errs []string) {
 	if len(serviceNames) == 0 {
 		return nil, nil
 	}
@@ -227,7 +229,7 @@ func (c *ExposureCollector) findIngressesForServices(ctx context.Context, namesp
 
 // findNetworkPolicies finds policies whose podSelector matches the workload's labels.
 // Returns a map keyed by "" (workload-level) since netpols apply to pods, not services.
-func (c *ExposureCollector) findNetworkPolicies(ctx context.Context, namespace string, podLabels map[string]string) (map[string][]NetPolRule, []string) {
+func (c *ExposureCollector) findNetworkPolicies(ctx context.Context, namespace string, podLabels map[string]string) (policies map[string][]NetPolRule, errs []string) {
 	netpols, err := c.kubeClient.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, []string{fmt.Sprintf("networkpolicies: %v", err)}
@@ -307,7 +309,7 @@ func parseNetPolSource(peer networkingv1.NetworkPolicyPeer) []NetPolSource {
 }
 
 // collectNeighbors queries PodMetrics for the namespace and groups by workload.
-func (c *ExposureCollector) collectNeighbors(ctx context.Context, namespace, excludeWorkload string) ([]Neighbor, []string) {
+func (c *ExposureCollector) collectNeighbors(ctx context.Context, namespace, excludeWorkload string) (neighbors []Neighbor, errs []string) {
 	if c.metricsClient == nil {
 		return nil, []string{"metrics client not available"}
 	}
@@ -347,7 +349,7 @@ func (c *ExposureCollector) collectNeighbors(ctx context.Context, namespace, exc
 	}
 
 	// Convert to sorted slice
-	neighbors := make([]Neighbor, 0, len(agg))
+	neighbors = make([]Neighbor, 0, len(agg))
 	for name, stats := range agg {
 		neighbors = append(neighbors, Neighbor{
 			WorkloadName: name,
