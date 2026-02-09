@@ -282,7 +282,7 @@ func TestExecuteApply_ConflictGitOps(t *testing.T) {
 
 	assert.False(t, result.Applied)
 	assert.Error(t, result.Error)
-	assert.Contains(t, result.Error.Error(), "SSA conflict")
+	assert.Contains(t, result.Error.Error(), "ssa conflict")
 	assert.Equal(t, "argocd", result.ConflictManager)
 	assert.True(t, result.GitOpsConflict)
 }
