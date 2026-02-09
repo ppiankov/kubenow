@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.3] - 2026-02-09
 
+### Added
+
+#### CRD Operator Type Annotation
+- Detect CRD-managed workloads (CNPG, Strimzi, RabbitMQ, Redis, Elasticsearch) from pod labels
+- TUI shows operator type: `pod/payments-main-db (CNPG)` instead of bare pod name
+- Exposure map neighbors annotated with operator type
+- Latch spike data includes `operator_type` in JSON export
+
+#### Pod-Level Latch for CRD Workloads
+- `pro-monitor latch pod/<name>` monitors individual pods without workload name extraction
+- Label-based workload name resolution with priority order and heuristic fallback
+- Pod label caching in latch monitor with 60s refresh interval
+
 ### Fixed
 
 #### Requests-Skew Prometheus Diagnostics
@@ -28,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workloads without Prometheus data get per-workload `pro-monitor latch` commands
 - Header clarifies that requests-skew table requires Prometheus metrics
 - Fixed hardcoded "Deployment" type in Prometheus queries — StatefulSet/DaemonSet now use correct pod patterns
+
+### Testing
+- Added test coverage for models, baseline, export, result, output, and prompt packages
+- Added workload name resolution and operator detection tests
 
 ---
 
