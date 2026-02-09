@@ -17,15 +17,18 @@ type SARIF struct {
 	Runs    []Run  `json:"runs"`
 }
 
+// Run represents a single SARIF analysis run.
 type Run struct {
 	Tool    Tool     `json:"tool"`
 	Results []Result `json:"results"`
 }
 
+// Tool identifies the analysis tool that produced the run.
 type Tool struct {
 	Driver Driver `json:"driver"`
 }
 
+// Driver describes the tool's primary executable.
 type Driver struct {
 	Name            string `json:"name"`
 	Version         string `json:"version"`
@@ -34,6 +37,7 @@ type Driver struct {
 	Rules           []Rule `json:"rules"`
 }
 
+// Rule defines a SARIF reporting descriptor for a class of results.
 type Rule struct {
 	ID               string                 `json:"id"`
 	Name             string                 `json:"name"`
@@ -44,6 +48,7 @@ type Rule struct {
 	Properties       map[string]interface{} `json:"properties,omitempty"`
 }
 
+// Result represents a single SARIF finding.
 type Result struct {
 	RuleID     string                 `json:"ruleId"`
 	Level      string                 `json:"level"`
@@ -52,23 +57,28 @@ type Result struct {
 	Properties map[string]interface{} `json:"properties,omitempty"`
 }
 
+// Location identifies where a result was detected.
 type Location struct {
 	PhysicalLocation PhysicalLocation `json:"physicalLocation"`
 }
 
+// PhysicalLocation identifies the artifact and region of a result.
 type PhysicalLocation struct {
 	ArtifactLocation ArtifactLocation `json:"artifactLocation"`
 	Region           Region           `json:"region,omitempty"`
 }
 
+// ArtifactLocation specifies the URI of the analyzed artifact.
 type ArtifactLocation struct {
 	URI string `json:"uri"`
 }
 
+// Region identifies a contiguous portion of an artifact.
 type Region struct {
 	StartLine int `json:"startLine,omitempty"`
 }
 
+// MessageString wraps a SARIF text message.
 type MessageString struct {
 	Text string `json:"text"`
 }

@@ -29,6 +29,7 @@ type DriftReport struct {
 	Summary      DriftSummary    `json:"summary"`
 }
 
+// WorkloadDrift tracks the skew change for a single workload between baseline and current.
 type WorkloadDrift struct {
 	Namespace      string  `json:"namespace"`
 	Workload       string  `json:"workload"`
@@ -40,6 +41,7 @@ type WorkloadDrift struct {
 	CurrentSafety  string  `json:"current_safety,omitempty"`
 }
 
+// DriftSummary holds aggregate counts of drift categories.
 type DriftSummary struct {
 	TotalBaseline int `json:"total_baseline"`
 	TotalCurrent  int `json:"total_current"`
