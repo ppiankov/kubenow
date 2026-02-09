@@ -241,7 +241,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 	// Health check
 	ctx := context.Background()
 	if err := metricsProvider.Health(ctx); err != nil {
-		return fmt.Errorf("Prometheus health check failed: %w", err)
+		return fmt.Errorf("prometheus health check failed: %w", err)
 	}
 
 	// Discover available metrics

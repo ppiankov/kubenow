@@ -21,7 +21,7 @@ type PrometheusClient struct {
 // NewPrometheusClient creates a new Prometheus client
 func NewPrometheusClient(config Config) (*PrometheusClient, error) {
 	if config.PrometheusURL == "" {
-		return nil, fmt.Errorf("PrometheusURL is required")
+		return nil, fmt.Errorf("prometheus URL is required")
 	}
 
 	if config.Timeout == 0 {
@@ -332,7 +332,7 @@ func (p *PrometheusClient) Health(ctx context.Context) error {
 	// Simple health check: try to query runtime info
 	_, err := p.api.Runtimeinfo(ctx)
 	if err != nil {
-		return fmt.Errorf("Prometheus health check failed: %w", err)
+		return fmt.Errorf("prometheus health check failed: %w", err)
 	}
 	return nil
 }

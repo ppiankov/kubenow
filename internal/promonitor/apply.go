@@ -264,7 +264,7 @@ func ExecuteApply(ctx context.Context, client KubeApplier, input *ApplyInput) *A
 			manager := detectConflictManager(ctx, client, input.Workload)
 			result.ConflictManager = manager
 			result.GitOpsConflict = isGitOpsManager(manager)
-			result.Error = fmt.Errorf("SSA conflict: %w", err)
+			result.Error = fmt.Errorf("ssa conflict: %w", err)
 		} else {
 			result.Error = err
 		}

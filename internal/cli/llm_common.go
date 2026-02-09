@@ -193,7 +193,7 @@ func runSingleExecution(clientset *kubernetes.Clientset, llmClient *llm.Client, 
 
 	raw, err := llmClient.Complete(ctx, finalPrompt)
 	if err != nil {
-		return fmt.Errorf("LLM error: %w", err)
+		return fmt.Errorf("llm error: %w", err)
 	}
 
 	// Handle output
@@ -206,12 +206,12 @@ func handleOutput(raw, mode, format, outputFile, clusterName string, filters sna
 	if format == "json" && outputFile == "" {
 		jsonStr, jerr := extractJSON(raw)
 		if jerr != nil {
-			return fmt.Errorf("JSON parse error: %w\nRaw output:\n%s", jerr, raw)
+			return fmt.Errorf("json parse error: %w\nRaw output:\n%s", jerr, raw)
 		}
 
 		var tmp any
 		if err := json.Unmarshal([]byte(jsonStr), &tmp); err != nil {
-			return fmt.Errorf("JSON unmarshal error: %w\nRaw JSON:\n%s", err, jsonStr)
+			return fmt.Errorf("json unmarshal error: %w\nRaw JSON:\n%s", err, jsonStr)
 		}
 
 		out, err := result.PrettyJSON(tmp)
