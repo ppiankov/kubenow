@@ -43,12 +43,16 @@ func (s PortForwardStatus) String() string {
 	}
 }
 
+// DefaultPortForwardTimeout is the default time to wait for port-forward readiness.
+const DefaultPortForwardTimeout = 30 * time.Second
+
 // PortForward manages Kubernetes port-forwarding using client-go
 type PortForward struct {
 	service    string
 	namespace  string
 	localPort  string
 	remotePort string
+	timeout    time.Duration
 
 	clientset  *kubernetes.Clientset
 	restConfig *rest.Config
@@ -63,8 +67,9 @@ type PortForward struct {
 	restartCount int
 }
 
-// NewPortForward creates a new native Go port-forward manager
-func NewPortForward(service, namespace, localPort, remotePort string) (*PortForward, error) {
+// NewPortForward creates a new native Go port-forward manager.
+// Pass 0 for timeout to use DefaultPortForwardTimeout.
+func NewPortForward(service, namespace, localPort, remotePort string, timeout time.Duration) (*PortForward, error) {
 	// Load kubeconfig
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
@@ -87,11 +92,16 @@ func NewPortForward(service, namespace, localPort, remotePort string) (*PortForw
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
+	if timeout <= 0 {
+		timeout = DefaultPortForwardTimeout
+	}
+
 	return &PortForward{
 		service:    service,
 		namespace:  namespace,
 		localPort:  localPort,
 		remotePort: remotePort,
+		timeout:    timeout,
 		clientset:  clientset,
 		restConfig: config,
 		status:     StatusStopped,
@@ -191,8 +201,8 @@ func (pf *PortForward) setupPortForward(podName string) error {
 	select {
 	case <-pf.readyChan:
 		return nil
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("timeout waiting for port-forward to be ready")
+	case <-time.After(pf.timeout):
+		return fmt.Errorf("timeout waiting for port-forward to be ready (waited %s)", pf.timeout)
 	}
 }
 
