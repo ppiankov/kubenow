@@ -41,6 +41,8 @@ func (a *ClientsetApplier) PatchWorkload(ctx context.Context, ref WorkloadRef, p
 	case "DaemonSet":
 		_, err := a.Client.AppsV1().DaemonSets(ref.Namespace).Patch(ctx, ref.Name, types.ApplyPatchType, patchJSON, opts)
 		return err
+	case "Pod":
+		return fmt.Errorf("apply is not supported for Pod kind (managed by external controller)")
 	default:
 		return fmt.Errorf("unsupported kind: %s", ref.Kind)
 	}
@@ -70,6 +72,12 @@ func (a *ClientsetApplier) GetManagedFields(ctx context.Context, ref WorkloadRef
 			return nil, err
 		}
 		return obj.ManagedFields, nil
+	case "Pod":
+		obj, err := a.Client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return obj.ManagedFields, nil
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", ref.Kind)
 	}
@@ -92,6 +100,12 @@ func (a *ClientsetApplier) GetWorkloadObject(ctx context.Context, ref WorkloadRe
 		raw = obj
 	case "DaemonSet":
 		obj, err := a.Client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		raw = obj
+	case "Pod":
+		obj, err := a.Client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -241,6 +255,13 @@ func CheckActionable(input *ApplyInput) []string {
 // ExecuteApply runs the full apply workflow: check → patch → read-back → drift.
 func ExecuteApply(ctx context.Context, client KubeApplier, input *ApplyInput) *ApplyResult {
 	result := &ApplyResult{}
+
+	// Pod kind is structurally blocked from apply — pods are managed by
+	// external controllers (CNPG, Strimzi, etc.) and must not be patched.
+	if input.Workload.Kind == "Pod" {
+		result.DenialReasons = []string{"apply is not supported for Pod kind (managed by external controller)"}
+		return result
+	}
 
 	// Pre-flight checks
 	reasons := CheckActionable(input)

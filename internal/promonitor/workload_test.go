@@ -24,6 +24,10 @@ func TestParseWorkloadRef_Valid(t *testing.T) {
 		{"daemonsets/kube-proxy", "DaemonSet", "kube-proxy"},
 		{"Deployment/mixed-case", "Deployment", "mixed-case"},
 		{"DEPLOYMENT/upper", "Deployment", "upper"},
+		{"pod/payments-main-db-2", "Pod", "payments-main-db-2"},
+		{"pods/my-pod", "Pod", "my-pod"},
+		{"po/nginx-0", "Pod", "nginx-0"},
+		{"Pod/mixed-case", "Pod", "mixed-case"},
 	}
 
 	for _, tt := range tests {
@@ -48,7 +52,6 @@ func TestParseWorkloadRef_Invalid(t *testing.T) {
 		{"cronjob/backup", "unsupported workload kind"},
 		{"job/migration", "unsupported workload kind"},
 		{"replicaset/rs-abc", "unsupported workload kind"},
-		{"pod/my-pod", "unsupported workload kind"},
 	}
 
 	for _, tt := range tests {
@@ -80,6 +83,10 @@ func TestNormalizeKind(t *testing.T) {
 		{"sts", "StatefulSet", false},
 		{"daemonset", "DaemonSet", false},
 		{"ds", "DaemonSet", false},
+		{"pod", "Pod", false},
+		{"pods", "Pod", false},
+		{"po", "Pod", false},
+		{"POD", "Pod", false},
 		{"cronjob", "", true},
 		{"job", "", true},
 		{"", "", true},

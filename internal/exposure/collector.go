@@ -119,6 +119,12 @@ func (c *ExposureCollector) resolveWorkloadLabels(ctx context.Context, namespace
 			return obj.Spec.Selector.MatchLabels, nil
 		}
 		return nil, nil
+	case "Pod":
+		obj, err := c.kubeClient.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return obj.Labels, nil
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", kind)
 	}

@@ -152,6 +152,12 @@ func fetchWorkloadJSON(ctx context.Context, client *kubernetes.Clientset, ref *p
 			return nil, err
 		}
 		return json.Marshal(obj)
+	case "Pod":
+		obj, err := client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(obj)
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", ref.Kind)
 	}
