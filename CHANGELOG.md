@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.2] - 2026-02-09
 
+### Added
+
+#### Exposure Map (`l` key)
+- Press `l` after latch completes to view structural traffic topology
+- Shows services, ingresses, network policies, and namespace neighbors
+- Uses standard K8s APIs — no service mesh or eBPF required
+
 ### Fixed
 
 #### Pro-Monitor TUI Rendering
