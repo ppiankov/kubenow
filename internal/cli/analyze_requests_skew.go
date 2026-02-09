@@ -40,10 +40,11 @@ var requestsSkewConfig struct {
 	silent              bool
 	sortBy              string
 	// Port-forward options
-	k8sService    string
-	k8sNamespace  string
-	k8sLocalPort  string
-	k8sRemotePort string
+	k8sService         string
+	k8sNamespace       string
+	k8sLocalPort       string
+	k8sRemotePort      string
+	portforwardTimeout string
 	// Security options
 	obfuscate bool
 	// CI/CD options
@@ -131,6 +132,7 @@ func init() {
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sNamespace, "k8s-namespace", "monitoring", "Kubernetes namespace for service")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sLocalPort, "k8s-local-port", "9090", "Local port for port-forward")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.k8sRemotePort, "k8s-remote-port", "9090", "Remote port for port-forward")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.portforwardTimeout, "portforward-timeout", "30s", "Timeout for port-forward readiness (e.g., 30s, 1m)")
 
 	// Security/privacy flags
 	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.obfuscate, "obfuscate", false, "Obfuscate sensitive names (namespaces, pods, services, nodes)")
@@ -157,12 +159,17 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 				requestsSkewConfig.k8sNamespace, requestsSkewConfig.k8sService)
 		}
 
-		var err error
+		pfTimeout, err := time.ParseDuration(requestsSkewConfig.portforwardTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid --portforward-timeout: %w", err)
+		}
+
 		portForward, err = util.NewPortForward(
 			requestsSkewConfig.k8sService,
 			requestsSkewConfig.k8sNamespace,
 			requestsSkewConfig.k8sLocalPort,
 			requestsSkewConfig.k8sRemotePort,
+			pfTimeout,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create port-forward: %w", err)
