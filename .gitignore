@@ -32,7 +32,6 @@ Thumbs.db
 test-reports/       # Generated test reports
 
 # Reports (generated during testing)
-test-reports/
 test-*.txt
 test-*.json
 test-*.md
