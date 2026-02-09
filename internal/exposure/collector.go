@@ -326,32 +326,42 @@ func (c *ExposureCollector) collectNeighbors(ctx context.Context, namespace, exc
 		return nil, []string{fmt.Sprintf("pod metrics: %v", err)}
 	}
 
+	// Build pod name → labels map for operator detection
+	podLabelMap := make(map[string]map[string]string)
+	pods, err := c.kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for i := range pods.Items {
+			podLabelMap[pods.Items[i].Name] = pods.Items[i].Labels
+		}
+	}
+
 	// Aggregate by workload name
 	type workloadStats struct {
-		cpuNano  int64
-		memBytes int64
-		pods     int
+		cpuNano      int64
+		memBytes     int64
+		pods         int
+		operatorType string
 	}
 	agg := make(map[string]*workloadStats)
 
 	for i := range podMetrics.Items {
 		pm := &podMetrics.Items[i]
-		wlName := metrics.ResolveWorkloadName(pm.Name, nil)
+		wlName, opType := metrics.ResolveWorkloadIdentity(pm.Name, podLabelMap[pm.Name])
 		if wlName == excludeWorkload {
 			continue
 		}
 
 		stats, ok := agg[wlName]
 		if !ok {
-			stats = &workloadStats{}
+			stats = &workloadStats{operatorType: opType}
 			agg[wlName] = stats
 		}
 		stats.pods++
 
 		for j := range pm.Containers {
-			c := &pm.Containers[j]
-			stats.cpuNano += c.Usage.Cpu().MilliValue()
-			stats.memBytes += c.Usage.Memory().Value()
+			ct := &pm.Containers[j]
+			stats.cpuNano += ct.Usage.Cpu().MilliValue()
+			stats.memBytes += ct.Usage.Memory().Value()
 		}
 	}
 
@@ -360,6 +370,7 @@ func (c *ExposureCollector) collectNeighbors(ctx context.Context, namespace, exc
 	for name, stats := range agg {
 		neighbors = append(neighbors, Neighbor{
 			WorkloadName: name,
+			WorkloadKind: stats.operatorType,
 			CPUMillis:    stats.cpuNano,
 			MemoryMi:     stats.memBytes / (1024 * 1024),
 			PodCount:     stats.pods,

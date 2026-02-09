@@ -175,7 +175,11 @@ func renderModeTag(mode Mode) string {
 func renderWorkloadInfo(m Model) string {
 	var b strings.Builder
 	b.WriteString(labelStyle.Render("Workload:  "))
-	b.WriteString(valueStyle.Render(fmt.Sprintf("%s/%s", strings.ToLower(m.workload.Kind), m.workload.Name)))
+	workloadStr := fmt.Sprintf("%s/%s", strings.ToLower(m.workload.Kind), m.workload.Name)
+	if m.operatorType != "" {
+		workloadStr = fmt.Sprintf("%s (%s)", workloadStr, m.operatorType)
+	}
+	b.WriteString(valueStyle.Render(workloadStr))
 	b.WriteString("\n")
 	b.WriteString(labelStyle.Render("Namespace: "))
 	b.WriteString(valueStyle.Render(m.workload.Namespace))
@@ -574,8 +578,14 @@ func renderExposureNeighbors(b *strings.Builder, neighbors []exposure.Neighbor) 
 			break
 		}
 		name := n.WorkloadName
+		if n.WorkloadKind != "" {
+			name = fmt.Sprintf("%s (%s)", name, n.WorkloadKind)
+		}
 		if n.PodCount > 1 {
-			name = fmt.Sprintf("%s (%d pods)", name, n.PodCount)
+			name = fmt.Sprintf("%s (%d pods)", n.WorkloadName, n.PodCount)
+			if n.WorkloadKind != "" {
+				name = fmt.Sprintf("%s (%s, %d pods)", n.WorkloadName, n.WorkloadKind, n.PodCount)
+			}
 		}
 		fmt.Fprintf(b, "  %-40s ", name)
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%dm", n.CPUMillis)))

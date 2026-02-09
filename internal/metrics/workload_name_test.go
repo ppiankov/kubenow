@@ -40,3 +40,45 @@ func TestExtractWorkloadNameHeuristic_Short(t *testing.T) {
 func TestExtractWorkloadNameHeuristic_SingleSegment(t *testing.T) {
 	assert.Equal(t, "api", extractWorkloadNameHeuristic("api"))
 }
+
+func TestResolveWorkloadIdentity_CNPG(t *testing.T) {
+	labels := map[string]string{"cnpg.io/cluster": "payments-main-db"}
+	name, op := ResolveWorkloadIdentity("payments-main-db-2", labels)
+	assert.Equal(t, "payments-main-db", name)
+	assert.Equal(t, "CNPG", op)
+}
+
+func TestResolveWorkloadIdentity_Strimzi(t *testing.T) {
+	labels := map[string]string{"strimzi.io/cluster": "events-kafka", "app": "events-kafka"}
+	name, op := ResolveWorkloadIdentity("events-kafka-0", labels)
+	assert.Equal(t, "events-kafka", name)
+	assert.Equal(t, "Strimzi", op)
+}
+
+func TestResolveWorkloadIdentity_ManagedBy(t *testing.T) {
+	labels := map[string]string{
+		"app.kubernetes.io/managed-by": "cloudnative-pg",
+		"app.kubernetes.io/name":       "payments-db",
+	}
+	name, op := ResolveWorkloadIdentity("payments-db-1", labels)
+	assert.Equal(t, "payments-db", name)
+	assert.Equal(t, "CNPG", op)
+}
+
+func TestResolveWorkloadIdentity_StandardWorkload(t *testing.T) {
+	labels := map[string]string{"app": "payment-api"}
+	name, op := ResolveWorkloadIdentity("payment-api-7d8f9c4b6-abc12", labels)
+	assert.Equal(t, "payment-api", name)
+	assert.Equal(t, "", op)
+}
+
+func TestResolveWorkloadIdentity_NoLabels(t *testing.T) {
+	name, op := ResolveWorkloadIdentity("payment-api-7d8f9c4b6-abc12", nil)
+	assert.Equal(t, "payment-api", name)
+	assert.Equal(t, "", op)
+}
+
+func TestDetectOperatorType_UnknownManagedBy(t *testing.T) {
+	labels := map[string]string{"app.kubernetes.io/managed-by": "helm"}
+	assert.Equal(t, "", detectOperatorType(labels))
+}
