@@ -14,21 +14,23 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+const testIngressClass = "nginx"
+
 func TestSelectorMatchesLabels(t *testing.T) {
 	tests := []struct {
-		name     string
 		selector map[string]string
 		labels   map[string]string
+		name     string
 		want     bool
 	}{
-		{"exact match", map[string]string{"app": "worker"}, map[string]string{"app": "worker"}, true},
-		{"subset match", map[string]string{"app": "worker"}, map[string]string{"app": "worker", "version": "v2"}, true},
-		{"no match", map[string]string{"app": "worker"}, map[string]string{"app": "api"}, false},
-		{"empty selector matches all", map[string]string{}, map[string]string{"app": "worker"}, true},
-		{"nil selector matches all", nil, map[string]string{"app": "worker"}, true},
-		{"empty labels no match", map[string]string{"app": "worker"}, map[string]string{}, false},
-		{"nil labels no match", map[string]string{"app": "worker"}, nil, false},
-		{"both nil", nil, nil, true},
+		{map[string]string{"app": "worker"}, map[string]string{"app": "worker"}, "exact match", true},
+		{map[string]string{"app": "worker"}, map[string]string{"app": "worker", "version": "v2"}, "subset match", true},
+		{map[string]string{"app": "worker"}, map[string]string{"app": "api"}, "no match", false},
+		{map[string]string{}, map[string]string{"app": "worker"}, "empty selector matches all", true},
+		{nil, map[string]string{"app": "worker"}, "nil selector matches all", true},
+		{map[string]string{"app": "worker"}, map[string]string{}, "empty labels no match", false},
+		{map[string]string{"app": "worker"}, nil, "nil labels no match", false},
+		{nil, nil, "both nil", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -112,7 +114,7 @@ func TestFindMatchingServices_NoMatch(t *testing.T) {
 
 func TestFindIngressesForServices(t *testing.T) {
 	ctx := context.Background()
-	className := "nginx"
+	className := testIngressClass
 	client := fake.NewSimpleClientset(
 		&networkingv1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{Name: "main-ingress", Namespace: "billing"},
@@ -147,7 +149,7 @@ func TestFindIngressesForServices(t *testing.T) {
 	require.Len(t, result["worker-svc"], 1)
 	route := result["worker-svc"][0]
 	assert.Equal(t, "main-ingress", route.Name)
-	assert.Equal(t, "nginx", route.ClassName)
+	assert.Equal(t, testIngressClass, route.ClassName)
 	assert.Equal(t, []string{"payments.example.com"}, route.Hosts)
 	assert.Equal(t, []string{"/webhooks"}, route.Paths)
 	assert.True(t, route.TLS)
@@ -246,7 +248,7 @@ func TestExtractWorkloadName(t *testing.T) {
 
 func TestCollect_EndToEnd(t *testing.T) {
 	ctx := context.Background()
-	className := "nginx"
+	className := testIngressClass
 	client := fake.NewSimpleClientset(
 		&appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{Name: "worker", Namespace: "billing"},
@@ -307,9 +309,9 @@ func TestIngressClassName_Annotation(t *testing.T) {
 }
 
 func TestIngressClassName_Spec(t *testing.T) {
-	class := "nginx"
+	class := testIngressClass
 	ing := &networkingv1.Ingress{
 		Spec: networkingv1.IngressSpec{IngressClassName: &class},
 	}
-	assert.Equal(t, "nginx", ingressClassName(ing))
+	assert.Equal(t, testIngressClass, ingressClassName(ing))
 }

@@ -79,8 +79,9 @@ func renderView(m Model) string {
 	b.WriteString(renderPolicyStatus(m))
 	b.WriteString("\n\n")
 
-	// Exposure map (toggled by 'l' key, replaces recommendation view)
-	if m.showExposure {
+	// Main content area — one of: exposure map, recommendation, or progress
+	switch {
+	case m.showExposure:
 		if m.exposureLoading {
 			b.WriteString(m.spinner.View())
 			b.WriteString(dimStyle.Render(" Querying load sources..."))
@@ -88,16 +89,15 @@ func renderView(m Model) string {
 			b.WriteString(renderExposureMap(m.exposureMap))
 		}
 		b.WriteString("\n\n")
-	} else if m.recommendation != nil {
-		// Recommendation or progress
+	case m.recommendation != nil:
 		b.WriteString(renderRecommendation(m.recommendation))
-	} else if m.computing {
+	case m.computing:
 		b.WriteString(m.spinner.View())
 		b.WriteString(dimStyle.Render(" Computing recommendation..."))
-	} else if m.latchDone {
+	case m.latchDone:
 		b.WriteString(m.spinner.View())
 		b.WriteString(dimStyle.Render(" Processing latch data..."))
-	} else {
+	default:
 		b.WriteString(m.spinner.View())
 		b.WriteString(dimStyle.Render(" Latching..."))
 	}
@@ -479,88 +479,9 @@ func renderExposureMap(em *exposure.ExposureMap) string {
 	b.WriteString(headerStyle.Render("--- Load Sources ---"))
 	b.WriteString("\n\n")
 
-	// Services section
-	b.WriteString(headerStyle.Render("Exposed via:"))
-	b.WriteString("\n")
-
-	if len(em.Services) == 0 {
-		b.WriteString(dimStyle.Render("  (no services target this workload)"))
-		b.WriteString("\n")
-	}
-
-	for _, svc := range em.Services {
-		ports := formatServicePorts(svc.Ports)
-		b.WriteString(valueStyle.Render(fmt.Sprintf("  svc/%s", svc.Name)))
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" (%s, %s)", svc.Type, ports)))
-		b.WriteString("\n")
-
-		// Ingresses
-		if len(svc.Ingresses) == 0 {
-			b.WriteString(dimStyle.Render("    ← no ingress"))
-			b.WriteString("\n")
-		}
-		for _, ing := range svc.Ingresses {
-			hosts := strings.Join(ing.Hosts, ", ")
-			tls := ""
-			if ing.TLS {
-				tls = " [TLS]"
-			}
-			cls := ""
-			if ing.ClassName != "" {
-				cls = fmt.Sprintf(" (%s)", ing.ClassName)
-			}
-			b.WriteString(okStyle.Render(fmt.Sprintf("    ← ingress: %s%s%s", hosts, tls, cls)))
-			b.WriteString("\n")
-		}
-
-		// Network policies (attached at workload level)
-	}
-
-	// Render netpols once (they apply to pods, not per-service)
-	if em.Services != nil {
-		// Check if any service has netpols (they were attached at "" key)
-		hasNetPols := false
-		for _, svc := range em.Services {
-			if len(svc.NetPols) > 0 {
-				hasNetPols = true
-				break
-			}
-		}
-		if !hasNetPols {
-			b.WriteString(dimStyle.Render("    ← netpol: default (all allowed)"))
-			b.WriteString("\n")
-		}
-		for _, svc := range em.Services {
-			for _, np := range svc.NetPols {
-				sources := formatNetPolSources(np.Sources)
-				b.WriteString(warnStyle.Render(fmt.Sprintf("    ← netpol %s: allows from %s", np.PolicyName, sources)))
-				b.WriteString("\n")
-			}
-		}
-	}
-
-	// Neighbors section
-	if len(em.Neighbors) > 0 {
-		b.WriteString("\n")
-		b.WriteString(headerStyle.Render("Namespace neighbors (by CPU):"))
-		b.WriteString("\n")
-
-		maxNeighbors := 10
-		for i, n := range em.Neighbors {
-			if i >= maxNeighbors {
-				b.WriteString(dimStyle.Render(fmt.Sprintf("  ... and %d more", len(em.Neighbors)-maxNeighbors)))
-				b.WriteString("\n")
-				break
-			}
-			name := n.WorkloadName
-			if n.PodCount > 1 {
-				name = fmt.Sprintf("%s (%d pods)", name, n.PodCount)
-			}
-			b.WriteString(fmt.Sprintf("  %-40s ", name))
-			b.WriteString(valueStyle.Render(fmt.Sprintf("%dm", n.CPUMillis)))
-			b.WriteString("\n")
-		}
-	}
+	renderExposureServices(&b, em.Services)
+	renderExposureNetPols(&b, em.Services)
+	renderExposureNeighbors(&b, em.Neighbors)
 
 	// Errors
 	if len(em.Errors) > 0 {
@@ -578,6 +499,101 @@ func renderExposureMap(em *exposure.ExposureMap) string {
 	b.WriteString(dimStyle.Render("Possible traffic paths, not measured traffic"))
 
 	return b.String()
+}
+
+// renderExposureServices renders the services and their ingress routes.
+func renderExposureServices(b *strings.Builder, services []exposure.ServiceExposure) {
+	b.WriteString(headerStyle.Render("Exposed via:"))
+	b.WriteString("\n")
+
+	if len(services) == 0 {
+		b.WriteString(dimStyle.Render("  (no services target this workload)"))
+		b.WriteString("\n")
+		return
+	}
+
+	for _, svc := range services {
+		ports := formatServicePorts(svc.Ports)
+		b.WriteString(valueStyle.Render(fmt.Sprintf("  svc/%s", svc.Name)))
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" (%s, %s)", svc.Type, ports)))
+		b.WriteString("\n")
+
+		if len(svc.Ingresses) == 0 {
+			b.WriteString(dimStyle.Render("    ← no ingress"))
+			b.WriteString("\n")
+			continue
+		}
+		for _, ing := range svc.Ingresses {
+			b.WriteString(okStyle.Render(fmt.Sprintf("    ← ingress: %s", formatIngressRoute(ing))))
+			b.WriteString("\n")
+		}
+	}
+}
+
+// renderExposureNetPols renders network policies (apply to pods, not per-service).
+func renderExposureNetPols(b *strings.Builder, services []exposure.ServiceExposure) {
+	if services == nil {
+		return
+	}
+	hasNetPols := false
+	for _, svc := range services {
+		if len(svc.NetPols) > 0 {
+			hasNetPols = true
+			break
+		}
+	}
+	if !hasNetPols {
+		b.WriteString(dimStyle.Render("    ← netpol: default (all allowed)"))
+		b.WriteString("\n")
+		return
+	}
+	for _, svc := range services {
+		for _, np := range svc.NetPols {
+			sources := formatNetPolSources(np.Sources)
+			b.WriteString(warnStyle.Render(fmt.Sprintf("    ← netpol %s: allows from %s", np.PolicyName, sources)))
+			b.WriteString("\n")
+		}
+	}
+}
+
+const maxNeighbors = 10
+
+// renderExposureNeighbors renders namespace neighbors ranked by CPU.
+func renderExposureNeighbors(b *strings.Builder, neighbors []exposure.Neighbor) {
+	if len(neighbors) == 0 {
+		return
+	}
+	b.WriteString("\n")
+	b.WriteString(headerStyle.Render("Namespace neighbors (by CPU):"))
+	b.WriteString("\n")
+
+	for i, n := range neighbors {
+		if i >= maxNeighbors {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  ... and %d more", len(neighbors)-maxNeighbors)))
+			b.WriteString("\n")
+			break
+		}
+		name := n.WorkloadName
+		if n.PodCount > 1 {
+			name = fmt.Sprintf("%s (%d pods)", name, n.PodCount)
+		}
+		b.WriteString(fmt.Sprintf("  %-40s ", name))
+		b.WriteString(valueStyle.Render(fmt.Sprintf("%dm", n.CPUMillis)))
+		b.WriteString("\n")
+	}
+}
+
+func formatIngressRoute(ing exposure.IngressRoute) string {
+	hosts := strings.Join(ing.Hosts, ", ")
+	tls := ""
+	if ing.TLS {
+		tls = " [TLS]"
+	}
+	cls := ""
+	if ing.ClassName != "" {
+		cls = fmt.Sprintf(" (%s)", ing.ClassName)
+	}
+	return fmt.Sprintf("%s%s%s", hosts, tls, cls)
 }
 
 func formatServicePorts(ports []exposure.PortMapping) string {
