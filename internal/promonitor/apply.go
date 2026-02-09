@@ -16,7 +16,7 @@ import (
 
 // KubeApplier abstracts Kubernetes mutations for testability.
 type KubeApplier interface {
-	PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fieldManager string) error
+	PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fieldManager string, force bool) error
 	GetContainerResources(ctx context.Context, ref WorkloadRef) ([]ContainerResources, error)
 	GetManagedFields(ctx context.Context, ref WorkloadRef) ([]metav1.ManagedFieldsEntry, error)
 	GetWorkloadObject(ctx context.Context, ref WorkloadRef) (map[string]interface{}, error)
@@ -29,8 +29,8 @@ type ClientsetApplier struct {
 
 const fieldManager = "kubenow"
 
-func (a *ClientsetApplier) PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fm string) error {
-	opts := metav1.PatchOptions{FieldManager: fm}
+func (a *ClientsetApplier) PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fm string, force bool) error {
+	opts := metav1.PatchOptions{FieldManager: fm, Force: &force}
 	switch ref.Kind {
 	case KindDeployment:
 		_, err := a.Client.AppsV1().Deployments(ref.Namespace).Patch(ctx, ref.Name, types.ApplyPatchType, patchJSON, opts)
@@ -277,18 +277,28 @@ func ExecuteApply(ctx context.Context, client KubeApplier, input *ApplyInput) *A
 		return result
 	}
 
-	// Apply via SSA (force=false)
-	err = client.PatchWorkload(ctx, input.Workload, patchJSON, fieldManager)
-	if err != nil {
-		// Check if this is a conflict error
-		if isConflictError(err) {
-			manager := detectConflictManager(ctx, client, input.Workload)
+	// Apply via SSA (force=false first)
+	err = client.PatchWorkload(ctx, input.Workload, patchJSON, fieldManager, false)
+	if err != nil && isConflictError(err) {
+		manager := detectConflictManager(ctx, client, input.Workload)
+
+		// GitOps controllers are authoritative — do not force-override
+		if isGitOpsManager(manager) {
 			result.ConflictManager = manager
-			result.GitOpsConflict = isGitOpsManager(manager)
+			result.GitOpsConflict = true
 			result.Error = fmt.Errorf("ssa conflict: %w", err)
-		} else {
-			result.Error = err
+			return result
 		}
+
+		// Non-GitOps manager (e.g. "Go-http-client", "kubectl-edit") — retry with force
+		err = client.PatchWorkload(ctx, input.Workload, patchJSON, fieldManager, true)
+		if err != nil {
+			result.ConflictManager = manager
+			result.Error = fmt.Errorf("ssa force-apply failed: %w", err)
+			return result
+		}
+	} else if err != nil {
+		result.Error = err
 		return result
 	}
 

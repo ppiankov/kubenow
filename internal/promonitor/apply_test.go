@@ -15,7 +15,9 @@ import (
 // mockKubeApplier implements KubeApplier for testing.
 type mockKubeApplier struct {
 	patchErr       error
+	patchForceErr  error // error for force=true retry; nil means force succeeds
 	patchCalled    bool
+	patchForcedAt  bool // true if the last successful patch used force=true
 	patchJSON      []byte
 	containers     []ContainerResources
 	containersErr  error
@@ -25,9 +27,13 @@ type mockKubeApplier struct {
 	workloadErr    error
 }
 
-func (m *mockKubeApplier) PatchWorkload(_ context.Context, _ WorkloadRef, patchJSON []byte, _ string) error {
+func (m *mockKubeApplier) PatchWorkload(_ context.Context, _ WorkloadRef, patchJSON []byte, _ string, force bool) error {
 	m.patchCalled = true
 	m.patchJSON = patchJSON
+	if force {
+		m.patchForcedAt = true
+		return m.patchForceErr
+	}
 	return m.patchErr
 }
 
@@ -309,9 +315,36 @@ func TestExecuteApply_ConflictGitOps(t *testing.T) {
 	assert.True(t, result.GitOpsConflict)
 }
 
-func TestExecuteApply_ConflictUnknownManager(t *testing.T) {
+func TestExecuteApply_ConflictNonGitOps_ForceRetrySucceeds(t *testing.T) {
 	mock := &mockKubeApplier{
-		patchErr: fmt.Errorf("conflict: Apply failed with 1 conflict"),
+		patchErr:      fmt.Errorf("conflict: Apply failed with 1 conflict"),
+		patchForceErr: nil, // force-retry succeeds
+		managedFields: []metav1.ManagedFieldsEntry{
+			{Manager: "Go-http-client", Operation: metav1.ManagedFieldsOperationApply},
+		},
+		containers: []ContainerResources{
+			{
+				Name:          "api",
+				CPURequest:    0.15,
+				CPULimit:      0.6,
+				MemoryRequest: 200 * 1024 * 1024,
+				MemoryLimit:   600 * 1024 * 1024,
+			},
+		},
+	}
+
+	input := validApplyInput()
+	result := ExecuteApply(context.Background(), mock, input)
+
+	assert.True(t, result.Applied)
+	assert.True(t, mock.patchForcedAt)
+	assert.NoError(t, result.Error)
+}
+
+func TestExecuteApply_ConflictNonGitOps_ForceRetryFails(t *testing.T) {
+	mock := &mockKubeApplier{
+		patchErr:      fmt.Errorf("conflict: Apply failed with 1 conflict"),
+		patchForceErr: fmt.Errorf("admission webhook denied"),
 		managedFields: []metav1.ManagedFieldsEntry{
 			{Manager: "some-controller", Operation: metav1.ManagedFieldsOperationApply},
 		},
@@ -322,7 +355,7 @@ func TestExecuteApply_ConflictUnknownManager(t *testing.T) {
 
 	assert.False(t, result.Applied)
 	assert.Equal(t, "some-controller", result.ConflictManager)
-	assert.False(t, result.GitOpsConflict)
+	assert.Contains(t, result.Error.Error(), "ssa force-apply failed")
 }
 
 func TestExecuteApply_WebhookRejection(t *testing.T) {
