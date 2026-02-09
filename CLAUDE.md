@@ -19,6 +19,7 @@ Kubernetes cluster analysis tool. Three modes: monitor (real-time TUI), analyze 
 - Metrics: `internal/metrics/` — Latch (sub-scrape-interval spike monitoring)
 - Policy: `internal/policy/` — Admin-owned guardrails
 - Audit: `internal/audit/` — Immutable apply trail
+- Exposure: `internal/exposure/` — Structural traffic topology (services, ingresses, netpols, neighbors)
 - Analyzer: `internal/analyzer/` — Deterministic analysis (bin-packing, requests-skew)
 
 ## Safety Invariants
