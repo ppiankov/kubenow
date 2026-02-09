@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.2] - 2026-02-09
+
+### Fixed
+
+#### Pro-Monitor TUI Rendering
+- Silenced latch stderr output that corrupted bubbletea alternate screen
+- Fixed overlapping progress bars, ghost spinners, and split border boxes
+
+#### Restart Scoping in Latch
+- Restart count now scoped to latch window via baseline snapshot
+- Historical restarts no longer inflate safety rating
+
+#### Zero-Value MEM Rows
+- MEM req/lim rows hidden when workload has no memory spec set
+
+---
+
 ## [0.2.1] - 2026-02-09
 
 ### Fixed
@@ -724,7 +741,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.1...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.2...HEAD
+- [0.2.2]: https://github.com/ppiankov/kubenow/compare/v0.2.1...v0.2.2
 - [0.2.1]: https://github.com/ppiankov/kubenow/compare/v0.2.0...v0.2.1
 - [0.2.0]: https://github.com/ppiankov/kubenow/compare/v0.1.13...v0.2.0
 - [0.1.13]: https://github.com/ppiankov/kubenow/compare/v0.1.12...v0.1.13

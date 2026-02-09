@@ -145,12 +145,15 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create latch monitor (filtered to target workload)
+	// Create latch monitor (filtered to target workload).
+	// ProgressFunc is a no-op because the bubbletea TUI renders its own
+	// progress bar; writing to stderr would corrupt the alternate screen.
 	latchMon, err := metrics.NewLatchMonitor(kubeClient, metrics.LatchConfig{
 		SampleInterval: interval,
 		Duration:       duration,
 		Namespaces:     []string{ref.Namespace},
 		WorkloadFilter: ref.Name,
+		ProgressFunc:   func(string) {},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create latch monitor: %w", err)
