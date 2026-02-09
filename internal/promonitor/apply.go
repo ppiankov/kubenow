@@ -32,16 +32,16 @@ const fieldManager = "kubenow"
 func (a *ClientsetApplier) PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fm string) error {
 	opts := metav1.PatchOptions{FieldManager: fm}
 	switch ref.Kind {
-	case "Deployment":
+	case KindDeployment:
 		_, err := a.Client.AppsV1().Deployments(ref.Namespace).Patch(ctx, ref.Name, types.ApplyPatchType, patchJSON, opts)
 		return err
-	case "StatefulSet":
+	case KindStatefulSet:
 		_, err := a.Client.AppsV1().StatefulSets(ref.Namespace).Patch(ctx, ref.Name, types.ApplyPatchType, patchJSON, opts)
 		return err
-	case "DaemonSet":
+	case KindDaemonSet:
 		_, err := a.Client.AppsV1().DaemonSets(ref.Namespace).Patch(ctx, ref.Name, types.ApplyPatchType, patchJSON, opts)
 		return err
-	case "Pod":
+	case KindPod:
 		return fmt.Errorf("apply is not supported for Pod kind (managed by external controller)")
 	default:
 		return fmt.Errorf("unsupported kind: %s", ref.Kind)
@@ -54,25 +54,25 @@ func (a *ClientsetApplier) GetContainerResources(ctx context.Context, ref Worklo
 
 func (a *ClientsetApplier) GetManagedFields(ctx context.Context, ref WorkloadRef) ([]metav1.ManagedFieldsEntry, error) {
 	switch ref.Kind {
-	case "Deployment":
+	case KindDeployment:
 		obj, err := a.Client.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
 		return obj.ManagedFields, nil
-	case "StatefulSet":
+	case KindStatefulSet:
 		obj, err := a.Client.AppsV1().StatefulSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
 		return obj.ManagedFields, nil
-	case "DaemonSet":
+	case KindDaemonSet:
 		obj, err := a.Client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
 		return obj.ManagedFields, nil
-	case "Pod":
+	case KindPod:
 		obj, err := a.Client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
@@ -86,25 +86,25 @@ func (a *ClientsetApplier) GetManagedFields(ctx context.Context, ref WorkloadRef
 func (a *ClientsetApplier) GetWorkloadObject(ctx context.Context, ref WorkloadRef) (map[string]interface{}, error) {
 	var raw interface{}
 	switch ref.Kind {
-	case "Deployment":
+	case KindDeployment:
 		obj, err := a.Client.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
 		raw = obj
-	case "StatefulSet":
+	case KindStatefulSet:
 		obj, err := a.Client.AppsV1().StatefulSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
 		raw = obj
-	case "DaemonSet":
+	case KindDaemonSet:
 		obj, err := a.Client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
 		raw = obj
-	case "Pod":
+	case KindPod:
 		obj, err := a.Client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
@@ -258,7 +258,7 @@ func ExecuteApply(ctx context.Context, client KubeApplier, input *ApplyInput) *A
 
 	// Pod kind is structurally blocked from apply — pods are managed by
 	// external controllers (CNPG, Strimzi, etc.) and must not be patched.
-	if input.Workload.Kind == "Pod" {
+	if input.Workload.Kind == KindPod {
 		result.DenialReasons = []string{"apply is not supported for Pod kind (managed by external controller)"}
 		return result
 	}

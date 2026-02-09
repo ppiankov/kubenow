@@ -12,6 +12,14 @@ import (
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
+// Canonical kind constants used across the promonitor package.
+const (
+	KindDeployment  = "Deployment"
+	KindStatefulSet = "StatefulSet"
+	KindDaemonSet   = "DaemonSet"
+	KindPod         = "Pod"
+)
+
 // WorkloadRef is a parsed kind/name reference.
 type WorkloadRef struct {
 	Kind      string // Deployment, StatefulSet, DaemonSet, Pod
@@ -52,13 +60,13 @@ func ParseWorkloadRef(ref string) (*WorkloadRef, error) {
 func normalizeKind(input string) (string, error) {
 	switch strings.ToLower(input) {
 	case "deployment", "deploy", "deployments":
-		return "Deployment", nil
+		return KindDeployment, nil
 	case "statefulset", "sts", "statefulsets":
-		return "StatefulSet", nil
+		return KindStatefulSet, nil
 	case "daemonset", "ds", "daemonsets":
-		return "DaemonSet", nil
+		return KindDaemonSet, nil
 	case "pod", "pods", "po":
-		return "Pod", nil
+		return KindPod, nil
 	default:
 		return "", fmt.Errorf("unsupported workload kind %q: must be deployment, statefulset, daemonset, or pod", input)
 	}
@@ -67,22 +75,22 @@ func normalizeKind(input string) (string, error) {
 // ValidateWorkload checks that the workload exists in the cluster.
 func ValidateWorkload(ctx context.Context, client *kubernetes.Clientset, ref *WorkloadRef) error {
 	switch ref.Kind {
-	case "Deployment":
+	case KindDeployment:
 		_, err := client.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("deployment %q not found in namespace %q: %w", ref.Name, ref.Namespace, err)
 		}
-	case "StatefulSet":
+	case KindStatefulSet:
 		_, err := client.AppsV1().StatefulSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("statefulset %q not found in namespace %q: %w", ref.Name, ref.Namespace, err)
 		}
-	case "DaemonSet":
+	case KindDaemonSet:
 		_, err := client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("daemonset %q not found in namespace %q: %w", ref.Name, ref.Namespace, err)
 		}
-	case "Pod":
+	case KindPod:
 		_, err := client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("pod %q not found in namespace %q: %w", ref.Name, ref.Namespace, err)
@@ -141,25 +149,25 @@ func matchesHPATarget(hpa autoscalingv2.HorizontalPodAutoscaler, ref *WorkloadRe
 // workload's pod template spec.
 func FetchContainerResources(ctx context.Context, client *kubernetes.Clientset, ref *WorkloadRef) ([]ContainerResources, error) {
 	switch ref.Kind {
-	case "Deployment":
+	case KindDeployment:
 		obj, err := client.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("cannot read deployment: %w", err)
 		}
 		return extractContainerResources(obj.Spec.Template.Spec.Containers), nil
-	case "StatefulSet":
+	case KindStatefulSet:
 		obj, err := client.AppsV1().StatefulSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("cannot read statefulset: %w", err)
 		}
 		return extractContainerResources(obj.Spec.Template.Spec.Containers), nil
-	case "DaemonSet":
+	case KindDaemonSet:
 		obj, err := client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("cannot read daemonset: %w", err)
 		}
 		return extractContainerResources(obj.Spec.Template.Spec.Containers), nil
-	case "Pod":
+	case KindPod:
 		obj, err := client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("cannot read pod: %w", err)
