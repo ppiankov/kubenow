@@ -523,8 +523,8 @@ func renderExposureServices(b *strings.Builder, services []exposure.ServiceExpos
 			b.WriteString("\n")
 			continue
 		}
-		for _, ing := range svc.Ingresses {
-			b.WriteString(okStyle.Render(fmt.Sprintf("    ← ingress: %s", formatIngressRoute(ing))))
+		for i := range svc.Ingresses {
+			b.WriteString(okStyle.Render(fmt.Sprintf("    ← ingress: %s", formatIngressRoute(&svc.Ingresses[i]))))
 			b.WriteString("\n")
 		}
 	}
@@ -577,13 +577,13 @@ func renderExposureNeighbors(b *strings.Builder, neighbors []exposure.Neighbor) 
 		if n.PodCount > 1 {
 			name = fmt.Sprintf("%s (%d pods)", name, n.PodCount)
 		}
-		b.WriteString(fmt.Sprintf("  %-40s ", name))
+		fmt.Fprintf(b, "  %-40s ", name)
 		b.WriteString(valueStyle.Render(fmt.Sprintf("%dm", n.CPUMillis)))
 		b.WriteString("\n")
 	}
 }
 
-func formatIngressRoute(ing exposure.IngressRoute) string {
+func formatIngressRoute(ing *exposure.IngressRoute) string {
 	hosts := strings.Join(ing.Hosts, ", ")
 	tls := ""
 	if ing.TLS {
