@@ -210,7 +210,7 @@ func runLatch(cmd *cobra.Command, args []string) error {
 
 	if _, err := p.Run(); err != nil {
 		latchCancel()
-		return fmt.Errorf("TUI error: %w", err)
+		return fmt.Errorf("tui error: %w", err)
 	}
 
 	latchCancel()
