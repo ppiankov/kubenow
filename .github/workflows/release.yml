@@ -1,3 +1,7 @@
+# NOTE: GitHub Actions does not re-trigger on tag recreation (delete + re-push).
+# If a release needs to be rebuilt, create the GitHub release manually via:
+#   gh release create vX.Y.Z --title "vX.Y.Z" --notes-file CHANGELOG.md
+# and upload artifacts from the CI build.
 name: Release
 
 on:
@@ -30,6 +34,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+
+      - name: Download dependencies
+        run: go mod download
 
       - name: Get project name
         id: project
