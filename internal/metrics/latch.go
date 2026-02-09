@@ -14,6 +14,8 @@ import (
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
+const podLabelRefreshInterval = 60 * time.Second
+
 // LatchConfig holds configuration for spike monitoring
 type LatchConfig struct {
 	SampleInterval time.Duration    // How often to sample (e.g., 1s, 5s)
@@ -57,6 +59,7 @@ type LatchMonitor struct {
 	metricsClient *metricsclientset.Clientset
 	config        LatchConfig
 	spikeData     map[string]*SpikeData // key: namespace/workload
+	podLabels     map[string]map[string]string
 	mu            sync.RWMutex
 	stopCh        chan struct{}
 	doneCh        chan struct{}
@@ -94,6 +97,7 @@ func NewLatchMonitor(kubeClient *kubernetes.Clientset, config LatchConfig) (*Lat
 		metricsClient: metricsClient,
 		config:        config,
 		spikeData:     make(map[string]*SpikeData),
+		podLabels:     make(map[string]map[string]string),
 		stopCh:        make(chan struct{}),
 		doneCh:        make(chan struct{}),
 	}, nil
@@ -109,6 +113,8 @@ func (m *LatchMonitor) progress(msg string) {
 
 // Start begins monitoring for spikes
 func (m *LatchMonitor) Start(ctx context.Context) error {
+	m.refreshPodLabels(ctx)
+
 	// Snapshot restart counts before monitoring so we only report
 	// restarts that happen during the latch window.
 	m.recordRestartBaseline(ctx)
@@ -123,6 +129,7 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 
 	sampleCount := 0
 	expectedSamples := int(m.config.Duration / m.config.SampleInterval)
+	lastLabelRefresh := time.Now()
 
 	for {
 		select {
@@ -139,6 +146,10 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 			close(m.doneCh)
 			return nil
 		case <-ticker.C:
+			if time.Since(lastLabelRefresh) >= podLabelRefreshInterval {
+				m.refreshPodLabels(ctx)
+				lastLabelRefresh = time.Now()
+			}
 			if err := m.sample(ctx); err != nil {
 				m.progress(fmt.Sprintf("[latch] Sample error: %v", err))
 				continue
@@ -185,6 +196,40 @@ func (m *LatchMonitor) recordRestartBaseline(ctx context.Context) {
 	}
 }
 
+func (m *LatchMonitor) refreshPodLabels(ctx context.Context) {
+	namespaces := m.config.Namespaces
+	if len(namespaces) == 0 {
+		pods, err := m.kubeClient.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return
+		}
+		labels := make(map[string]map[string]string, len(pods.Items))
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			labels[pod.Name] = pod.Labels
+		}
+		m.mu.Lock()
+		m.podLabels = labels
+		m.mu.Unlock()
+		return
+	}
+
+	labels := make(map[string]map[string]string)
+	for _, ns := range namespaces {
+		pods, err := m.kubeClient.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return
+		}
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			labels[pod.Name] = pod.Labels
+		}
+	}
+	m.mu.Lock()
+	m.podLabels = labels
+	m.mu.Unlock()
+}
+
 // restartDelta returns the number of restarts that occurred since the
 // baseline was recorded. If no baseline exists for this container,
 // falls back to the full restart count (conservative).
@@ -229,20 +274,21 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 
 	now := time.Now()
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	for _, podMetrics := range podMetricsList.Items {
 		// Skip kube-system
 		if podMetrics.Namespace == "kube-system" {
 			continue
 		}
 
-		// Extract workload name from pod name (remove replica suffix).
-		// In pod-level mode, use the exact pod name instead.
-		workloadName := extractWorkloadName(podMetrics.Name)
-		if m.config.PodLevel {
-			workloadName = podMetrics.Name
+		var labels map[string]string
+		if !m.config.PodLevel {
+			m.mu.RLock()
+			labels = m.podLabels[podMetrics.Name]
+			m.mu.RUnlock()
+		}
+		workloadName := podMetrics.Name
+		if !m.config.PodLevel {
+			workloadName = ResolveWorkloadName(podMetrics.Name, labels)
 		}
 
 		// Skip if workload filter is set and doesn't match
@@ -263,6 +309,7 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 		}
 
 		// Initialize or update spike data
+		m.mu.Lock()
 		data, exists := m.spikeData[key]
 		if !exists {
 			data = &SpikeData{
@@ -299,6 +346,7 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 		// Calculate running averages
 		data.AvgCPU = calculateFloatAverage(data.CPUSamples)
 		data.AvgMemory = calculateFloatAverage(data.MemSamples)
+		m.mu.Unlock()
 	}
 
 	return nil
@@ -337,48 +385,6 @@ func (m *LatchMonitor) GetWorkloadSpikeData(namespace, workloadName string) *Spi
 	return nil
 }
 
-// extractWorkloadName extracts workload name from pod name
-// e.g., "payment-api-7d8f9c4b6-abc12" -> "payment-api"
-func extractWorkloadName(podName string) string {
-	// Simple heuristic: remove last two dash-separated segments (replicaset suffix + pod suffix)
-	parts := splitByDash(podName)
-	if len(parts) <= 2 {
-		return podName
-	}
-	// Return everything except last 2 segments
-	return joinByDash(parts[:len(parts)-2])
-}
-
-func splitByDash(s string) []string {
-	result := []string{}
-	current := ""
-	for _, ch := range s {
-		if ch == '-' {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-		} else {
-			current += string(ch)
-		}
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}
-
-func joinByDash(parts []string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	result := parts[0]
-	for i := 1; i < len(parts); i++ {
-		result += "-" + parts[i]
-	}
-	return result
-}
-
 func calculateFloatAverage(samples []float64) float64 {
 	if len(samples) == 0 {
 		return 0
@@ -400,13 +406,10 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 	namespacesMap := make(map[string]bool)
 	for key := range m.spikeData {
 		// Extract namespace from key (format: "namespace/workload")
-		parts := splitByDash(key)
-		if len(parts) > 0 {
-			// Actually the key uses "/" not "-", let me fix this
-			namespace := key[:findFirstSlash(key)]
-			if namespace != "" {
-				namespacesMap[namespace] = true
-			}
+		slash := findFirstSlash(key)
+		if slash > 0 {
+			namespace := key[:slash]
+			namespacesMap[namespace] = true
 		}
 	}
 
@@ -420,9 +423,9 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 
 		// Check each pod for critical signals
 		for _, pod := range pods.Items {
-			workloadName := extractWorkloadName(pod.Name)
-			if m.config.PodLevel {
-				workloadName = pod.Name
+			workloadName := pod.Name
+			if !m.config.PodLevel {
+				workloadName = ResolveWorkloadName(pod.Name, pod.Labels)
 			}
 			key := fmt.Sprintf("%s/%s", pod.Namespace, workloadName)
 
@@ -540,9 +543,10 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 
 			// Extract workload name from pod name
 			podName := event.InvolvedObject.Name
-			workloadName := extractWorkloadName(podName)
-			if m.config.PodLevel {
-				workloadName = podName
+			labels := m.podLabels[podName]
+			workloadName := podName
+			if !m.config.PodLevel {
+				workloadName = ResolveWorkloadName(podName, labels)
 			}
 			key := fmt.Sprintf("%s/%s", namespace, workloadName)
 
