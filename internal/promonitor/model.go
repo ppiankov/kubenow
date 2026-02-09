@@ -2,6 +2,7 @@ package promonitor
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -313,7 +314,7 @@ func (m Model) updateConfirming(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // buildApplyInput assembles the ApplyInput from model state.
 func (m Model) buildApplyInput() *ApplyInput {
-	return &ApplyInput{
+	input := &ApplyInput{
 		Recommendation:  m.recommendation,
 		Workload:        m.workload,
 		Mode:            m.mode,
@@ -323,6 +324,35 @@ func (m Model) buildApplyInput() *ApplyInput {
 		LatchTimestamp:  m.latchTimestamp,
 		LatchDuration:   m.latchDuration,
 	}
+
+	// Resolve audit/identity/rate-limit flags for pre-flight checks.
+	// Without this, CheckActionable always denies (flags default to false).
+	if m.auditPath != "" && m.fullPolicy != nil {
+		input.AuditWritable = os.MkdirAll(m.auditPath, 0755) == nil
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		identity := audit.ResolveIdentity(ctx, m.kubeClient, m.kubeconfigPath)
+		input.IdentityRecorded = identity.IdentitySource != "unknown"
+
+		peekResult, _ := audit.Peek(audit.RateLimitConfig{
+			MaxGlobal: m.fullPolicy.RateLimits.MaxAppliesPerHour,
+			Window:    m.fullPolicy.RateWindowParsed(),
+			AuditPath: m.auditPath,
+		})
+		if peekResult != nil {
+			input.RateLimitOK = peekResult.Allowed
+		} else {
+			input.RateLimitOK = true
+		}
+	} else {
+		// No policy/audit configured — no gates to enforce
+		input.AuditWritable = true
+		input.IdentityRecorded = true
+		input.RateLimitOK = true
+	}
+
+	return input
 }
 
 // executeApplyCmd returns a Cmd that runs the SSA apply in a goroutine.

@@ -135,3 +135,78 @@ func TestCheckAndIncrement_UnlimitedZero(t *testing.T) {
 		assert.True(t, result.Allowed)
 	}
 }
+
+func TestPeek_UnderLimit(t *testing.T) {
+	cfg := testRateLimitConfig(t, 3, 0)
+
+	// Add one entry
+	_, err := CheckAndIncrement(cfg, "uid-123", "default/deployment/api", "admin")
+	require.NoError(t, err)
+
+	// Peek should show allowed (1 of 3)
+	result, err := Peek(cfg)
+	require.NoError(t, err)
+	assert.True(t, result.Allowed)
+}
+
+func TestPeek_AtLimit(t *testing.T) {
+	cfg := testRateLimitConfig(t, 2, 0)
+
+	// Fill to limit
+	for i := 0; i < 2; i++ {
+		_, err := CheckAndIncrement(cfg, "uid-123", "default/deployment/api", "admin")
+		require.NoError(t, err)
+	}
+
+	// Peek should show denied
+	result, err := Peek(cfg)
+	require.NoError(t, err)
+	assert.False(t, result.Allowed)
+	assert.Contains(t, result.DenialReason, "global rate limit exceeded")
+}
+
+func TestPeek_ExpiredWindow(t *testing.T) {
+	cfg := testRateLimitConfig(t, 1, 0)
+
+	// Fill to limit
+	_, err := CheckAndIncrement(cfg, "uid-123", "default/deployment/api", "admin")
+	require.NoError(t, err)
+
+	// Backdate window
+	globalPath := filepath.Join(cfg.AuditPath, ".ratelimit", "cluster.json")
+	data, err := os.ReadFile(globalPath)
+	require.NoError(t, err)
+	var state RateLimitState
+	require.NoError(t, json.Unmarshal(data, &state))
+	state.WindowStart = time.Now().Add(-2 * time.Hour)
+	updatedData, err := json.Marshal(state)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(globalPath, updatedData, 0644))
+
+	// Peek should show allowed (window expired)
+	result, err := Peek(cfg)
+	require.NoError(t, err)
+	assert.True(t, result.Allowed)
+}
+
+func TestPeek_MissingDir(t *testing.T) {
+	cfg := RateLimitConfig{
+		MaxGlobal: 5,
+		Window:    time.Hour,
+		AuditPath: filepath.Join(t.TempDir(), "nonexistent"),
+	}
+
+	// Peek should be optimistic on missing state
+	result, err := Peek(cfg)
+	require.NoError(t, err)
+	assert.True(t, result.Allowed)
+}
+
+func TestPeek_Unlimited(t *testing.T) {
+	cfg := testRateLimitConfig(t, 0, 0)
+
+	// MaxGlobal=0 means unlimited, Peek should always allow
+	result, err := Peek(cfg)
+	require.NoError(t, err)
+	assert.True(t, result.Allowed)
+}
