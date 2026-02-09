@@ -424,6 +424,9 @@ func obfuscateResults(result *analyzer.RequestsSkewResult, obf *util.Obfuscator)
 		result.WorkloadsWithoutMetrics[i].Namespace = obf.Namespace(result.WorkloadsWithoutMetrics[i].Namespace)
 		result.WorkloadsWithoutMetrics[i].Workload = obf.Workload(result.WorkloadsWithoutMetrics[i].Workload)
 	}
+	for i := range result.NamespaceMetrics {
+		result.NamespaceMetrics[i].Namespace = obf.Namespace(result.NamespaceMetrics[i].Namespace)
+	}
 	for i := range result.NamespaceQuotas {
 		result.NamespaceQuotas[i].Namespace = obf.Namespace(result.NamespaceQuotas[i].Namespace)
 	}
@@ -587,13 +590,31 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 	}
 
 	// Print summary
-	fmt.Printf("\n=== Requests-Skew Analysis ===\n")
-	if result.Summary.AnalyzedWorkloads == 0 && len(result.WorkloadsWithoutMetrics) > 0 {
-		fmt.Printf("Window: %s | Analyzed: %d workloads (%d have no Prometheus metrics) | Top: %d\n\n",
-			result.Metadata.Window,
-			result.Summary.AnalyzedWorkloads,
-			len(result.WorkloadsWithoutMetrics),
-			len(result.Results))
+	fmt.Printf("\n=== Requests-Skew Analysis (Prometheus metrics only) ===\n")
+	totalWorkloads := result.Summary.AnalyzedWorkloads + len(result.WorkloadsWithoutMetrics)
+	if len(result.WorkloadsWithoutMetrics) > 0 {
+		// Count namespaces without any Prometheus data
+		nsWithout := 0
+		for _, ns := range result.NamespaceMetrics {
+			if !ns.HasMetrics {
+				nsWithout++
+			}
+		}
+		if nsWithout > 0 {
+			fmt.Printf("Window: %s | Analyzed: %d of %d workloads | %d namespace(s) have no Prometheus data | Top: %d\n\n",
+				result.Metadata.Window,
+				result.Summary.AnalyzedWorkloads,
+				totalWorkloads,
+				nsWithout,
+				len(result.Results))
+		} else {
+			fmt.Printf("Window: %s | Analyzed: %d of %d workloads (%d without Prometheus metrics) | Top: %d\n\n",
+				result.Metadata.Window,
+				result.Summary.AnalyzedWorkloads,
+				totalWorkloads,
+				len(result.WorkloadsWithoutMetrics),
+				len(result.Results))
+		}
 	} else {
 		fmt.Printf("Window: %s | Analyzed: %d workloads | Top: %d\n\n",
 			result.Metadata.Window,
@@ -706,72 +727,113 @@ func printSafetyWarnings(result *analyzer.RequestsSkewResult) {
 
 func printWorkloadsWithoutMetricsWarning(result *analyzer.RequestsSkewResult) {
 	if len(result.WorkloadsWithoutMetrics) == 0 {
-		return // No workloads without metrics, nothing to warn about
+		return
 	}
 
 	fmt.Printf("\n⚠️  Workloads Without Prometheus Metrics:\n")
 	fmt.Printf("══════════════════════════════════════════\n\n")
 
-	fmt.Printf("Found %d workload(s) in Kubernetes but NO corresponding Prometheus metrics:\n", len(result.WorkloadsWithoutMetrics))
-	fmt.Printf("(requests-skew requires Prometheus metrics to compare requested vs actual usage)\n\n")
+	fmt.Printf("requests-skew compares Prometheus historical data against resource requests.\n")
+	fmt.Printf("The following %d workload(s) have no Prometheus metrics and cannot be analyzed here.\n\n", len(result.WorkloadsWithoutMetrics))
 
-	// Group by namespace for better readability
+	// Show per-namespace Prometheus data status
+	printNamespaceMetricsStatus(result)
+
+	// Group workloads by namespace
 	byNamespace := make(map[string][]analyzer.WorkloadWithoutMetrics)
 	for _, w := range result.WorkloadsWithoutMetrics {
 		byNamespace[w.Namespace] = append(byNamespace[w.Namespace], w)
 	}
 
-	for ns, workloads := range byNamespace {
+	// Sort namespace keys for deterministic output
+	nsKeys := make([]string, 0, len(byNamespace))
+	for ns := range byNamespace {
+		nsKeys = append(nsKeys, ns)
+	}
+	sort.Strings(nsKeys)
+
+	// Print workloads grouped by namespace with per-workload latch commands
+	fmt.Printf("Use pro-monitor latch to analyze these workloads via Kubernetes Metrics API:\n\n")
+	for _, ns := range nsKeys {
+		workloads := byNamespace[ns]
 		fmt.Printf("  Namespace: %s\n", ns)
 		for _, w := range workloads {
-			fmt.Printf("    • %s (%s)\n", w.Workload, w.Type)
+			diag := ""
+			if w.Diagnosis != "" {
+				diag = fmt.Sprintf(" — %s", w.Diagnosis)
+			}
+			kindLower := kindToArg(w.Type)
+			fmt.Printf("    • %s/%s%s\n", w.Type, w.Workload, diag)
+			fmt.Printf("      kubenow pro-monitor latch %s/%s -n %s --duration 5m\n", kindLower, w.Workload, ns)
 		}
 		fmt.Println()
 	}
 
-	fmt.Printf("Possible Causes:\n")
-	fmt.Printf("  • Container metrics not being scraped by Prometheus\n")
-	fmt.Printf("  • ServiceMonitor/PodMonitor missing cAdvisor endpoint\n")
-	fmt.Printf("  • Workload too new (created after analysis window)\n")
-	fmt.Printf("  • Pods in crash loops or not running\n")
+	fmt.Printf("Why use pro-monitor latch?\n")
+	fmt.Printf("  • Works without Prometheus — uses Kubernetes Metrics API directly\n")
+	fmt.Printf("  • Captures real-time usage with sub-second sampling\n")
+	fmt.Printf("  • Produces resource recommendations with safety analysis\n")
+	fmt.Printf("  • Supports any workload type including CRD-managed (CNPG, Strimzi, etc.)\n\n")
+}
+
+// printNamespaceMetricsStatus shows which namespaces have/lack Prometheus data
+func printNamespaceMetricsStatus(result *analyzer.RequestsSkewResult) {
+	if len(result.NamespaceMetrics) == 0 {
+		return
+	}
+
+	// Count namespaces with/without metrics
+	withMetrics := 0
+	withoutMetrics := 0
+	for _, ns := range result.NamespaceMetrics {
+		if ns.HasMetrics {
+			withMetrics++
+		} else {
+			withoutMetrics++
+		}
+	}
+
+	if withoutMetrics == 0 {
+		return
+	}
+
+	fmt.Printf("Prometheus data by namespace:\n")
+	// Sort for deterministic output
+	sorted := make([]analyzer.NamespaceMetricsStatus, len(result.NamespaceMetrics))
+	copy(sorted, result.NamespaceMetrics)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Namespace < sorted[j].Namespace })
+
+	for _, ns := range sorted {
+		if ns.HasMetrics {
+			fmt.Printf("  ✓ %s (%d series)\n", ns.Namespace, ns.SeriesCount)
+		} else {
+			fmt.Printf("  ✗ %s (no container_cpu data in Prometheus)\n", ns.Namespace)
+		}
+	}
 	fmt.Println()
 
-	fmt.Printf("💡 Recommended Action - Use Latch Mode:\n")
-	fmt.Printf("═══════════════════════════════════════════\n\n")
-	fmt.Printf("Since these workloads lack Prometheus metrics, you can use LATCH MODE\n")
-	fmt.Printf("to monitor them in real-time via the Kubernetes Metrics API:\n\n")
+	if withMetrics > 0 && withoutMetrics > 0 {
+		fmt.Printf("Note: %d namespace(s) have Prometheus data, %d do not.\n", withMetrics, withoutMetrics)
+		fmt.Printf("This usually means cAdvisor scraping is not configured for some nodes.\n")
+		fmt.Printf("Check: kubectl get servicemonitor -A | grep kubelet\n\n")
+	} else if withoutMetrics > 0 && withMetrics == 0 {
+		fmt.Printf("Note: No namespaces have Prometheus container metrics.\n")
+		fmt.Printf("Check your Prometheus ServiceMonitor configuration for cAdvisor scraping.\n\n")
+	}
+}
 
-	fmt.Printf("  kubenow analyze requests-skew \\\n")
-	fmt.Printf("    --prometheus-url %s \\\n", requestsSkewConfig.prometheusURL)
-	fmt.Printf("    --watch-for-spikes \\\n")
-	fmt.Printf("    --spike-duration 15m \\\n")
-	fmt.Printf("    --spike-interval 5s\n\n")
-
-	fmt.Printf("What Latch Mode Does:\n")
-	fmt.Printf("  • Samples Kubernetes Metrics API at high frequency (default: 5s)\n")
-	fmt.Printf("  • Captures sub-scrape-interval spikes (< 15-30s) that Prometheus misses\n")
-	fmt.Printf("  • Useful for bursty workloads (AI inference, RAG, batch jobs)\n")
-	fmt.Printf("  • Provides real-time data when historical metrics unavailable\n\n")
-
-	fmt.Printf("⚡ Special Note for RAG Workloads:\n")
-	fmt.Printf("  RAG queries are extremely bursty (millisecond-level spikes).\n")
-	fmt.Printf("  For RAG workloads, use 1s or sub-1s sampling:\n\n")
-	fmt.Printf("    kubenow analyze requests-skew \\\n")
-	fmt.Printf("      --prometheus-url %s \\\n", requestsSkewConfig.prometheusURL)
-	fmt.Printf("      --watch-for-spikes \\\n")
-	fmt.Printf("      --spike-duration 30m \\\n")
-	fmt.Printf("      --spike-interval 1s    # ← Critical for RAG!\n\n")
-
-	fmt.Printf("Troubleshooting Missing Metrics:\n")
-	fmt.Printf("  1. Check ServiceMonitor configuration:\n")
-	fmt.Printf("     kubectl get servicemonitor -n kube-prometheus-stack kubelet -o yaml\n\n")
-	fmt.Printf("  2. Verify cAdvisor endpoint exists:\n")
-	fmt.Printf("     Look for: endpoints[].port=cadvisor, path=/metrics/cadvisor\n\n")
-	fmt.Printf("  3. Check Prometheus targets:\n")
-	fmt.Printf("     kubectl port-forward -n kube-prometheus-stack svc/prometheus-operated 9090:9090\n")
-	fmt.Printf("     # Open: http://localhost:9090/targets\n\n")
-
-	fmt.Printf("See README troubleshooting section for detailed guidance.\n\n")
+// kindToArg converts a workload kind to the CLI argument form
+func kindToArg(kind string) string {
+	switch kind {
+	case "Deployment":
+		return "deployment"
+	case "StatefulSet":
+		return "statefulset"
+	case "DaemonSet":
+		return "daemonset"
+	default:
+		return "pod"
+	}
 }
 
 func impactScoreLabel(score float64) string {

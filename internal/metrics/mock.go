@@ -102,7 +102,7 @@ func (m *MockMetrics) GetPodResourceUsage(ctx context.Context, namespace, podPat
 }
 
 // GetWorkloadResourceUsage implements MetricsProvider
-func (m *MockMetrics) GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName string, window time.Duration) (*WorkloadUsage, error) {
+func (m *MockMetrics) GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName, workloadType string, window time.Duration) (*WorkloadUsage, error) {
 	key := namespace + "/" + workloadName
 	if usage, exists := m.WorkloadUsages[key]; exists {
 		return usage, nil
@@ -145,6 +145,17 @@ func (m *MockMetrics) GetClusterResourceUsage(ctx context.Context, window time.D
 		MemUtilizationP95: 60.0,
 		NodeCount:         25,
 	}, nil
+}
+
+// HasNamespaceMetrics implements MetricsProvider
+func (m *MockMetrics) HasNamespaceMetrics(_ context.Context, namespace string) (bool, int, error) {
+	// If workload usages exist for this namespace, report true
+	for key := range m.WorkloadUsages {
+		if len(key) > len(namespace) && key[:len(namespace)+1] == namespace+"/" {
+			return true, 1, nil
+		}
+	}
+	return false, 0, nil
 }
 
 // Health implements MetricsProvider

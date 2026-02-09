@@ -217,18 +217,18 @@ func (p *PrometheusClient) GetPodResourceUsage(ctx context.Context, namespace, p
 }
 
 // GetWorkloadResourceUsage retrieves CPU and memory usage for a workload
-func (p *PrometheusClient) GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName string, window time.Duration) (*WorkloadUsage, error) {
+func (p *PrometheusClient) GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName, workloadType string, window time.Duration) (*WorkloadUsage, error) {
 	end := time.Now()
 	start := end.Add(-window)
 
 	usage := &WorkloadUsage{
 		WorkloadName: workloadName,
 		Namespace:    namespace,
-		WorkloadType: "Deployment", // TODO: detect type from Kubernetes API
+		WorkloadType: workloadType,
 	}
 
 	// Query workload CPU
-	cpuQuery := p.builder.WorkloadCPUUsage(namespace, workloadName, usage.WorkloadType)
+	cpuQuery := p.builder.WorkloadCPUUsage(namespace, workloadName, workloadType)
 	cpuMatrix, err := p.QueryRange(ctx, cpuQuery, start, end, time.Minute)
 	if err == nil && len(cpuMatrix) > 0 {
 		usage.CPUAvg = calculateAverage(cpuMatrix[0].Values)
@@ -238,7 +238,7 @@ func (p *PrometheusClient) GetWorkloadResourceUsage(ctx context.Context, namespa
 	}
 
 	// Query workload memory
-	memQuery := p.builder.WorkloadMemoryUsage(namespace, workloadName, usage.WorkloadType)
+	memQuery := p.builder.WorkloadMemoryUsage(namespace, workloadName, workloadType)
 	memMatrix, err := p.QueryRange(ctx, memQuery, start, end, time.Minute)
 	if err == nil && len(memMatrix) > 0 {
 		usage.MemoryAvg = calculateAverage(memMatrix[0].Values)
@@ -335,6 +335,21 @@ func (p *PrometheusClient) Health(ctx context.Context) error {
 		return fmt.Errorf("prometheus health check failed: %w", err)
 	}
 	return nil
+}
+
+// HasNamespaceMetrics checks if Prometheus has any container CPU metrics for a namespace.
+// Returns (hasMetrics, seriesCount, error).
+func (p *PrometheusClient) HasNamespaceMetrics(ctx context.Context, namespace string) (bool, int, error) {
+	query := fmt.Sprintf(`count(container_cpu_usage_seconds_total{namespace="%s",container!="",container!="POD"})`, namespace)
+	result, err := p.QueryInstant(ctx, query, time.Now())
+	if err != nil {
+		return false, 0, err
+	}
+	if len(result) == 0 {
+		return false, 0, nil
+	}
+	count := int(result[0].Value)
+	return count > 0, count, nil
 }
 
 // calculateAverage computes the average of a series of values
