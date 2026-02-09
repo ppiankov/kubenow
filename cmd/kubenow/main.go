@@ -9,7 +9,7 @@ import (
 )
 
 // Version is set at build time via -ldflags
-var Version = "0.1.1"
+var Version = "dev"
 
 func main() {
 	if err := cli.Execute(); err != nil {
