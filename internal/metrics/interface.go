@@ -22,7 +22,10 @@ type MetricsProvider interface {
 	GetPodResourceUsage(ctx context.Context, namespace, podPattern string, window time.Duration) ([]PodUsage, error)
 
 	// GetWorkloadResourceUsage retrieves CPU and memory usage for a workload (Deployment, StatefulSet, etc.)
-	GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName string, window time.Duration) (*WorkloadUsage, error)
+	GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName, workloadType string, window time.Duration) (*WorkloadUsage, error)
+
+	// HasNamespaceMetrics checks if Prometheus has any container metrics for a namespace
+	HasNamespaceMetrics(ctx context.Context, namespace string) (bool, int, error)
 
 	// GetClusterResourceUsage retrieves total cluster resource usage over a time window
 	GetClusterResourceUsage(ctx context.Context, window time.Duration) (*ClusterUsage, error)

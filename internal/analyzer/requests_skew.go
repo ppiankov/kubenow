@@ -50,6 +50,7 @@ type RequestsSkewResult struct {
 	Summary                 RequestsSkewSummary      `json:"summary"`
 	Results                 []WorkloadSkewAnalysis   `json:"results"`
 	WorkloadsWithoutMetrics []WorkloadWithoutMetrics `json:"workloads_without_metrics,omitempty"`
+	NamespaceMetrics        []NamespaceMetricsStatus `json:"namespace_metrics,omitempty"`
 	NamespaceQuotas         []NamespaceQuotaInfo     `json:"namespace_quotas,omitempty"`
 	SpikeData               map[string]interface{}   `json:"spike_data,omitempty"` // Real-time spike monitoring data (if enabled)
 }
@@ -58,7 +59,15 @@ type RequestsSkewResult struct {
 type WorkloadWithoutMetrics struct {
 	Namespace string `json:"namespace"`
 	Workload  string `json:"workload"`
-	Type      string `json:"type"` // Deployment, StatefulSet, etc.
+	Type      string `json:"type"`      // Deployment, StatefulSet, etc.
+	Diagnosis string `json:"diagnosis"` // Why metrics are missing
+}
+
+// NamespaceMetricsStatus tracks whether Prometheus has data for a namespace
+type NamespaceMetricsStatus struct {
+	Namespace   string `json:"namespace"`
+	HasMetrics  bool   `json:"has_metrics"`
+	SeriesCount int    `json:"series_count"` // Number of container_cpu_usage_seconds_total series
 }
 
 // NamespaceQuotaInfo contains ResourceQuota and LimitRange information for a namespace
@@ -207,12 +216,46 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 		}
 	}
 
+	// Check per-namespace Prometheus data availability before analyzing workloads
+	logProgress("[kubenow] Checking Prometheus data availability per namespace...\n")
+	nsHasMetrics := make(map[string]bool, len(namespaces))
+	for _, ns := range namespaces {
+		hasMetrics, seriesCount, err := a.metricsProvider.HasNamespaceMetrics(ctx, ns)
+		if err != nil {
+			logProgress("[kubenow] Warning: failed to check metrics for namespace %s: %v\n", ns, err)
+			nsHasMetrics[ns] = true // assume yes on error, let per-workload check decide
+		} else {
+			nsHasMetrics[ns] = hasMetrics
+		}
+		result.NamespaceMetrics = append(result.NamespaceMetrics, NamespaceMetricsStatus{
+			Namespace:   ns,
+			HasMetrics:  hasMetrics,
+			SeriesCount: seriesCount,
+		})
+		if !hasMetrics {
+			logProgress("[kubenow]   %s: no Prometheus metrics (0 container_cpu series)\n", ns)
+		}
+	}
+
 	// Analyze each namespace
 	for i, ns := range namespaces {
 		logProgress("[kubenow] [%d/%d] Analyzing namespace: %s\n", i+1, len(namespaces), ns)
+
+		// If namespace has no Prometheus data, skip per-workload queries and
+		// record all workloads as missing metrics with a clear reason
+		if !nsHasMetrics[ns] {
+			noMetrics, err := a.listNamespaceWorkloads(ctx, ns, "no Prometheus container metrics for this namespace")
+			if err != nil {
+				logProgress("[kubenow] Warning: failed to list workloads in %s: %v\n", ns, err)
+				continue
+			}
+			logProgress("[kubenow]   → Skipped %d workloads (namespace has no Prometheus data)\n", len(noMetrics))
+			result.WorkloadsWithoutMetrics = append(result.WorkloadsWithoutMetrics, noMetrics...)
+			continue
+		}
+
 		workloads, noMetrics, err := a.analyzeNamespace(ctx, ns)
 		if err != nil {
-			// Log error but continue with other namespaces
 			logProgress("[kubenow] Warning: failed to analyze namespace %s: %v\n", ns, err)
 			continue
 		}
@@ -527,9 +570,13 @@ func (a *RequestsSkewAnalyzer) diagnoseWorkloadsWithoutMetrics(ctx context.Conte
 		sampleSize = len(result.WorkloadsWithoutMetrics)
 	}
 
-	// Sample up to 5 workloads
 	for i := 0; i < sampleSize; i++ {
-		w := result.WorkloadsWithoutMetrics[i]
+		w := &result.WorkloadsWithoutMetrics[i]
+
+		// Skip if already diagnosed (e.g., namespace-level check)
+		if w.Diagnosis != "" {
+			continue
+		}
 
 		// Get pods for this workload
 		labelSelector := fmt.Sprintf("app=%s", w.Workload)
@@ -539,7 +586,6 @@ func (a *RequestsSkewAnalyzer) diagnoseWorkloadsWithoutMetrics(ctx context.Conte
 		})
 
 		if err != nil || len(pods.Items) == 0 {
-			// Try alternative label selector
 			labelSelector = fmt.Sprintf("app.kubernetes.io/name=%s", w.Workload)
 			pods, err = a.kubeClient.CoreV1().Pods(w.Namespace).List(ctx, metav1.ListOptions{
 				LabelSelector: labelSelector,
@@ -547,19 +593,15 @@ func (a *RequestsSkewAnalyzer) diagnoseWorkloadsWithoutMetrics(ctx context.Conte
 			})
 		}
 
-		var diagnosis string
 		if err != nil {
-			diagnosis = fmt.Sprintf("Unable to query pods: %v", err)
+			w.Diagnosis = fmt.Sprintf("unable to query pods: %v", err)
 		} else if len(pods.Items) == 0 {
-			diagnosis = "No pods found - workload may have no replicas or incorrect label selector"
+			w.Diagnosis = "no pods found"
 		} else {
 			pod := pods.Items[0]
 			if pod.Status.Phase != "Running" {
-				diagnosis = fmt.Sprintf("Pod not running (phase: %s)", pod.Status.Phase)
-			} else if len(pod.Spec.Containers) == 0 {
-				diagnosis = "Pod has no containers"
+				w.Diagnosis = fmt.Sprintf("pod not running (phase: %s)", pod.Status.Phase)
 			} else {
-				// Check if pod has the right labels for Prometheus scraping
 				hasAppLabel := false
 				for key := range pod.Labels {
 					if key == "app" || key == "app.kubernetes.io/name" {
@@ -568,16 +610,51 @@ func (a *RequestsSkewAnalyzer) diagnoseWorkloadsWithoutMetrics(ctx context.Conte
 					}
 				}
 				if !hasAppLabel {
-					diagnosis = "Pod missing standard app labels (app or app.kubernetes.io/name)"
+					w.Diagnosis = "pod missing standard app labels"
 				} else {
-					diagnosis = "Pod running with labels, but no Prometheus metrics - check ServiceMonitor/PodMonitor configuration"
+					w.Diagnosis = "pod running but no Prometheus metrics — check ServiceMonitor/PodMonitor"
 				}
 			}
 		}
-
-		// Store diagnosis in the workload metadata (we'll need to extend the struct)
-		result.WorkloadsWithoutMetrics[i].Type = fmt.Sprintf("%s (%s)", w.Type, diagnosis)
 	}
+}
+
+// listNamespaceWorkloads lists all workloads in a namespace without querying Prometheus.
+// Used when the namespace has no Prometheus data at all.
+func (a *RequestsSkewAnalyzer) listNamespaceWorkloads(ctx context.Context, namespace, diagnosis string) ([]WorkloadWithoutMetrics, error) {
+	var result []WorkloadWithoutMetrics
+
+	deployments, err := a.kubeClient.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deployments: %w", err)
+	}
+	for _, d := range deployments.Items {
+		result = append(result, WorkloadWithoutMetrics{
+			Namespace: namespace, Workload: d.Name, Type: "Deployment", Diagnosis: diagnosis,
+		})
+	}
+
+	statefulsets, err := a.kubeClient.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list statefulsets: %w", err)
+	}
+	for _, s := range statefulsets.Items {
+		result = append(result, WorkloadWithoutMetrics{
+			Namespace: namespace, Workload: s.Name, Type: "StatefulSet", Diagnosis: diagnosis,
+		})
+	}
+
+	daemonsets, err := a.kubeClient.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list daemonsets: %w", err)
+	}
+	for _, d := range daemonsets.Items {
+		result = append(result, WorkloadWithoutMetrics{
+			Namespace: namespace, Workload: d.Name, Type: "DaemonSet", Diagnosis: diagnosis,
+		})
+	}
+
+	return result, nil
 }
 
 // analyzeNamespace analyzes all workloads in a namespace
@@ -661,7 +738,7 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 // - hasMetrics is false if workload exists but has no Prometheus metrics
 func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, workloadName, workloadType string, creationTime time.Time) (*WorkloadSkewAnalysis, bool, error) {
 	// Get workload metrics
-	usage, err := a.metricsProvider.GetWorkloadResourceUsage(ctx, namespace, workloadName, a.config.Window)
+	usage, err := a.metricsProvider.GetWorkloadResourceUsage(ctx, namespace, workloadName, workloadType, a.config.Window)
 	if err != nil {
 		return nil, true, fmt.Errorf("failed to get workload usage: %w", err)
 	}

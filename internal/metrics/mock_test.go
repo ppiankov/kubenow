@@ -78,7 +78,7 @@ func TestMockMetrics_GetWorkloadResourceUsage(t *testing.T) {
 	mock := NewMockMetrics()
 	ctx := context.Background()
 
-	usage, err := mock.GetWorkloadResourceUsage(ctx, "production", "payment-api", 30*24*time.Hour)
+	usage, err := mock.GetWorkloadResourceUsage(ctx, "production", "payment-api", "Deployment", 30*24*time.Hour)
 	assert.NoError(t, err)
 	assert.NotNil(t, usage)
 	assert.Equal(t, "payment-api", usage.WorkloadName)

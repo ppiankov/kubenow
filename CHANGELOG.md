@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.3] - 2026-02-09
+
+### Fixed
+
+#### Requests-Skew Prometheus Diagnostics
+- Added per-namespace Prometheus data check before querying individual workloads
+- Namespace metrics status now shown with series counts (✓/✗) in output
+- Workloads without Prometheus data get per-workload `pro-monitor latch` commands
+- Header clarifies that requests-skew table requires Prometheus metrics
+- Fixed hardcoded "Deployment" type in Prometheus queries — StatefulSet/DaemonSet now use correct pod patterns
+
+---
+
 ## [0.2.2] - 2026-02-09
 
 ### Added
