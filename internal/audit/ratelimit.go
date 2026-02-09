@@ -184,4 +184,41 @@ func writeState(path string, state *RateLimitState) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// Peek checks the global rate limit without incrementing counters.
+// Returns Allowed=true optimistically on any error (missing dir, corrupted state).
+func Peek(cfg RateLimitConfig) (*RateLimitResult, error) {
+	if cfg.MaxGlobal <= 0 {
+		return &RateLimitResult{Allowed: true}, nil
+	}
+
+	globalPath := filepath.Join(cfg.AuditPath, ".ratelimit", "cluster.json")
+	allowed, err := peekRateFile(globalPath, cfg.MaxGlobal, cfg.Window)
+	if err != nil {
+		// Optimistic: don't block apply on read errors
+		return &RateLimitResult{Allowed: true}, nil
+	}
+	if !allowed {
+		return &RateLimitResult{
+			Allowed:      false,
+			DenialReason: fmt.Sprintf("global rate limit exceeded (%d applies in %s window)", cfg.MaxGlobal, cfg.Window),
+		}, nil
+	}
+	return &RateLimitResult{Allowed: true}, nil
+}
+
+// peekRateFile reads rate limit state without modifying it.
+func peekRateFile(path string, maxCount int, window time.Duration) (bool, error) {
+	state, err := readState(path)
+	if err != nil {
+		return false, err
+	}
+
+	now := time.Now()
+	if state.WindowStart.IsZero() || now.After(state.WindowStart.Add(window)) {
+		return true, nil // window expired, would reset
+	}
+
+	return state.Count < maxCount, nil
+}
+
 // acquireFlock and releaseFlock are in flock_unix.go / flock_windows.go

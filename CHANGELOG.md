@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.5] - 2026-02-09
+
+### Fixed
+- Apply pre-flight check always denied with "audit path not writable", "identity not recorded", "rate limit exceeded" — flags were never set before validation
+- Added read-only rate limit peek for TUI pre-flight (no counter increment)
+
+---
+
 ## [0.2.4] - 2026-02-09
 
 ### Fixed
