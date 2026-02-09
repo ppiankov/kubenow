@@ -17,8 +17,7 @@ linters:
     - misspell
     - revive
     - unconvert
-  disable:
-    - gosec
+  # gosec disabled — Trivy covers security scanning in CI
   settings:
     dupl:
       threshold: 100
@@ -50,7 +49,6 @@ linters:
           - dupl
           - errcheck
           - gocyclo
-          - gosec
         path: _test\.go
       - linters:
           - staticcheck
