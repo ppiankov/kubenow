@@ -105,7 +105,7 @@ func (qb *QueryBuilder) WorkloadCPUUsage(namespace, workloadName, workloadType s
 	case "DaemonSet":
 		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s-.*",container!="",container!="POD"}[5m]))`, namespace, workloadName)
 	case "Pod":
-		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod="%s",container!="",container!="POD"}[5m]))`, namespace, workloadName)
+		return `sum(rate(container_cpu_usage_seconds_total{namespace="` + namespace + `",pod="` + workloadName + `",container!="",container!="POD"}[5m]))`
 	default:
 		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*",container!="",container!="POD"}[5m]))`, namespace, workloadName)
 	}
@@ -121,7 +121,7 @@ func (qb *QueryBuilder) WorkloadMemoryUsage(namespace, workloadName, workloadTyp
 	case "DaemonSet":
 		return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s-.*",container!="",container!="POD"})`, namespace, workloadName)
 	case "Pod":
-		return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod="%s",container!="",container!="POD"})`, namespace, workloadName)
+		return `sum(container_memory_working_set_bytes{namespace="` + namespace + `",pod="` + workloadName + `",container!="",container!="POD"})`
 	default:
 		return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s.*",container!="",container!="POD"})`, namespace, workloadName)
 	}
