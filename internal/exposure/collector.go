@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ppiankov/kubenow/internal/metrics"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -335,7 +336,7 @@ func (c *ExposureCollector) collectNeighbors(ctx context.Context, namespace, exc
 
 	for i := range podMetrics.Items {
 		pm := &podMetrics.Items[i]
-		wlName := extractWorkloadName(pm.Name)
+		wlName := metrics.ResolveWorkloadName(pm.Name, nil)
 		if wlName == excludeWorkload {
 			continue
 		}
@@ -396,14 +397,4 @@ func ingressClassName(ing *networkingv1.Ingress) string {
 		return class
 	}
 	return ""
-}
-
-// extractWorkloadName strips the last two dash-separated segments from a pod name.
-// e.g., "payment-api-7d8f9c4b6-abc12" -> "payment-api"
-func extractWorkloadName(podName string) string {
-	parts := strings.Split(podName, "-")
-	if len(parts) <= 2 {
-		return podName
-	}
-	return strings.Join(parts[:len(parts)-2], "-")
 }
