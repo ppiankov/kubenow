@@ -173,8 +173,10 @@ func (m *LatchMonitor) recordRestartBaseline(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		for _, pod := range pods.Items {
-			for _, cs := range pod.Status.ContainerStatuses {
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			for j := range pod.Status.ContainerStatuses {
+				cs := &pod.Status.ContainerStatuses[j]
 				key := fmt.Sprintf("%s/%s/%s", pod.Namespace, pod.Name, cs.Name)
 				m.restartBaseline[key] = cs.RestartCount
 			}
