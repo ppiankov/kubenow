@@ -102,10 +102,10 @@ Touches the workload resolution chain end-to-end. Needs careful testing.
 
 ## Execution Order
 
-| Phase | Task | Owner | Branch |
-|-------|------|-------|--------|
+| Phase | Task | Status | Branch |
+|-------|------|--------|--------|
 | 1 | Tilde expansion (order 4) | Codex | `codex/tilde-expansion` |
-| 2 | Pod-level latch support (issue C) | Local | `feat/pod-latch` |
+| 2 | Pod-level latch support (issue C) | **Done** | `main` |
 | 3 | Label-based workload name resolution (issue B) | Codex candidate after pod-latch merges | `codex/label-resolution` |
 
 Issue C (pod-level latch) should come before issue B (label resolution) because:

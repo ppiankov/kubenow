@@ -218,7 +218,29 @@ func TestCheckActionable_RateLimitExceeded(t *testing.T) {
 	assert.True(t, found)
 }
 
+func TestCheckActionable_PodKindBlocked(t *testing.T) {
+	input := validApplyInput()
+	input.Workload.Kind = "Pod"
+	// Pod kind is blocked structurally in ExecuteApply, not CheckActionable.
+	// CheckActionable itself has no Pod-specific check, so it passes.
+	reasons := CheckActionable(input)
+	assert.Empty(t, reasons)
+}
+
 // --- ExecuteApply tests ---
+
+func TestExecuteApply_PodKindDenied(t *testing.T) {
+	mock := &mockKubeApplier{}
+
+	input := validApplyInput()
+	input.Workload.Kind = "Pod"
+	result := ExecuteApply(context.Background(), mock, input)
+
+	assert.False(t, result.Applied)
+	require.Len(t, result.DenialReasons, 1)
+	assert.Contains(t, result.DenialReasons[0], "Pod kind")
+	assert.False(t, mock.patchCalled)
+}
 
 func TestExecuteApply_Success(t *testing.T) {
 	mock := &mockKubeApplier{

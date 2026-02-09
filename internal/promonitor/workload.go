@@ -14,7 +14,7 @@ import (
 
 // WorkloadRef is a parsed kind/name reference.
 type WorkloadRef struct {
-	Kind      string // Deployment, StatefulSet, DaemonSet
+	Kind      string // Deployment, StatefulSet, DaemonSet, Pod
 	Name      string
 	Namespace string
 }
@@ -30,7 +30,7 @@ func (w WorkloadRef) FullString() string {
 }
 
 // ParseWorkloadRef parses a "kind/name" string into a WorkloadRef.
-// Accepted kinds: deployment, statefulset, daemonset (case-insensitive).
+// Accepted kinds: deployment, statefulset, daemonset, pod (case-insensitive).
 func ParseWorkloadRef(ref string) (*WorkloadRef, error) {
 	parts := strings.SplitN(ref, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -57,8 +57,10 @@ func normalizeKind(input string) (string, error) {
 		return "StatefulSet", nil
 	case "daemonset", "ds", "daemonsets":
 		return "DaemonSet", nil
+	case "pod", "pods", "po":
+		return "Pod", nil
 	default:
-		return "", fmt.Errorf("unsupported workload kind %q: must be deployment, statefulset, or daemonset", input)
+		return "", fmt.Errorf("unsupported workload kind %q: must be deployment, statefulset, daemonset, or pod", input)
 	}
 }
 
@@ -79,6 +81,11 @@ func ValidateWorkload(ctx context.Context, client *kubernetes.Clientset, ref *Wo
 		_, err := client.AppsV1().DaemonSets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("daemonset %q not found in namespace %q: %w", ref.Name, ref.Namespace, err)
+		}
+	case "Pod":
+		_, err := client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("pod %q not found in namespace %q: %w", ref.Name, ref.Namespace, err)
 		}
 	default:
 		return fmt.Errorf("unsupported kind: %s", ref.Kind)
@@ -152,6 +159,12 @@ func FetchContainerResources(ctx context.Context, client *kubernetes.Clientset, 
 			return nil, fmt.Errorf("cannot read daemonset: %w", err)
 		}
 		return extractContainerResources(obj.Spec.Template.Spec.Containers), nil
+	case "Pod":
+		obj, err := client.CoreV1().Pods(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("cannot read pod: %w", err)
+		}
+		return extractContainerResources(obj.Spec.Containers), nil
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", ref.Kind)
 	}

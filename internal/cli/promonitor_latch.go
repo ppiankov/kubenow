@@ -154,6 +154,7 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		Duration:       duration,
 		Namespaces:     []string{ref.Namespace},
 		WorkloadFilter: ref.Name,
+		PodLevel:       ref.Kind == "Pod",
 		ProgressFunc:   func(string) {},
 	})
 	if err != nil {

@@ -20,6 +20,7 @@ type LatchConfig struct {
 	Duration       time.Duration    // How long to monitor (e.g., 15m, 1h, 24h)
 	Namespaces     []string         // Namespaces to monitor (empty = all)
 	WorkloadFilter string           // If set, only sample this workload name (pro-monitor mode)
+	PodLevel       bool             // If true, match exact pod name instead of extracting workload name
 	ProgressFunc   func(msg string) // Optional progress callback. If nil, print to stderr.
 }
 
@@ -237,8 +238,12 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 			continue
 		}
 
-		// Extract workload name from pod name (remove replica suffix)
+		// Extract workload name from pod name (remove replica suffix).
+		// In pod-level mode, use the exact pod name instead.
 		workloadName := extractWorkloadName(podMetrics.Name)
+		if m.config.PodLevel {
+			workloadName = podMetrics.Name
+		}
 
 		// Skip if workload filter is set and doesn't match
 		if m.config.WorkloadFilter != "" && workloadName != m.config.WorkloadFilter {
@@ -416,6 +421,9 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 		// Check each pod for critical signals
 		for _, pod := range pods.Items {
 			workloadName := extractWorkloadName(pod.Name)
+			if m.config.PodLevel {
+				workloadName = pod.Name
+			}
 			key := fmt.Sprintf("%s/%s", pod.Namespace, workloadName)
 
 			data, exists := m.spikeData[key]
@@ -533,6 +541,9 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 			// Extract workload name from pod name
 			podName := event.InvolvedObject.Name
 			workloadName := extractWorkloadName(podName)
+			if m.config.PodLevel {
+				workloadName = podName
+			}
 			key := fmt.Sprintf("%s/%s", namespace, workloadName)
 
 			data, exists := m.spikeData[key]
