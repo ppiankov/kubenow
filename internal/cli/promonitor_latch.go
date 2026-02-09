@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ppiankov/kubenow/internal/exposure"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/policy"
 	"github.com/ppiankov/kubenow/internal/promonitor"
@@ -178,6 +179,9 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		}
 		model.SetPolicy(bounds)
 	}
+	// Wire exposure map (load sources)
+	model.SetExposureCollector(exposure.NewExposureCollector(kubeClient, metricsClient))
+
 	// Wire audit infrastructure
 	if loadedPolicy != nil && loadedPolicy.Audit.Path != "" {
 		model.SetAuditPath(loadedPolicy.Audit.Path)

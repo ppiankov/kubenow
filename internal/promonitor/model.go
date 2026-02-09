@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ppiankov/kubenow/internal/audit"
+	"github.com/ppiankov/kubenow/internal/exposure"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/policy"
 	"k8s.io/client-go/kubernetes"
@@ -67,6 +68,12 @@ type Model struct {
 	kubeconfigPath string
 	kubeClient     kubernetes.Interface
 
+	// Exposure map state (triggered by 'l' key)
+	exposureCollector *exposure.ExposureCollector
+	exposureMap       *exposure.ExposureMap
+	showExposure      bool
+	exposureLoading   bool
+
 	// UI state
 	spinner  spinner.Model
 	width    int
@@ -95,6 +102,12 @@ type exportDoneMsg struct {
 // applyDoneMsg carries the apply result back to the model.
 type applyDoneMsg struct {
 	result *ApplyResult
+}
+
+// exposureDoneMsg carries the exposure map query result.
+type exposureDoneMsg struct {
+	m   *exposure.ExposureMap
+	err error
 }
 
 // NewModel creates a new pro-monitor TUI model.
@@ -144,6 +157,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg {
 					path, err := ExportToFile(rec, workload)
 					return exportDoneMsg{path: path, err: err}
+				}
+			}
+		case "l":
+			if m.recommendation != nil {
+				if m.showExposure {
+					m.showExposure = false
+					return m, nil
+				}
+				if m.exposureMap != nil {
+					m.showExposure = true
+					return m, nil
+				}
+				if !m.exposureLoading && m.exposureCollector != nil {
+					m.exposureLoading = true
+					m.showExposure = true
+					ref := m.workload
+					return m, func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						result, err := m.exposureCollector.Collect(ctx, ref.Namespace, ref.Name, ref.Kind)
+						return exposureDoneMsg{m: result, err: err}
+					}
 				}
 			}
 		case "a":
@@ -223,6 +258,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case applyDoneMsg:
 		m.applying = false
 		m.applyResult = msg.result
+		return m, nil
+
+	case exposureDoneMsg:
+		m.exposureLoading = false
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.exposureMap = msg.m
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -370,6 +414,11 @@ func (m *Model) SetKubeconfigPath(path string) {
 // SetKubeClient sets the Kubernetes client for identity resolution.
 func (m *Model) SetKubeClient(client kubernetes.Interface) {
 	m.kubeClient = client
+}
+
+// SetExposureCollector sets the collector for the exposure map feature.
+func (m *Model) SetExposureCollector(c *exposure.ExposureCollector) {
+	m.exposureCollector = c
 }
 
 func tickCmd() tea.Cmd {
