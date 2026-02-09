@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -229,7 +230,7 @@ func TestFindNetworkPolicies_AllowAll(t *testing.T) {
 	assert.Equal(t, "all", rules[0].Sources[0].Type)
 }
 
-func TestExtractWorkloadName(t *testing.T) {
+func TestResolveWorkloadNameFallback(t *testing.T) {
 	tests := []struct {
 		podName  string
 		expected string
@@ -241,7 +242,7 @@ func TestExtractWorkloadName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.podName, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractWorkloadName(tt.podName))
+			assert.Equal(t, tt.expected, metrics.ResolveWorkloadName(tt.podName, nil))
 		})
 	}
 }
