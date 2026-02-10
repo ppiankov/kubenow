@@ -43,6 +43,17 @@ func latchFilename(ref WorkloadRef) string {
 	return fmt.Sprintf("%s__%s__%s.json", ref.Namespace, ref.Kind, ref.Name)
 }
 
+// LatchFilePath returns the expected file path for a workload's latch data.
+// Returns a best-effort path; errors in resolving home directory fall back to
+// the filename alone.
+func LatchFilePath(ref WorkloadRef) string {
+	dir, err := latchDir()
+	if err != nil {
+		return latchFilename(ref)
+	}
+	return filepath.Join(dir, latchFilename(ref))
+}
+
 // SaveLatch persists a latch result to disk. Best-effort — errors are returned
 // but should not block the user flow.
 func SaveLatch(result *LatchResult) error {

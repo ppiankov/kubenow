@@ -133,6 +133,36 @@ func NewModel(ref WorkloadRef, latch *metrics.LatchMonitor, duration time.Durati
 	}
 }
 
+// NewAnalyzeModel creates a TUI model for analyzing existing latch data.
+// Starts in post-latch state with the recommendation already computed.
+func NewAnalyzeModel(ref WorkloadRef, mode Mode, policyMsg string, hpa *HPAInfo, rec *AlignmentRecommendation, latchResult *LatchResult) Model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+
+	m := Model{
+		workload:       ref,
+		hpaInfo:        hpa,
+		mode:           mode,
+		policyMsg:      policyMsg,
+		latchDone:      true,
+		recommendation: rec,
+		spinner:        s,
+	}
+	if latchResult != nil {
+		m.latchDuration = latchResult.Duration
+		m.latchTimestamp = latchResult.Timestamp
+		if latchResult.PlannedDuration > 0 {
+			// Was early-stopped: Duration is actual, PlannedDuration is original
+			m.earlyStopActual = latchResult.Duration
+			m.latchDuration = latchResult.PlannedDuration
+		}
+		if latchResult.Data != nil {
+			m.sampleCount = latchResult.Data.SampleCount
+		}
+	}
+	return m
+}
+
 // Init starts the bubbletea program.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
