@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/ppiankov/kubenow/internal/metrics"
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/model"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -20,6 +22,7 @@ import (
 type ExposureCollector struct {
 	kubeClient    kubernetes.Interface
 	metricsClient metricsclientset.Interface
+	promAPI       v1.API // nil if no Prometheus configured
 }
 
 // NewExposureCollector creates a new collector.
@@ -28,6 +31,11 @@ func NewExposureCollector(kubeClient kubernetes.Interface, metricsClient metrics
 		kubeClient:    kubeClient,
 		metricsClient: metricsClient,
 	}
+}
+
+// SetPrometheusAPI configures the Prometheus client for Linkerd traffic queries.
+func (c *ExposureCollector) SetPrometheusAPI(api v1.API) {
+	c.promAPI = api
 }
 
 // Collect builds the full ExposureMap for a workload. Each sub-query
@@ -86,6 +94,16 @@ func (c *ExposureCollector) Collect(ctx context.Context, namespace, workloadName
 	neighbors, errs := c.collectNeighbors(ctx, namespace, workloadName)
 	result.Neighbors = neighbors
 	result.Errors = append(result.Errors, errs...)
+
+	// Step 6: actual traffic sources from Linkerd metrics (if Prometheus available)
+	if c.promAPI != nil {
+		sources, err := c.collectTrafficSources(ctx, namespace, workloadName)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("linkerd traffic: %v", err))
+		} else {
+			result.TrafficSources = sources
+		}
+	}
 
 	return result, nil
 }
@@ -396,6 +414,58 @@ func selectorMatchesLabels(selector, labels map[string]string) bool {
 		}
 	}
 	return true
+}
+
+const (
+	trafficQueryWindow   = time.Hour
+	maxTrafficSources    = 20
+	linkerdResponseTotal = `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[1h]))`
+)
+
+// collectTrafficSources queries Linkerd proxy metrics from Prometheus to find
+// which deployments actively send traffic to the target workload.
+func (c *ExposureCollector) collectTrafficSources(ctx context.Context, namespace, workloadName string) ([]TrafficSource, error) {
+	query := fmt.Sprintf(linkerdResponseTotal, workloadName, namespace)
+
+	result, warnings, err := c.promAPI.Query(ctx, query, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("prometheus query: %w", err)
+	}
+	_ = warnings
+
+	vector, ok := result.(model.Vector)
+	if !ok {
+		return nil, fmt.Errorf("unexpected result type: %T", result)
+	}
+
+	if len(vector) == 0 {
+		return []TrafficSource{}, nil
+	}
+
+	sources := make([]TrafficSource, 0, len(vector))
+	for _, sample := range vector {
+		total := float64(sample.Value)
+		if total <= 0 {
+			continue
+		}
+		sources = append(sources, TrafficSource{
+			Deployment: string(sample.Metric["deployment"]),
+			Namespace:  string(sample.Metric["namespace"]),
+			Total:      total,
+			RPS:        total / trafficQueryWindow.Seconds(),
+		})
+	}
+
+	// Sort by total descending
+	sort.Slice(sources, func(i, j int) bool {
+		return sources[i].Total > sources[j].Total
+	})
+
+	if len(sources) > maxTrafficSources {
+		sources = sources[:maxTrafficSources]
+	}
+
+	return sources, nil
 }
 
 // ingressClassName extracts the ingress class from spec or annotation.

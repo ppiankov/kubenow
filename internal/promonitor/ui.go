@@ -504,6 +504,7 @@ func renderExposureMap(em *exposure.ExposureMap) string {
 
 	renderExposureServices(&b, em.Services)
 	renderExposureNetPols(&b, em.Services)
+	renderTrafficSources(&b, em.TrafficSources)
 	renderExposureNeighbors(&b, em.Neighbors)
 
 	// Errors
@@ -519,7 +520,11 @@ func renderExposureMap(em *exposure.ExposureMap) string {
 
 	// Disclaimer
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("Possible traffic paths, not measured traffic"))
+	if em.TrafficSources != nil {
+		b.WriteString(dimStyle.Render("Structural paths from K8s objects; traffic data from Linkerd proxy metrics"))
+	} else {
+		b.WriteString(dimStyle.Render("Possible traffic paths, not measured traffic"))
+	}
 
 	return b.String()
 }
@@ -576,6 +581,33 @@ func renderExposureNetPols(b *strings.Builder, services []exposure.ServiceExposu
 			b.WriteString(warnStyle.Render(fmt.Sprintf("    ← netpol %s: allows from %s", np.PolicyName, sources)))
 			b.WriteString("\n")
 		}
+	}
+}
+
+// renderTrafficSources renders actual traffic sources from Linkerd metrics.
+func renderTrafficSources(b *strings.Builder, sources []exposure.TrafficSource) {
+	b.WriteString("\n")
+	if sources == nil {
+		b.WriteString(dimStyle.Render("  (Linkerd metrics not available — pass --prometheus-url to enable)"))
+		b.WriteString("\n")
+		return
+	}
+	b.WriteString(headerStyle.Render("Actual traffic sources (Linkerd, 1h window):"))
+	b.WriteString("\n")
+	if len(sources) == 0 {
+		b.WriteString(dimStyle.Render("  (no inbound traffic detected)"))
+		b.WriteString("\n")
+		return
+	}
+	for _, s := range sources {
+		name := s.Deployment
+		if s.Namespace != "" {
+			name = fmt.Sprintf("%s (%s)", s.Deployment, s.Namespace)
+		}
+		fmt.Fprintf(b, "  %-40s ", name)
+		b.WriteString(valueStyle.Render(fmt.Sprintf("%.1f rps", s.RPS)))
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  (%.0f total)", s.Total)))
+		b.WriteString("\n")
 	}
 }
 
