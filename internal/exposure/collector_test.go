@@ -3,8 +3,11 @@ package exposure
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ppiankov/kubenow/internal/metrics"
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -315,4 +318,137 @@ func TestIngressClassName_Spec(t *testing.T) {
 		Spec: networkingv1.IngressSpec{IngressClassName: &class},
 	}
 	assert.Equal(t, testIngressClass, ingressClassName(ing))
+}
+
+// mockPromAPI implements a minimal v1.API for testing traffic source queries.
+type mockPromAPI struct {
+	v1.API
+	queryResult model.Value
+	queryErr    error
+}
+
+func (m *mockPromAPI) Query(_ context.Context, _ string, _ time.Time, _ ...v1.Option) (model.Value, v1.Warnings, error) {
+	return m.queryResult, nil, m.queryErr
+}
+
+func TestCollectTrafficSources_WithResults(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockPromAPI{
+		queryResult: model.Vector{
+			{
+				Metric: model.Metric{"deployment": "payment-api", "namespace": "billing"},
+				Value:  512280,
+			},
+			{
+				Metric: model.Metric{"deployment": "gateway", "namespace": "api-gateway"},
+				Value:  137160,
+			},
+			{
+				Metric: model.Metric{"deployment": "batch-worker", "namespace": "jobs"},
+				Value:  8640,
+			},
+		},
+	}
+
+	collector := &ExposureCollector{promAPI: mock}
+	sources, err := collector.collectTrafficSources(ctx, "billing", "worker")
+
+	require.NoError(t, err)
+	require.Len(t, sources, 3)
+
+	// Sorted by total descending
+	assert.Equal(t, "payment-api", sources[0].Deployment)
+	assert.Equal(t, "billing", sources[0].Namespace)
+	assert.InDelta(t, 512280, sources[0].Total, 0.1)
+	assert.InDelta(t, 512280.0/3600.0, sources[0].RPS, 0.1)
+
+	assert.Equal(t, "gateway", sources[1].Deployment)
+	assert.Equal(t, "batch-worker", sources[2].Deployment)
+}
+
+func TestCollectTrafficSources_Empty(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockPromAPI{
+		queryResult: model.Vector{},
+	}
+
+	collector := &ExposureCollector{promAPI: mock}
+	sources, err := collector.collectTrafficSources(ctx, "ns", "worker")
+
+	require.NoError(t, err)
+	assert.Empty(t, sources)
+}
+
+func TestCollectTrafficSources_ZeroValueFiltered(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockPromAPI{
+		queryResult: model.Vector{
+			{
+				Metric: model.Metric{"deployment": "active", "namespace": "ns"},
+				Value:  1000,
+			},
+			{
+				Metric: model.Metric{"deployment": "idle", "namespace": "ns"},
+				Value:  0,
+			},
+		},
+	}
+
+	collector := &ExposureCollector{promAPI: mock}
+	sources, err := collector.collectTrafficSources(ctx, "ns", "worker")
+
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+	assert.Equal(t, "active", sources[0].Deployment)
+}
+
+func TestCollect_NoPrometheus_NilTrafficSources(t *testing.T) {
+	ctx := context.Background()
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "worker", Namespace: "ns"},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app": "worker"},
+				},
+			},
+		},
+	)
+
+	collector := NewExposureCollector(client, nil) // no Prometheus
+	result, err := collector.Collect(ctx, "ns", "worker", "Deployment")
+
+	require.NoError(t, err)
+	assert.Nil(t, result.TrafficSources)
+}
+
+func TestCollect_WithPrometheus_TrafficSourcesPopulated(t *testing.T) {
+	ctx := context.Background()
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "worker", Namespace: "ns"},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app": "worker"},
+				},
+			},
+		},
+	)
+
+	mock := &mockPromAPI{
+		queryResult: model.Vector{
+			{
+				Metric: model.Metric{"deployment": "frontend", "namespace": "ns"},
+				Value:  5000,
+			},
+		},
+	}
+
+	collector := NewExposureCollector(client, nil)
+	collector.SetPrometheusAPI(mock)
+	result, err := collector.Collect(ctx, "ns", "worker", "Deployment")
+
+	require.NoError(t, err)
+	require.Len(t, result.TrafficSources, 1)
+	assert.Equal(t, "frontend", result.TrafficSources[0].Deployment)
 }

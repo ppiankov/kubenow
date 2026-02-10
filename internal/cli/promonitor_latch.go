@@ -20,6 +20,7 @@ var latchConfig struct {
 	duration       string
 	interval       string
 	acknowledgeHPA bool
+	prometheusURL  string
 }
 
 var latchCmd = &cobra.Command{
@@ -48,7 +49,10 @@ Examples:
   kubenow pro-monitor latch deployment/api-server -n prod --duration 1h --interval 1s
 
   # Latch a statefulset
-  kubenow pro-monitor latch statefulset/postgres -n databases --duration 30m`,
+  kubenow pro-monitor latch statefulset/postgres -n databases --duration 30m
+
+  # Latch with Linkerd traffic source measurement
+  kubenow pro-monitor latch deployment/payment-api -n prod --prometheus-url http://prometheus:9090`,
 	Args: cobra.ExactArgs(1),
 	RunE: runLatch,
 }
@@ -58,6 +62,7 @@ func init() {
 	latchCmd.Flags().StringVar(&latchConfig.duration, "duration", "15m", "latch duration (e.g., 15m, 1h, 24h)")
 	latchCmd.Flags().StringVar(&latchConfig.interval, "interval", "5s", "sample interval (e.g., 1s, 5s)")
 	latchCmd.Flags().BoolVar(&latchConfig.acknowledgeHPA, "acknowledge-hpa", false, "acknowledge HPA presence and allow apply despite HPA")
+	latchCmd.Flags().StringVar(&latchConfig.prometheusURL, "prometheus-url", "", "Prometheus endpoint for Linkerd traffic metrics (e.g., http://prometheus:9090)")
 }
 
 func runLatch(cmd *cobra.Command, args []string) error {
@@ -181,8 +186,20 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		}
 		model.SetPolicy(bounds)
 	}
-	// Wire exposure map (load sources)
-	model.SetExposureCollector(exposure.NewExposureCollector(kubeClient, metricsClient))
+	// Wire exposure map (load sources + optional Linkerd traffic)
+	exposureCollector := exposure.NewExposureCollector(kubeClient, metricsClient)
+	if latchConfig.prometheusURL != "" {
+		promClient, err := metrics.NewPrometheusClient(metrics.Config{PrometheusURL: latchConfig.prometheusURL})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[pro-monitor] Warning: could not connect to Prometheus: %v\n", err)
+		} else {
+			exposureCollector.SetPrometheusAPI(promClient.GetAPI())
+			if IsVerbose() {
+				fmt.Fprintf(os.Stderr, "[pro-monitor] Linkerd traffic metrics enabled via %s\n", latchConfig.prometheusURL)
+			}
+		}
+	}
+	model.SetExposureCollector(exposureCollector)
 
 	// Wire audit infrastructure
 	if loadedPolicy != nil && loadedPolicy.Audit.Path != "" {

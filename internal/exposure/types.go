@@ -8,13 +8,14 @@ import "time"
 // possible traffic paths to a workload. It is structural — it
 // shows what COULD send traffic, not what IS sending traffic.
 type ExposureMap struct {
-	Namespace    string
-	WorkloadName string
-	WorkloadKind string
-	Services     []ServiceExposure
-	Neighbors    []Neighbor
-	QueryTime    time.Time
-	Errors       []string // non-fatal errors during collection
+	Namespace      string
+	WorkloadName   string
+	WorkloadKind   string
+	Services       []ServiceExposure
+	Neighbors      []Neighbor
+	TrafficSources []TrafficSource // actual traffic from Linkerd metrics (nil if no Prometheus)
+	QueryTime      time.Time
+	Errors         []string // non-fatal errors during collection
 }
 
 // ServiceExposure represents a Service whose selector matches
@@ -57,6 +58,15 @@ type NetPolSource struct {
 	Namespace string // for namespace selectors
 	PodLabel  string // for pod selectors (stringified)
 	CIDR      string // for IP blocks
+}
+
+// TrafficSource is a workload that actively sends traffic to the
+// target, as measured by Linkerd proxy metrics from Prometheus.
+type TrafficSource struct {
+	Deployment string  // source deployment name
+	Namespace  string  // source namespace
+	RPS        float64 // requests per second (averaged over query window)
+	Total      float64 // total requests in query window
 }
 
 // Neighbor is another workload in the same namespace, ranked by
