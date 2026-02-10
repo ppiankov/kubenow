@@ -73,9 +73,13 @@ type LatchMonitor struct {
 }
 
 // NewLatchMonitor creates a new spike monitor
-func NewLatchMonitor(kubeClient *kubernetes.Clientset, config LatchConfig) (*LatchMonitor, error) {
+func NewLatchMonitor(kubeClient *kubernetes.Clientset, config LatchConfig, kubeOpts ...util.KubeOpts) (*LatchMonitor, error) {
 	// Build metrics client using same config as kubeClient
-	restConfig, err := util.BuildRestConfig("")
+	var opts util.KubeOpts
+	if len(kubeOpts) > 0 {
+		opts = kubeOpts[0]
+	}
+	restConfig, err := util.BuildRestConfigWithOpts(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build rest config: %w", err)
 	}

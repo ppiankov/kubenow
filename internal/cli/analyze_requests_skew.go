@@ -225,7 +225,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")
 	}
 
-	kubeClient, err := util.BuildKubeClient(GetKubeconfig())
+	kubeClient, err := util.BuildKubeClientWithOpts(GetKubeOpts())
 	if err != nil {
 		return fmt.Errorf("failed to build Kubernetes client: %w", err)
 	}
@@ -482,7 +482,7 @@ func runSpikeMonitoring(ctx context.Context, kubeClient *kubernetes.Clientset) (
 		Namespaces:     []string{}, // Empty = all namespaces (will skip kube-system internally)
 	}
 
-	monitor, err := metrics.NewLatchMonitor(kubeClient, latchConfig)
+	monitor, err := metrics.NewLatchMonitor(kubeClient, latchConfig, GetKubeOpts())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create latch monitor: %w", err)
 	}

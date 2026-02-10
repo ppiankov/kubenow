@@ -93,12 +93,13 @@ func runLatch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build K8s clients
-	kubeClient, err := util.BuildKubeClient(GetKubeconfig())
+	opts := GetKubeOpts()
+	kubeClient, err := util.BuildKubeClientWithOpts(opts)
 	if err != nil {
 		return fmt.Errorf("failed to build Kubernetes client: %w", err)
 	}
 
-	restConfig, err := util.BuildRestConfig(GetKubeconfig())
+	restConfig, err := util.BuildRestConfigWithOpts(opts)
 	if err != nil {
 		return fmt.Errorf("failed to build REST config: %w", err)
 	}
@@ -156,7 +157,7 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		WorkloadFilter: ref.Name,
 		PodLevel:       ref.Kind == "Pod",
 		ProgressFunc:   func(string) {},
-	})
+	}, opts)
 	if err != nil {
 		return fmt.Errorf("failed to create latch monitor: %w", err)
 	}

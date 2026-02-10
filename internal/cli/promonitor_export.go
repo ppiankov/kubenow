@@ -78,7 +78,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Connect to cluster for current resources
-	kubeClient, err := util.BuildKubeClient(GetKubeconfig())
+	kubeClient, err := util.BuildKubeClientWithOpts(GetKubeOpts())
 	if err != nil {
 		return fmt.Errorf("failed to build Kubernetes client: %w", err)
 	}

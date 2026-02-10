@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ppiankov/kubenow/internal/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -12,10 +13,11 @@ const version = "0.2.5"
 
 var (
 	// Global flags
-	cfgFile    string
-	kubeconfig string
-	namespace  string
-	verbose    bool
+	cfgFile     string
+	kubeconfig  string
+	kubecontext string
+	namespace   string
+	verbose     bool
 )
 
 // rootCmd represents the base command
@@ -51,11 +53,13 @@ func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.kubenow.yaml)")
 	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig file (default is $KUBECONFIG or $HOME/.kube/config)")
+	rootCmd.PersistentFlags().StringVar(&kubecontext, "context", "", "kubeconfig context to use (default is current-context)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "kubernetes namespace to analyze (default is all namespaces)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
 
 	// Bind flags to viper
 	viper.BindPFlag("kubeconfig", rootCmd.PersistentFlags().Lookup("kubeconfig"))
+	viper.BindPFlag("context", rootCmd.PersistentFlags().Lookup("context"))
 	viper.BindPFlag("namespace", rootCmd.PersistentFlags().Lookup("namespace"))
 	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 }
@@ -93,6 +97,22 @@ func GetKubeconfig() string {
 		return kubeconfig
 	}
 	return viper.GetString("kubeconfig")
+}
+
+// GetKubecontext returns the kube context override from flags or viper
+func GetKubecontext() string {
+	if kubecontext != "" {
+		return kubecontext
+	}
+	return viper.GetString("context")
+}
+
+// GetKubeOpts returns combined kubeconfig + context options
+func GetKubeOpts() util.KubeOpts {
+	return util.KubeOpts{
+		Kubeconfig: GetKubeconfig(),
+		Context:    GetKubecontext(),
+	}
 }
 
 // GetNamespace returns the namespace from flags or viper
