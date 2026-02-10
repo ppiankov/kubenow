@@ -95,17 +95,12 @@ func (c *ExposureCollector) Collect(ctx context.Context, namespace, workloadName
 	result.Neighbors = neighbors
 	result.Errors = append(result.Errors, errs...)
 
-	// Step 6: actual traffic sources from Linkerd metrics (if Prometheus available)
-	if c.promAPI != nil {
-		sources, err := c.collectTrafficSources(ctx, namespace, workloadName)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("linkerd traffic: %v", err))
-		} else {
-			result.TrafficSources = sources
-		}
-	}
-
 	return result, nil
+}
+
+// HasPrometheus returns true if a Prometheus API is configured for Linkerd queries.
+func (c *ExposureCollector) HasPrometheus() bool {
+	return c.promAPI != nil
 }
 
 // resolveWorkloadLabels gets the matchLabels from the workload's pod selector.
@@ -417,55 +412,142 @@ func selectorMatchesLabels(selector, labels map[string]string) bool {
 }
 
 const (
-	trafficQueryWindow   = time.Hour
-	maxTrafficSources    = 20
-	linkerdResponseTotal = `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[1h]))`
+	trafficQueryWindow = time.Hour
+	maxTrafficEdges    = 20
+
+	// PromQL templates for Linkerd proxy metrics.
+	// Inbound: query outbound side with dst_deployment/dst_namespace to find who calls us.
+	linkerdInboundTotal   = `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[1h]))`
+	linkerdInboundSuccess = `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment="%s", dst_namespace="%s", classification="success"}[1h]))`
+	// Outbound: query outbound side with deployment/namespace to find who we call.
+	linkerdOutboundTotal   = `sum by(dst_deployment, dst_namespace)(increase(response_total{direction="outbound", deployment="%s", namespace="%s"}[1h]))`
+	linkerdOutboundSuccess = `sum by(dst_deployment, dst_namespace)(increase(response_total{direction="outbound", deployment="%s", namespace="%s", classification="success"}[1h]))`
+	// Latency: p50 and p99 for inbound traffic.
+	linkerdInboundLatencyP50 = `histogram_quantile(0.5, sum by(le, deployment, namespace)(rate(response_latency_ms_bucket{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[5m])))`
+	linkerdInboundLatencyP99 = `histogram_quantile(0.99, sum by(le, deployment, namespace)(rate(response_latency_ms_bucket{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[5m])))`
+	// TCP connection counts.
+	linkerdTCPInbound  = `sum(increase(tcp_open_total{direction="inbound", deployment="%s", namespace="%s"}[1h]))`
+	linkerdTCPOutbound = `sum(increase(tcp_open_total{direction="outbound", deployment="%s", namespace="%s"}[1h]))`
 )
 
-// collectTrafficSources queries Linkerd proxy metrics from Prometheus to find
-// which deployments actively send traffic to the target workload.
-func (c *ExposureCollector) collectTrafficSources(ctx context.Context, namespace, workloadName string) ([]TrafficSource, error) {
-	query := fmt.Sprintf(linkerdResponseTotal, workloadName, namespace)
-
-	result, warnings, err := c.promAPI.Query(ctx, query, time.Now())
-	if err != nil {
-		return nil, fmt.Errorf("prometheus query: %w", err)
+// CollectTrafficMap queries Linkerd proxy metrics from Prometheus to build
+// a bidirectional traffic map showing inbound sources and outbound destinations.
+func (c *ExposureCollector) CollectTrafficMap(ctx context.Context, namespace, workloadName string) (*TrafficMap, error) {
+	if c.promAPI == nil {
+		return nil, fmt.Errorf("prometheus not configured")
 	}
-	_ = warnings
 
+	tm := &TrafficMap{Window: trafficQueryWindow}
+
+	// Query inbound total + success in sequence (success rate depends on total)
+	inTotal, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundTotal, workloadName, namespace))
+	if err != nil {
+		return nil, fmt.Errorf("inbound total: %w", err)
+	}
+	inSuccess, _ := c.queryVector(ctx, fmt.Sprintf(linkerdInboundSuccess, workloadName, namespace))
+
+	// Query inbound latency (best-effort)
+	inP50, _ := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP50, workloadName, namespace))
+	inP99, _ := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP99, workloadName, namespace))
+
+	tm.Inbound = buildEdges(inTotal, inSuccess, inP50, inP99, "deployment", "namespace")
+
+	// Query outbound total + success
+	outTotal, err := c.queryVector(ctx, fmt.Sprintf(linkerdOutboundTotal, workloadName, namespace))
+	if err != nil {
+		// Outbound query failure is non-fatal — still return inbound data
+		tm.Outbound = []TrafficEdge{}
+	} else {
+		outSuccess, _ := c.queryVector(ctx, fmt.Sprintf(linkerdOutboundSuccess, workloadName, namespace))
+		tm.Outbound = buildEdges(outTotal, outSuccess, nil, nil, "dst_deployment", "dst_namespace")
+	}
+
+	// TCP counts (best-effort)
+	tm.TCPIn = queryScalar(c, ctx, fmt.Sprintf(linkerdTCPInbound, workloadName, namespace))
+	tm.TCPOut = queryScalar(c, ctx, fmt.Sprintf(linkerdTCPOutbound, workloadName, namespace))
+
+	return tm, nil
+}
+
+// queryVector executes a PromQL instant query and returns the result as a Vector.
+func (c *ExposureCollector) queryVector(ctx context.Context, query string) (model.Vector, error) {
+	result, _, err := c.promAPI.Query(ctx, query, time.Now())
+	if err != nil {
+		return nil, err
+	}
 	vector, ok := result.(model.Vector)
 	if !ok {
 		return nil, fmt.Errorf("unexpected result type: %T", result)
 	}
+	return vector, nil
+}
 
-	if len(vector) == 0 {
-		return []TrafficSource{}, nil
+// queryScalar runs a scalar-returning PromQL query and returns the value as int64.
+func queryScalar(c *ExposureCollector, ctx context.Context, query string) int64 {
+	v, err := c.queryVector(ctx, query)
+	if err != nil || len(v) == 0 {
+		return 0
+	}
+	return int64(v[0].Value)
+}
+
+// buildEdges converts Prometheus vectors into TrafficEdge slices with optional
+// success rate and latency enrichment.
+func buildEdges(total, success, p50, p99 model.Vector, deployKey, nsKey model.LabelName) []TrafficEdge {
+	if len(total) == 0 {
+		return []TrafficEdge{}
 	}
 
-	sources := make([]TrafficSource, 0, len(vector))
-	for _, sample := range vector {
-		total := float64(sample.Value)
-		if total <= 0 {
+	// Index success/latency vectors by deployment+namespace for O(1) lookup
+	successMap := indexByKey(success, deployKey, nsKey)
+	p50Map := indexByKey(p50, deployKey, nsKey)
+	p99Map := indexByKey(p99, deployKey, nsKey)
+
+	edges := make([]TrafficEdge, 0, len(total))
+	for _, sample := range total {
+		t := float64(sample.Value)
+		if t <= 0 {
 			continue
 		}
-		sources = append(sources, TrafficSource{
-			Deployment: string(sample.Metric["deployment"]),
-			Namespace:  string(sample.Metric["namespace"]),
-			Total:      total,
-			RPS:        total / trafficQueryWindow.Seconds(),
-		})
+		key := string(sample.Metric[deployKey]) + "/" + string(sample.Metric[nsKey])
+		edge := TrafficEdge{
+			Deployment:  string(sample.Metric[deployKey]),
+			Namespace:   string(sample.Metric[nsKey]),
+			Total:       t,
+			RPS:         t / trafficQueryWindow.Seconds(),
+			SuccessRate: -1,
+			LatencyP50:  -1,
+			LatencyP99:  -1,
+		}
+		if s, ok := successMap[key]; ok && t > 0 {
+			edge.SuccessRate = s / t
+		}
+		if v, ok := p50Map[key]; ok {
+			edge.LatencyP50 = v
+		}
+		if v, ok := p99Map[key]; ok {
+			edge.LatencyP99 = v
+		}
+		edges = append(edges, edge)
 	}
 
-	// Sort by total descending
-	sort.Slice(sources, func(i, j int) bool {
-		return sources[i].Total > sources[j].Total
+	sort.Slice(edges, func(i, j int) bool {
+		return edges[i].Total > edges[j].Total
 	})
-
-	if len(sources) > maxTrafficSources {
-		sources = sources[:maxTrafficSources]
+	if len(edges) > maxTrafficEdges {
+		edges = edges[:maxTrafficEdges]
 	}
+	return edges
+}
 
-	return sources, nil
+// indexByKey builds a map from "deployment/namespace" → float64 value.
+func indexByKey(v model.Vector, deployKey, nsKey model.LabelName) map[string]float64 {
+	m := make(map[string]float64, len(v))
+	for _, sample := range v {
+		key := string(sample.Metric[deployKey]) + "/" + string(sample.Metric[nsKey])
+		m[key] = float64(sample.Value)
+	}
+	return m
 }
 
 // ingressClassName extracts the ingress class from spec or annotation.

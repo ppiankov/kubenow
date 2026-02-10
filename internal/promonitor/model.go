@@ -81,6 +81,11 @@ type Model struct {
 	showExposure      bool
 	exposureLoading   bool
 
+	// Traffic map state (triggered by 't' key)
+	trafficMap     *exposure.TrafficMap
+	showTraffic    bool
+	trafficLoading bool
+
 	// UI state
 	spinner  spinner.Model
 	width    int
@@ -114,6 +119,12 @@ type applyDoneMsg struct {
 // exposureDoneMsg carries the exposure map query result.
 type exposureDoneMsg struct {
 	m   *exposure.ExposureMap
+	err error
+}
+
+// trafficDoneMsg carries the Linkerd traffic map query result.
+type trafficDoneMsg struct {
+	m   *exposure.TrafficMap
 	err error
 }
 
@@ -222,6 +233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.showExposure = false
 					return m, nil
 				}
+				m.showTraffic = false // mutually exclusive overlays
 				if m.exposureMap != nil {
 					m.showExposure = true
 					return m, nil
@@ -235,6 +247,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						defer cancel()
 						result, err := m.exposureCollector.Collect(ctx, ref.Namespace, ref.Name, ref.Kind)
 						return exposureDoneMsg{m: result, err: err}
+					}
+				}
+			}
+		case "t":
+			if m.recommendation != nil && m.exposureCollector != nil && m.exposureCollector.HasPrometheus() {
+				if m.showTraffic {
+					m.showTraffic = false
+					return m, nil
+				}
+				m.showExposure = false // mutually exclusive overlays
+				if m.trafficMap != nil {
+					m.showTraffic = true
+					return m, nil
+				}
+				if !m.trafficLoading {
+					m.trafficLoading = true
+					m.showTraffic = true
+					ref := m.workload
+					return m, func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+						defer cancel()
+						result, err := m.exposureCollector.CollectTrafficMap(ctx, ref.Namespace, ref.Name)
+						return trafficDoneMsg{m: result, err: err}
 					}
 				}
 			}
@@ -326,6 +361,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 		} else {
 			m.exposureMap = msg.m
+		}
+		return m, nil
+
+	case trafficDoneMsg:
+		m.trafficLoading = false
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.trafficMap = msg.m
 		}
 		return m, nil
 

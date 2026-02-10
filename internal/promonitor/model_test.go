@@ -1,10 +1,12 @@
 package promonitor
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ppiankov/kubenow/internal/exposure"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/stretchr/testify/assert"
 )
@@ -343,4 +345,97 @@ func TestNewAnalyzeModel_WithHPA(t *testing.T) {
 	assert.True(t, m.latchDone)
 	assert.NotNil(t, m.hpaInfo)
 	assert.Equal(t, "api-hpa", m.hpaInfo.Name)
+}
+
+func TestModel_Update_TrafficKey_NoPrometheus(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
+	m.recommendation = &AlignmentRecommendation{Safety: SafetyRatingSafe}
+	// No exposureCollector set — 't' should be a no-op
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	assert.Nil(t, cmd)
+	assert.False(t, m.showTraffic)
+}
+
+func TestModel_Update_TrafficDone(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
+	m.trafficLoading = true
+
+	tm := &exposure.TrafficMap{
+		Inbound: []exposure.TrafficEdge{
+			{Deployment: "frontend", Namespace: "ns", RPS: 10.0, Total: 36000},
+		},
+		Window: time.Hour,
+	}
+	updated, _ := m.Update(trafficDoneMsg{m: tm})
+	model := updated.(Model)
+	assert.False(t, model.trafficLoading)
+	assert.NotNil(t, model.trafficMap)
+	assert.Len(t, model.trafficMap.Inbound, 1)
+}
+
+func TestModel_Update_TrafficDone_Error(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
+	m.trafficLoading = true
+
+	updated, _ := m.Update(trafficDoneMsg{err: fmt.Errorf("prometheus timeout")})
+	model := updated.(Model)
+	assert.False(t, model.trafficLoading)
+	assert.Nil(t, model.trafficMap)
+	assert.NotNil(t, model.err)
+}
+
+func TestRenderTrafficMap_WithData(t *testing.T) {
+	tm := &exposure.TrafficMap{
+		Inbound: []exposure.TrafficEdge{
+			{Deployment: "payment-api", Namespace: "billing", RPS: 142.3, Total: 512280, SuccessRate: 0.998, LatencyP50: 2.1, LatencyP99: 45},
+		},
+		Outbound: []exposure.TrafficEdge{
+			{Deployment: "postgres", Namespace: "db", RPS: 89.2, Total: 321120, SuccessRate: 1.0, LatencyP50: 0.8, LatencyP99: 5},
+		},
+		TCPIn:  847,
+		TCPOut: 1204,
+		Window: time.Hour,
+	}
+
+	view := renderTrafficMap(tm)
+	assert.Contains(t, view, "Traffic Map")
+	assert.Contains(t, view, "Inbound")
+	assert.Contains(t, view, "payment-api")
+	assert.Contains(t, view, "142.3 rps")
+	assert.Contains(t, view, "99.8%")
+	assert.Contains(t, view, "p50:")
+	assert.Contains(t, view, "Outbound")
+	assert.Contains(t, view, "postgres")
+	assert.Contains(t, view, "TCP: 847 inbound / 1204 outbound")
+}
+
+func TestRenderTrafficMap_Empty(t *testing.T) {
+	tm := &exposure.TrafficMap{
+		Inbound:  []exposure.TrafficEdge{},
+		Outbound: []exposure.TrafficEdge{},
+		Window:   time.Hour,
+	}
+
+	view := renderTrafficMap(tm)
+	assert.Contains(t, view, "no inbound traffic detected")
+	assert.Contains(t, view, "no outbound traffic detected")
+	assert.NotContains(t, view, "TCP:") // no TCP when both zero
+}
+
+func TestRenderTrafficMap_UnknownLatency(t *testing.T) {
+	tm := &exposure.TrafficMap{
+		Inbound: []exposure.TrafficEdge{
+			{Deployment: "api", Namespace: "ns", RPS: 10, Total: 36000, SuccessRate: -1, LatencyP50: -1, LatencyP99: -1},
+		},
+		Outbound: []exposure.TrafficEdge{},
+		Window:   time.Hour,
+	}
+
+	view := renderTrafficMap(tm)
+	assert.Contains(t, view, "api")
+	assert.NotContains(t, view, "p50:")
+	assert.NotContains(t, view, "p99:")
 }
