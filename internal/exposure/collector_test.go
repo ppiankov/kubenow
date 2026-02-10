@@ -320,89 +320,178 @@ func TestIngressClassName_Spec(t *testing.T) {
 	assert.Equal(t, testIngressClass, ingressClassName(ing))
 }
 
-// mockPromAPI implements a minimal v1.API for testing traffic source queries.
+// mockPromAPI implements a minimal v1.API for testing traffic queries.
+// Returns results from a queue; when exhausted, returns empty vectors.
 type mockPromAPI struct {
 	v1.API
-	queryResult model.Value
-	queryErr    error
+	results []model.Value
+	errs    []error
+	calls   int
 }
 
 func (m *mockPromAPI) Query(_ context.Context, _ string, _ time.Time, _ ...v1.Option) (model.Value, v1.Warnings, error) {
-	return m.queryResult, nil, m.queryErr
+	idx := m.calls
+	m.calls++
+	var result model.Value = model.Vector{}
+	var err error
+	if idx < len(m.results) {
+		result = m.results[idx]
+	}
+	if idx < len(m.errs) {
+		err = m.errs[idx]
+	}
+	return result, nil, err
 }
 
-func TestCollectTrafficSources_WithResults(t *testing.T) {
+func TestCollectTrafficMap_Inbound(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockPromAPI{
-		queryResult: model.Vector{
-			{
-				Metric: model.Metric{"deployment": "payment-api", "namespace": "billing"},
-				Value:  512280,
+		results: []model.Value{
+			// Query 1: inbound total
+			model.Vector{
+				{Metric: model.Metric{"deployment": "payment-api", "namespace": "billing"}, Value: 512280},
+				{Metric: model.Metric{"deployment": "gateway", "namespace": "api-gw"}, Value: 137160},
 			},
-			{
-				Metric: model.Metric{"deployment": "gateway", "namespace": "api-gateway"},
-				Value:  137160,
+			// Query 2: inbound success
+			model.Vector{
+				{Metric: model.Metric{"deployment": "payment-api", "namespace": "billing"}, Value: 511280},
+				{Metric: model.Metric{"deployment": "gateway", "namespace": "api-gw"}, Value: 137160},
 			},
-			{
-				Metric: model.Metric{"deployment": "batch-worker", "namespace": "jobs"},
-				Value:  8640,
+			// Query 3: inbound p50
+			model.Vector{
+				{Metric: model.Metric{"deployment": "payment-api", "namespace": "billing"}, Value: 2.1},
 			},
+			// Query 4: inbound p99
+			model.Vector{
+				{Metric: model.Metric{"deployment": "payment-api", "namespace": "billing"}, Value: 45.0},
+			},
+			// Query 5: outbound total
+			model.Vector{},
+			// Query 6: outbound success (skipped since outbound total is empty)
 		},
 	}
 
 	collector := &ExposureCollector{promAPI: mock}
-	sources, err := collector.collectTrafficSources(ctx, "billing", "worker")
+	tm, err := collector.CollectTrafficMap(ctx, "billing", "worker")
 
 	require.NoError(t, err)
-	require.Len(t, sources, 3)
+	require.Len(t, tm.Inbound, 2)
 
 	// Sorted by total descending
-	assert.Equal(t, "payment-api", sources[0].Deployment)
-	assert.Equal(t, "billing", sources[0].Namespace)
-	assert.InDelta(t, 512280, sources[0].Total, 0.1)
-	assert.InDelta(t, 512280.0/3600.0, sources[0].RPS, 0.1)
+	assert.Equal(t, "payment-api", tm.Inbound[0].Deployment)
+	assert.Equal(t, "billing", tm.Inbound[0].Namespace)
+	assert.InDelta(t, 512280, tm.Inbound[0].Total, 0.1)
+	assert.InDelta(t, 512280.0/3600.0, tm.Inbound[0].RPS, 0.1)
+	assert.InDelta(t, 511280.0/512280.0, tm.Inbound[0].SuccessRate, 0.001)
+	assert.InDelta(t, 2.1, tm.Inbound[0].LatencyP50, 0.1)
+	assert.InDelta(t, 45.0, tm.Inbound[0].LatencyP99, 0.1)
 
-	assert.Equal(t, "gateway", sources[1].Deployment)
-	assert.Equal(t, "batch-worker", sources[2].Deployment)
+	assert.Equal(t, "gateway", tm.Inbound[1].Deployment)
+	assert.InDelta(t, 1.0, tm.Inbound[1].SuccessRate, 0.001)
+	assert.Equal(t, float64(-1), tm.Inbound[1].LatencyP50) // no latency data for gateway
 }
 
-func TestCollectTrafficSources_Empty(t *testing.T) {
+func TestCollectTrafficMap_Outbound(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockPromAPI{
-		queryResult: model.Vector{},
-	}
-
-	collector := &ExposureCollector{promAPI: mock}
-	sources, err := collector.collectTrafficSources(ctx, "ns", "worker")
-
-	require.NoError(t, err)
-	assert.Empty(t, sources)
-}
-
-func TestCollectTrafficSources_ZeroValueFiltered(t *testing.T) {
-	ctx := context.Background()
-	mock := &mockPromAPI{
-		queryResult: model.Vector{
-			{
-				Metric: model.Metric{"deployment": "active", "namespace": "ns"},
-				Value:  1000,
+		results: []model.Value{
+			// Query 1: inbound total
+			model.Vector{},
+			// Query 2: inbound success (skipped — empty inbound)
+			model.Vector{},
+			// Query 3: inbound p50
+			model.Vector{},
+			// Query 4: inbound p99
+			model.Vector{},
+			// Query 5: outbound total
+			model.Vector{
+				{Metric: model.Metric{"dst_deployment": "postgres", "dst_namespace": "db"}, Value: 89000},
+				{Metric: model.Metric{"dst_deployment": "redis", "dst_namespace": "cache"}, Value: 412000},
 			},
-			{
-				Metric: model.Metric{"deployment": "idle", "namespace": "ns"},
-				Value:  0,
+			// Query 6: outbound success
+			model.Vector{
+				{Metric: model.Metric{"dst_deployment": "postgres", "dst_namespace": "db"}, Value: 89000},
+				{Metric: model.Metric{"dst_deployment": "redis", "dst_namespace": "cache"}, Value: 412000},
 			},
 		},
 	}
 
 	collector := &ExposureCollector{promAPI: mock}
-	sources, err := collector.collectTrafficSources(ctx, "ns", "worker")
+	tm, err := collector.CollectTrafficMap(ctx, "ns", "worker")
 
 	require.NoError(t, err)
-	require.Len(t, sources, 1)
-	assert.Equal(t, "active", sources[0].Deployment)
+	assert.Empty(t, tm.Inbound)
+	require.Len(t, tm.Outbound, 2)
+
+	// Sorted by total descending
+	assert.Equal(t, "redis", tm.Outbound[0].Deployment)
+	assert.Equal(t, "cache", tm.Outbound[0].Namespace)
+	assert.Equal(t, "postgres", tm.Outbound[1].Deployment)
 }
 
-func TestCollect_NoPrometheus_NilTrafficSources(t *testing.T) {
+func TestCollectTrafficMap_NoPrometheus(t *testing.T) {
+	ctx := context.Background()
+	collector := &ExposureCollector{} // no promAPI
+	_, err := collector.CollectTrafficMap(ctx, "ns", "worker")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "prometheus not configured")
+}
+
+func TestCollectTrafficMap_LatencyFallback(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockPromAPI{
+		results: []model.Value{
+			// inbound total
+			model.Vector{
+				{Metric: model.Metric{"deployment": "api", "namespace": "ns"}, Value: 1000},
+			},
+			// inbound success
+			model.Vector{
+				{Metric: model.Metric{"deployment": "api", "namespace": "ns"}, Value: 990},
+			},
+		},
+		// p50 and p99 queries will return empty (index 2,3 out of range → empty vector)
+	}
+
+	collector := &ExposureCollector{promAPI: mock}
+	tm, err := collector.CollectTrafficMap(ctx, "ns", "worker")
+
+	require.NoError(t, err)
+	require.Len(t, tm.Inbound, 1)
+	assert.InDelta(t, 0.99, tm.Inbound[0].SuccessRate, 0.001)
+	assert.Equal(t, float64(-1), tm.Inbound[0].LatencyP50) // latency query returned empty
+	assert.Equal(t, float64(-1), tm.Inbound[0].LatencyP99)
+}
+
+func TestCollectTrafficMap_ZeroValueFiltered(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockPromAPI{
+		results: []model.Value{
+			model.Vector{
+				{Metric: model.Metric{"deployment": "active", "namespace": "ns"}, Value: 1000},
+				{Metric: model.Metric{"deployment": "idle", "namespace": "ns"}, Value: 0},
+			},
+		},
+	}
+
+	collector := &ExposureCollector{promAPI: mock}
+	tm, err := collector.CollectTrafficMap(ctx, "ns", "worker")
+
+	require.NoError(t, err)
+	require.Len(t, tm.Inbound, 1)
+	assert.Equal(t, "active", tm.Inbound[0].Deployment)
+}
+
+func TestHasPrometheus(t *testing.T) {
+	collector := &ExposureCollector{}
+	assert.False(t, collector.HasPrometheus())
+
+	collector.SetPrometheusAPI(&mockPromAPI{})
+	assert.True(t, collector.HasPrometheus())
+}
+
+func TestCollect_NoPrometheus_NoTrafficInExposureMap(t *testing.T) {
 	ctx := context.Background()
 	client := fake.NewSimpleClientset(
 		&appsv1.Deployment{
@@ -414,41 +503,12 @@ func TestCollect_NoPrometheus_NilTrafficSources(t *testing.T) {
 			},
 		},
 	)
-
-	collector := NewExposureCollector(client, nil) // no Prometheus
-	result, err := collector.Collect(ctx, "ns", "worker", "Deployment")
-
-	require.NoError(t, err)
-	assert.Nil(t, result.TrafficSources)
-}
-
-func TestCollect_WithPrometheus_TrafficSourcesPopulated(t *testing.T) {
-	ctx := context.Background()
-	client := fake.NewSimpleClientset(
-		&appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "worker", Namespace: "ns"},
-			Spec: appsv1.DeploymentSpec{
-				Selector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{"app": "worker"},
-				},
-			},
-		},
-	)
-
-	mock := &mockPromAPI{
-		queryResult: model.Vector{
-			{
-				Metric: model.Metric{"deployment": "frontend", "namespace": "ns"},
-				Value:  5000,
-			},
-		},
-	}
 
 	collector := NewExposureCollector(client, nil)
-	collector.SetPrometheusAPI(mock)
 	result, err := collector.Collect(ctx, "ns", "worker", "Deployment")
 
 	require.NoError(t, err)
-	require.Len(t, result.TrafficSources, 1)
-	assert.Equal(t, "frontend", result.TrafficSources[0].Deployment)
+	// ExposureMap no longer has TrafficSources field — just verify it returns
+	assert.NotNil(t, result)
+	assert.Equal(t, "ns", result.Namespace)
 }

@@ -85,8 +85,16 @@ func renderView(m Model) string {
 	b.WriteString(renderPolicyStatus(m))
 	b.WriteString("\n\n")
 
-	// Main content area — one of: exposure map, recommendation, or progress
+	// Main content area — one of: traffic map, exposure map, recommendation, or progress
 	switch {
+	case m.showTraffic:
+		if m.trafficLoading {
+			b.WriteString(m.spinner.View())
+			b.WriteString(dimStyle.Render(" Querying Linkerd traffic map..."))
+		} else if m.trafficMap != nil {
+			b.WriteString(renderTrafficMap(m.trafficMap))
+		}
+		b.WriteString("\n\n")
 	case m.showExposure:
 		if m.exposureLoading {
 			b.WriteString(m.spinner.View())
@@ -133,6 +141,7 @@ func renderView(m Model) string {
 	}
 
 	// Key bindings
+	overlay := m.showExposure || m.showTraffic
 	var keys []string
 	if !m.latchDone && m.latch != nil {
 		keys = append(keys, "esc: stop early")
@@ -143,11 +152,18 @@ func renderView(m Model) string {
 		} else {
 			keys = append(keys, "l: load sources")
 		}
+		if m.exposureCollector.HasPrometheus() {
+			if m.showTraffic {
+				keys = append(keys, "t: dismiss")
+			} else {
+				keys = append(keys, "t: traffic map")
+			}
+		}
 	}
-	if m.recommendation != nil && !m.exported && !m.showExposure {
+	if m.recommendation != nil && !m.exported && !overlay {
 		keys = append(keys, "e: export")
 	}
-	if m.recommendation != nil && m.mode == ModeApplyReady && m.applyResult == nil && !m.applying && !m.confirming && !m.showExposure {
+	if m.recommendation != nil && m.mode == ModeApplyReady && m.applyResult == nil && !m.applying && !m.confirming && !overlay {
 		keys = append(keys, "a: apply")
 	}
 	keys = append(keys, "q: quit")
@@ -504,7 +520,6 @@ func renderExposureMap(em *exposure.ExposureMap) string {
 
 	renderExposureServices(&b, em.Services)
 	renderExposureNetPols(&b, em.Services)
-	renderTrafficSources(&b, em.TrafficSources)
 	renderExposureNeighbors(&b, em.Neighbors)
 
 	// Errors
@@ -520,11 +535,7 @@ func renderExposureMap(em *exposure.ExposureMap) string {
 
 	// Disclaimer
 	b.WriteString("\n")
-	if em.TrafficSources != nil {
-		b.WriteString(dimStyle.Render("Structural paths from K8s objects; traffic data from Linkerd proxy metrics"))
-	} else {
-		b.WriteString(dimStyle.Render("Possible traffic paths, not measured traffic"))
-	}
+	b.WriteString(dimStyle.Render("Possible traffic paths, not measured traffic"))
 
 	return b.String()
 }
@@ -584,31 +595,97 @@ func renderExposureNetPols(b *strings.Builder, services []exposure.ServiceExposu
 	}
 }
 
-// renderTrafficSources renders actual traffic sources from Linkerd metrics.
-func renderTrafficSources(b *strings.Builder, sources []exposure.TrafficSource) {
+// renderTrafficMap renders the dedicated Linkerd traffic map screen.
+func renderTrafficMap(tm *exposure.TrafficMap) string {
+	var b strings.Builder
+
+	b.WriteString(headerStyle.Render(fmt.Sprintf("--- Traffic Map (Linkerd, %s window) ---", tm.Window)))
+	b.WriteString("\n\n")
+
+	// Inbound section
+	b.WriteString(headerStyle.Render("Inbound (who sends traffic here):"))
 	b.WriteString("\n")
-	if sources == nil {
-		b.WriteString(dimStyle.Render("  (Linkerd metrics not available — pass --prometheus-url to enable)"))
-		b.WriteString("\n")
-		return
-	}
-	b.WriteString(headerStyle.Render("Actual traffic sources (Linkerd, 1h window):"))
-	b.WriteString("\n")
-	if len(sources) == 0 {
+	if len(tm.Inbound) == 0 {
 		b.WriteString(dimStyle.Render("  (no inbound traffic detected)"))
 		b.WriteString("\n")
-		return
-	}
-	for _, s := range sources {
-		name := s.Deployment
-		if s.Namespace != "" {
-			name = fmt.Sprintf("%s (%s)", s.Deployment, s.Namespace)
+	} else {
+		for _, e := range tm.Inbound {
+			renderTrafficEdge(&b, e)
 		}
-		fmt.Fprintf(b, "  %-40s ", name)
-		b.WriteString(valueStyle.Render(fmt.Sprintf("%.1f rps", s.RPS)))
-		b.WriteString(dimStyle.Render(fmt.Sprintf("  (%.0f total)", s.Total)))
+	}
+
+	// Outbound section
+	b.WriteString("\n")
+	b.WriteString(headerStyle.Render("Outbound (where this workload sends):"))
+	b.WriteString("\n")
+	if len(tm.Outbound) == 0 {
+		b.WriteString(dimStyle.Render("  (no outbound traffic detected)"))
+		b.WriteString("\n")
+	} else {
+		for _, e := range tm.Outbound {
+			renderTrafficEdge(&b, e)
+		}
+	}
+
+	// TCP summary
+	if tm.TCPIn > 0 || tm.TCPOut > 0 {
+		b.WriteString("\n")
+		b.WriteString(labelStyle.Render(fmt.Sprintf("TCP: %d inbound / %d outbound connections (%s)",
+			tm.TCPIn, tm.TCPOut, tm.Window)))
 		b.WriteString("\n")
 	}
+
+	// Footer
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("Data from Linkerd proxy metrics via Prometheus"))
+
+	return b.String()
+}
+
+// renderTrafficEdge renders a single traffic edge line with RPS, success rate, and latency.
+func renderTrafficEdge(b *strings.Builder, e exposure.TrafficEdge) {
+	name := e.Deployment
+	if e.Namespace != "" {
+		name = fmt.Sprintf("%s (%s)", e.Deployment, e.Namespace)
+	}
+	fmt.Fprintf(b, "  %-36s ", name)
+	b.WriteString(valueStyle.Render(fmt.Sprintf("%7.1f rps", e.RPS)))
+
+	// Success rate
+	if e.SuccessRate >= 0 {
+		pct := e.SuccessRate * 100
+		style := okStyle
+		if pct < 99.0 {
+			style = warnStyle
+		}
+		if pct < 95.0 {
+			style = errorStyle
+		}
+		b.WriteString(style.Render(fmt.Sprintf("  %5.1f%% ok", pct)))
+	} else {
+		b.WriteString(dimStyle.Render("        —"))
+	}
+
+	// Latency
+	if e.LatencyP50 >= 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  p50: %s", fmtLatency(e.LatencyP50))))
+	}
+	if e.LatencyP99 >= 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  p99: %s", fmtLatency(e.LatencyP99))))
+	}
+
+	b.WriteString("\n")
+}
+
+// fmtLatency formats milliseconds as a human-readable latency string.
+func fmtLatency(ms float64) string {
+	if ms < 1 {
+		return fmt.Sprintf("%.1fms", ms)
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%.0fms", ms)
+	}
+	return fmt.Sprintf("%.1fs", ms/1000)
 }
 
 const maxNeighbors = 10
