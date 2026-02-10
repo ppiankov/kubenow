@@ -108,30 +108,30 @@ jobs:
             CHANGELOG="Release ${TAG}"
           fi
 
-          cat > /tmp/release-body.md <<NOTES_EOF
-${CHANGELOG}
-
-## Install
-
-\`\`\`bash
-# macOS (Apple Silicon)
-curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_arm64.tar.gz
-tar -xzf ${PROJECT}_${VERSION}_darwin_arm64.tar.gz
-sudo mv ${PROJECT} /usr/local/bin/
-
-# macOS (Intel)
-curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_amd64.tar.gz
-tar -xzf ${PROJECT}_${VERSION}_darwin_amd64.tar.gz
-sudo mv ${PROJECT} /usr/local/bin/
-
-# Linux (amd64)
-curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_linux_amd64.tar.gz
-tar -xzf ${PROJECT}_${VERSION}_linux_amd64.tar.gz
-sudo mv ${PROJECT} /usr/local/bin/
-\`\`\`
-
-**Verify checksums:** \`sha256sum -c checksums.txt\`
-NOTES_EOF
+          {
+            echo "${CHANGELOG}"
+            echo ""
+            echo "## Install"
+            echo ""
+            echo '```bash'
+            echo "# macOS (Apple Silicon)"
+            echo "curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_arm64.tar.gz"
+            echo "tar -xzf ${PROJECT}_${VERSION}_darwin_arm64.tar.gz"
+            echo "sudo mv ${PROJECT} /usr/local/bin/"
+            echo ""
+            echo "# macOS (Intel)"
+            echo "curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_darwin_amd64.tar.gz"
+            echo "tar -xzf ${PROJECT}_${VERSION}_darwin_amd64.tar.gz"
+            echo "sudo mv ${PROJECT} /usr/local/bin/"
+            echo ""
+            echo "# Linux (amd64)"
+            echo "curl -LO https://github.com/${REPO}/releases/download/${TAG}/${PROJECT}_${VERSION}_linux_amd64.tar.gz"
+            echo "tar -xzf ${PROJECT}_${VERSION}_linux_amd64.tar.gz"
+            echo "sudo mv ${PROJECT} /usr/local/bin/"
+            echo '```'
+            echo ""
+            echo "**Verify checksums:** \`sha256sum -c checksums.txt\`"
+          } > /tmp/release-body.md
 
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           cat /tmp/release-body.md >> $GITHUB_OUTPUT
