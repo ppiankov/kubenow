@@ -52,8 +52,9 @@ func ExportToFile(rec *AlignmentRecommendation, workload WorkloadRef) (string, e
 		return "", err
 	}
 
-	filename := fmt.Sprintf("kubenow-patch-%s-%s.yaml",
-		strings.ToLower(workload.Kind), workload.Name)
+	ts := time.Now().Format("20060102-150405")
+	filename := fmt.Sprintf("kubenow-patch-%s-%s-%s-%s.yaml",
+		strings.ToLower(workload.Kind), workload.Namespace, workload.Name, ts)
 	if err := os.WriteFile(filename, []byte(output), 0644); err != nil {
 		return "", fmt.Errorf("failed to write export file: %w", err)
 	}
