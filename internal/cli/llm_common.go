@@ -74,7 +74,7 @@ func RunLLMCommand(cmd *cobra.Command, config *LLMCommandConfig) error {
 		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")
 	}
 
-	clientset, err := util.BuildKubeClient(GetKubeconfig())
+	clientset, err := util.BuildKubeClientWithOpts(GetKubeOpts())
 	if err != nil {
 		return fmt.Errorf("failed to build Kubernetes client: %w", err)
 	}
