@@ -362,12 +362,13 @@ func buildEvidence(latch *LatchResult) *LatchEvidence {
 		sc = latch.Data.SampleCount
 	}
 	return &LatchEvidence{
-		Duration:       latch.Duration,
-		SampleCount:    sc,
-		SampleInterval: latch.Interval,
-		Gaps:           latch.Gaps,
-		Valid:          latch.Valid,
-		CPU:            latch.CPU,
-		Memory:         latch.Memory,
+		Duration:        latch.Duration,
+		PlannedDuration: latch.PlannedDuration,
+		SampleCount:     sc,
+		SampleInterval:  latch.Interval,
+		Gaps:            latch.Gaps,
+		Valid:           latch.Valid,
+		CPU:             latch.CPU,
+		Memory:          latch.Memory,
 	}
 }

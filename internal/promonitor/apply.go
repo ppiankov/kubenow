@@ -379,7 +379,11 @@ func buildApplyAnnotation(rec *AlignmentRecommendation) string {
 			formatMemResource(c.Current.MemoryLimit), formatMemResource(c.Recommended.MemoryLimit),
 		))
 	}
-	return fmt.Sprintf("%s | safety=%s | %s", ts, rec.Safety, strings.Join(parts, "; "))
+	base := fmt.Sprintf("%s | safety=%s | %s", ts, rec.Safety, strings.Join(parts, "; "))
+	if rec.Evidence != nil && rec.Evidence.PlannedDuration > 0 {
+		base += fmt.Sprintf(" | early-stop: %s of %s", rec.Evidence.Duration, rec.Evidence.PlannedDuration)
+	}
+	return base
 }
 
 // SSA patch document structs with JSON tags (parallel to patchDoc in export.go which uses YAML).

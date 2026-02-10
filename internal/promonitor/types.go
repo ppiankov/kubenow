@@ -96,13 +96,14 @@ type ContainerResources struct {
 
 // LatchEvidence summarizes the latch data backing a recommendation.
 type LatchEvidence struct {
-	Duration       time.Duration        `json:"duration"`
-	SampleCount    int                  `json:"sample_count"`
-	SampleInterval time.Duration        `json:"sample_interval"`
-	Gaps           int                  `json:"gaps"`
-	Valid          bool                 `json:"valid"`
-	CPU            *metrics.Percentiles `json:"cpu_percentiles"`
-	Memory         *metrics.Percentiles `json:"memory_percentiles"`
+	Duration        time.Duration        `json:"duration"`
+	PlannedDuration time.Duration        `json:"planned_duration,omitempty"` // non-zero if early-stopped
+	SampleCount     int                  `json:"sample_count"`
+	SampleInterval  time.Duration        `json:"sample_interval"`
+	Gaps            int                  `json:"gaps"`
+	Valid           bool                 `json:"valid"`
+	CPU             *metrics.Percentiles `json:"cpu_percentiles"`
+	Memory          *metrics.Percentiles `json:"memory_percentiles"`
 }
 
 // PolicyBounds holds the policy guardrails relevant to recommendation and apply.

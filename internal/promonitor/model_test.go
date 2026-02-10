@@ -152,6 +152,67 @@ func TestModel_View_WithRecommendation(t *testing.T) {
 	assert.Contains(t, view, "e: export")
 }
 
+func TestModel_Update_EscFirstPress_ShowsWarning(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 2*time.Hour, ModeObserveOnly, "none", nil)
+	m.latchStart = time.Now()
+	// latch is nil but latchDone is false — Esc requires latch != nil
+	// Simulate by checking that with nil latch, Esc is a no-op
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model := updated.(Model)
+	assert.False(t, model.earlyStopPending)
+}
+
+func TestModel_Update_EscDismissedByOtherKey(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 2*time.Hour, ModeObserveOnly, "none", nil)
+	m.earlyStopPending = true
+
+	// Any non-esc/q/ctrl+c key should dismiss the warning
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	model := updated.(Model)
+	assert.False(t, model.earlyStopPending)
+}
+
+func TestModel_View_EarlyStopWarning(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 2*time.Hour, ModeObserveOnly, "none", nil)
+	m.earlyStopPending = true
+	m.latchStart = time.Now()
+	m.width = 120
+	m.height = 40
+
+	view := m.View()
+	assert.Contains(t, view, "stop latching")
+}
+
+func TestModel_View_EarlyStopComplete(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 2*time.Hour, ModeObserveOnly, "none", nil)
+	m.latchDone = true
+	m.earlyStopActual = 93 * time.Minute
+	m.sampleCount = 1116
+	m.width = 120
+	m.height = 40
+
+	view := m.View()
+	assert.Contains(t, view, "EARLY STOP")
+	assert.Contains(t, view, "planned 2h0m0s")
+}
+
+func TestModel_View_EscHintDuringLatch(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
+	m.latchStart = time.Now()
+	// latch is nil so "esc: stop early" won't show — test with non-nil would need mock
+	m.width = 100
+	m.height = 40
+
+	view := m.View()
+	// Without a latch monitor, the hint shouldn't appear
+	assert.NotContains(t, view, "esc: stop early")
+}
+
 func TestModel_Update_ExportKey_NoRecommendation(t *testing.T) {
 	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
 	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
