@@ -75,6 +75,12 @@ func renderView(m Model) string {
 	b.WriteString(renderLatchProgress(m))
 	b.WriteString("\n")
 
+	// Early-stop warning
+	if m.earlyStopPending {
+		b.WriteString(warnStyle.Render("Press Esc again to stop latching and proceed with collected data. Any other key to continue."))
+		b.WriteString("\n")
+	}
+
 	// Policy status
 	b.WriteString(renderPolicyStatus(m))
 	b.WriteString("\n\n")
@@ -128,6 +134,9 @@ func renderView(m Model) string {
 
 	// Key bindings
 	var keys []string
+	if !m.latchDone && m.latch != nil {
+		keys = append(keys, "esc: stop early")
+	}
 	if m.recommendation != nil && m.exposureCollector != nil {
 		if m.showExposure {
 			keys = append(keys, "l: dismiss")
@@ -199,9 +208,15 @@ func renderLatchProgress(m Model) string {
 	b.WriteString(labelStyle.Render("Latch:     "))
 
 	if m.latchDone {
-		b.WriteString(okStyle.Render("COMPLETE"))
-		b.WriteString(valueStyle.Render(fmt.Sprintf("  %d samples in %s",
-			m.sampleCount, m.latchDuration.String())))
+		if m.earlyStopActual > 0 {
+			b.WriteString(warnStyle.Render("EARLY STOP"))
+			b.WriteString(valueStyle.Render(fmt.Sprintf("  %d samples in %s (planned %s)",
+				m.sampleCount, formatDuration(m.earlyStopActual), m.latchDuration.String())))
+		} else {
+			b.WriteString(okStyle.Render("COMPLETE"))
+			b.WriteString(valueStyle.Render(fmt.Sprintf("  %d samples in %s",
+				m.sampleCount, m.latchDuration.String())))
+		}
 		return b.String()
 	}
 
@@ -295,8 +310,12 @@ func renderRecommendation(rec *AlignmentRecommendation) string {
 	// Evidence
 	if rec.Evidence != nil {
 		b.WriteString("\n")
-		b.WriteString(labelStyle.Render(fmt.Sprintf("  Evidence: %d samples, %d gaps, %s latch",
-			rec.Evidence.SampleCount, rec.Evidence.Gaps, rec.Evidence.Duration.String())))
+		evidenceStr := fmt.Sprintf("  Evidence: %d samples, %d gaps, %s latch",
+			rec.Evidence.SampleCount, rec.Evidence.Gaps, rec.Evidence.Duration.String())
+		if rec.Evidence.PlannedDuration > 0 {
+			evidenceStr += fmt.Sprintf(" (planned %s)", rec.Evidence.PlannedDuration.String())
+		}
+		b.WriteString(labelStyle.Render(evidenceStr))
 		b.WriteString("\n")
 	}
 

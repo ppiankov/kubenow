@@ -12,16 +12,17 @@ import (
 
 // LatchResult is the persisted output of a completed latch session.
 type LatchResult struct {
-	Workload  WorkloadRef          `json:"workload"`
-	Timestamp time.Time            `json:"timestamp"`
-	Duration  time.Duration        `json:"duration"`
-	Interval  time.Duration        `json:"interval"`
-	Data      *metrics.SpikeData   `json:"data"`
-	CPU       *metrics.Percentiles `json:"cpu_percentiles"`
-	Memory    *metrics.Percentiles `json:"memory_percentiles"`
-	Gaps      int                  `json:"gaps"`
-	Valid     bool                 `json:"valid"`
-	Reason    string               `json:"reason,omitempty"` // Why invalid, if applicable
+	Workload        WorkloadRef          `json:"workload"`
+	Timestamp       time.Time            `json:"timestamp"`
+	Duration        time.Duration        `json:"duration"`                   // actual elapsed duration
+	PlannedDuration time.Duration        `json:"planned_duration,omitempty"` // original --duration if stopped early (zero = ran to completion)
+	Interval        time.Duration        `json:"interval"`
+	Data            *metrics.SpikeData   `json:"data"`
+	CPU             *metrics.Percentiles `json:"cpu_percentiles"`
+	Memory          *metrics.Percentiles `json:"memory_percentiles"`
+	Gaps            int                  `json:"gaps"`
+	Valid           bool                 `json:"valid"`
+	Reason          string               `json:"reason,omitempty"` // Why invalid, if applicable
 }
 
 // latchDir returns the directory for persisted latch files.

@@ -2,6 +2,7 @@ package promonitor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -40,6 +41,10 @@ type Model struct {
 	latchStart    time.Time
 	latchDone     bool
 	sampleCount   int
+
+	// Early-stop state (Esc during latch)
+	earlyStopPending bool          // first Esc pressed, awaiting confirmation
+	earlyStopActual  time.Duration // actual elapsed duration if stopped early (zero = no early stop)
 
 	// Recommendation inputs (set before TUI starts)
 	containers   []ContainerResources
@@ -145,6 +150,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Any non-Esc key dismisses the early-stop warning
+		if m.earlyStopPending && msg.String() != "esc" && msg.String() != "q" && msg.String() != "ctrl+c" {
+			m.earlyStopPending = false
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
@@ -152,6 +163,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.latch.Stop()
 			}
 			return m, tea.Quit
+		case "esc":
+			if !m.latchDone && m.latch != nil {
+				if m.earlyStopPending {
+					// Second Esc — stop the latch and proceed with collected data
+					m.earlyStopActual = time.Since(m.latchStart)
+					m.latch.Stop()
+					// latch.Stop() blocks until done; LatchDoneMsg will arrive via goroutine
+					m.earlyStopPending = false
+					return m, nil
+				}
+				// First Esc — show warning
+				m.earlyStopPending = true
+				return m, nil
+			}
 		case "e":
 			if m.recommendation != nil && !m.exported {
 				rec := m.recommendation
@@ -466,7 +491,8 @@ func tickCmd() tea.Cmd {
 func (m Model) computeRecommendationCmd() tea.Cmd {
 	latch := m.latch
 	workload := m.workload
-	duration := m.latchDuration
+	plannedDuration := m.latchDuration
+	actualDuration := m.earlyStopActual // zero if not early-stopped
 	interval := m.latchInterval
 	containers := m.containers
 	bounds := m.policyBounds
@@ -480,7 +506,15 @@ func (m Model) computeRecommendationCmd() tea.Cmd {
 		}
 
 		// Build and persist latch result
-		latchResult := BuildLatchResult(workload, data, duration, interval)
+		// If early-stopped, use actual elapsed time as the duration
+		effectiveDuration := plannedDuration
+		if actualDuration > 0 {
+			effectiveDuration = actualDuration
+		}
+		latchResult := BuildLatchResult(workload, data, effectiveDuration, interval)
+		if actualDuration > 0 {
+			latchResult.PlannedDuration = plannedDuration
+		}
 		_ = SaveLatch(latchResult) // best-effort persistence
 
 		// Run recommendation engine
@@ -490,6 +524,15 @@ func (m Model) computeRecommendationCmd() tea.Cmd {
 			Bounds:     bounds,
 			HPA:        hpa,
 		})
+
+		// Add early-stop warning
+		if actualDuration > 0 {
+			rec.Warnings = append(rec.Warnings, fmt.Sprintf(
+				"latch stopped early: %s of planned %s (%.0f%%)",
+				formatDuration(actualDuration), plannedDuration.String(),
+				float64(actualDuration)/float64(plannedDuration)*100,
+			))
+		}
 
 		return recommendDoneMsg{rec: rec}
 	}

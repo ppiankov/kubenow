@@ -153,3 +153,28 @@ func TestBuildLatchResult_ValidWithPercentiles(t *testing.T) {
 	assert.Greater(t, result.CPU.P99, result.CPU.P95)
 	assert.Greater(t, result.Memory.P95, result.Memory.P50)
 }
+
+func TestLatchResult_PlannedDuration_Serialization(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "prod"}
+	result := BuildLatchResult(ref, nil, 93*time.Minute, 5*time.Second)
+	result.PlannedDuration = 2 * time.Hour
+
+	assert.Equal(t, 93*time.Minute, result.Duration)
+	assert.Equal(t, 2*time.Hour, result.PlannedDuration)
+
+	err := SaveLatch(result)
+	require.NoError(t, err)
+
+	loaded, err := LoadLatch(ref)
+	require.NoError(t, err)
+	assert.Equal(t, 93*time.Minute, loaded.Duration)
+	assert.Equal(t, 2*time.Hour, loaded.PlannedDuration)
+}
+
+func TestLatchResult_NormalCompletion_NoPlanedDuration(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "prod"}
+	result := BuildLatchResult(ref, nil, 15*time.Minute, 5*time.Second)
+
+	// PlannedDuration should be zero for normal completion
+	assert.Equal(t, time.Duration(0), result.PlannedDuration)
+}
