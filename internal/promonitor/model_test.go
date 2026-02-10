@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -264,4 +265,82 @@ func TestModel_View_ExportedStatus(t *testing.T) {
 	assert.Contains(t, view, "kubenow-patch-deployment-api.yaml")
 	// Export key should not be shown after export
 	assert.NotContains(t, view, "e: export")
+}
+
+func TestNewAnalyzeModel(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "payment-api", Namespace: "prod"}
+	rec := &AlignmentRecommendation{
+		Safety:     SafetyRatingSafe,
+		Confidence: ConfidenceHigh,
+	}
+	latch := &LatchResult{
+		Workload:  ref,
+		Duration:  30 * time.Minute,
+		Timestamp: time.Now().Add(-1 * time.Hour),
+		Data:      &metrics.SpikeData{SampleCount: 360},
+		Valid:     true,
+	}
+
+	m := NewAnalyzeModel(ref, ModeExportOnly, "policy loaded", nil, rec, latch)
+
+	assert.True(t, m.latchDone, "analyze model starts post-latch")
+	assert.NotNil(t, m.recommendation)
+	assert.Equal(t, SafetyRatingSafe, m.recommendation.Safety)
+	assert.Equal(t, ModeExportOnly, m.mode)
+	assert.Equal(t, "policy loaded", m.policyMsg)
+	assert.Equal(t, 30*time.Minute, m.latchDuration)
+	assert.Equal(t, 360, m.sampleCount)
+	assert.Equal(t, time.Duration(0), m.earlyStopActual, "no early stop for full run")
+}
+
+func TestNewAnalyzeModel_EarlyStop(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "payment-api", Namespace: "prod"}
+	rec := &AlignmentRecommendation{
+		Safety:     SafetyRatingCaution,
+		Confidence: ConfidenceLow,
+	}
+	latch := &LatchResult{
+		Workload:        ref,
+		Duration:        45 * time.Minute, // actual elapsed
+		PlannedDuration: 2 * time.Hour,    // original target
+		Timestamp:       time.Now().Add(-2 * time.Hour),
+		Data:            &metrics.SpikeData{SampleCount: 540},
+		Valid:           true,
+	}
+
+	m := NewAnalyzeModel(ref, ModeApplyReady, "apply ready", nil, rec, latch)
+
+	assert.True(t, m.latchDone)
+	assert.Equal(t, 2*time.Hour, m.latchDuration, "latchDuration reflects planned duration")
+	assert.Equal(t, 45*time.Minute, m.earlyStopActual, "earlyStopActual reflects actual elapsed")
+	assert.Equal(t, 540, m.sampleCount)
+}
+
+func TestNewAnalyzeModel_NilLatch(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	rec := &AlignmentRecommendation{Safety: SafetyRatingSafe}
+
+	m := NewAnalyzeModel(ref, ModeObserveOnly, "none", nil, rec, nil)
+
+	assert.True(t, m.latchDone)
+	assert.NotNil(t, m.recommendation)
+	assert.Equal(t, time.Duration(0), m.latchDuration)
+	assert.Equal(t, 0, m.sampleCount)
+}
+
+func TestNewAnalyzeModel_WithHPA(t *testing.T) {
+	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "default"}
+	hpa := &HPAInfo{Name: "api-hpa", MinReplica: 1, MaxReplica: 5}
+	rec := &AlignmentRecommendation{Safety: SafetyRatingSafe}
+	latch := &LatchResult{
+		Duration: 15 * time.Minute,
+		Data:     &metrics.SpikeData{SampleCount: 180},
+		Valid:    true,
+	}
+
+	m := NewAnalyzeModel(ref, ModeApplyReady, "loaded", hpa, rec, latch)
+
+	assert.True(t, m.latchDone)
+	assert.NotNil(t, m.hpaInfo)
+	assert.Equal(t, "api-hpa", m.hpaInfo.Name)
 }
