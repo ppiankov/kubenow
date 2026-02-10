@@ -11,10 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-detect Prometheus in-cluster
 - Cloud provider cost integration (AWS, GCP, Azure)
 - Historical trend tracking for analyze commands
-- Recommendation patches (kubectl apply-able YAML)
-- Context safety with production confirmation prompts
 - Concurrency controls (--workers, --query-timeout)
 - Prometheus metrics endpoint for meta-monitoring
+
+---
+
+## [0.2.6] - 2026-02-10
+
+### Added
+
+#### Dedicated Linkerd Traffic Map (`t` key)
+- New `t` key screen in pro-monitor TUI showing bidirectional Linkerd traffic data
+- Inbound sources: who sends traffic to this workload (RPS, success rate, p50/p99 latency)
+- Outbound destinations: where this workload sends traffic (RPS, success rate)
+- TCP connection summary (inbound/outbound counts over 1h window)
+- Color-coded success rates: green (>99%), yellow (95-99%), red (<95%)
+- Only shown when `--prometheus-url` is configured; `l` screen stays purely structural
+
+#### Pro-Monitor Collect and Analyze Subcommands
+- `pro-monitor collect`: headless latch data collection for CI/CD pipelines
+- `pro-monitor analyze`: load persisted latch data and launch TUI without re-latching
+- Latch data persisted to `~/.kubenow/latch/` with validation (gap detection, staleness checks)
+
+#### Early-Stop Brake for Latch Mode
+- Double-press Esc to stop latching early and proceed with collected data
+- First Esc shows confirmation prompt, second Esc confirms early stop
+- TUI shows actual vs planned duration when early-stopped
+
+#### Cluster Context Flag
+- New `--context` global flag for explicit Kubernetes context targeting
+- Works across all commands (monitor, pro-monitor, analyze)
 
 ---
 
@@ -797,7 +823,11 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.2...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.6...HEAD
+- [0.2.6]: https://github.com/ppiankov/kubenow/compare/v0.2.5...v0.2.6
+- [0.2.5]: https://github.com/ppiankov/kubenow/compare/v0.2.4...v0.2.5
+- [0.2.4]: https://github.com/ppiankov/kubenow/compare/v0.2.3...v0.2.4
+- [0.2.3]: https://github.com/ppiankov/kubenow/compare/v0.2.2...v0.2.3
 - [0.2.2]: https://github.com/ppiankov/kubenow/compare/v0.2.1...v0.2.2
 - [0.2.1]: https://github.com/ppiankov/kubenow/compare/v0.2.0...v0.2.1
 - [0.2.0]: https://github.com/ppiankov/kubenow/compare/v0.1.13...v0.2.0

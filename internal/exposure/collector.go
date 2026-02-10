@@ -444,11 +444,20 @@ func (c *ExposureCollector) CollectTrafficMap(ctx context.Context, namespace, wo
 	if err != nil {
 		return nil, fmt.Errorf("inbound total: %w", err)
 	}
-	inSuccess, _ := c.queryVector(ctx, fmt.Sprintf(linkerdInboundSuccess, workloadName, namespace))
+	inSuccess, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundSuccess, workloadName, namespace))
+	if err != nil {
+		inSuccess = nil
+	}
 
 	// Query inbound latency (best-effort)
-	inP50, _ := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP50, workloadName, namespace))
-	inP99, _ := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP99, workloadName, namespace))
+	inP50, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP50, workloadName, namespace))
+	if err != nil {
+		inP50 = nil
+	}
+	inP99, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP99, workloadName, namespace))
+	if err != nil {
+		inP99 = nil
+	}
 
 	tm.Inbound = buildEdges(inTotal, inSuccess, inP50, inP99, "deployment", "namespace")
 
@@ -458,13 +467,16 @@ func (c *ExposureCollector) CollectTrafficMap(ctx context.Context, namespace, wo
 		// Outbound query failure is non-fatal — still return inbound data
 		tm.Outbound = []TrafficEdge{}
 	} else {
-		outSuccess, _ := c.queryVector(ctx, fmt.Sprintf(linkerdOutboundSuccess, workloadName, namespace))
+		outSuccess, sErr := c.queryVector(ctx, fmt.Sprintf(linkerdOutboundSuccess, workloadName, namespace))
+		if sErr != nil {
+			outSuccess = nil
+		}
 		tm.Outbound = buildEdges(outTotal, outSuccess, nil, nil, "dst_deployment", "dst_namespace")
 	}
 
 	// TCP counts (best-effort)
-	tm.TCPIn = queryScalar(c, ctx, fmt.Sprintf(linkerdTCPInbound, workloadName, namespace))
-	tm.TCPOut = queryScalar(c, ctx, fmt.Sprintf(linkerdTCPOutbound, workloadName, namespace))
+	tm.TCPIn = queryScalar(ctx, c, fmt.Sprintf(linkerdTCPInbound, workloadName, namespace))
+	tm.TCPOut = queryScalar(ctx, c, fmt.Sprintf(linkerdTCPOutbound, workloadName, namespace))
 
 	return tm, nil
 }
@@ -483,7 +495,7 @@ func (c *ExposureCollector) queryVector(ctx context.Context, query string) (mode
 }
 
 // queryScalar runs a scalar-returning PromQL query and returns the value as int64.
-func queryScalar(c *ExposureCollector, ctx context.Context, query string) int64 {
+func queryScalar(ctx context.Context, c *ExposureCollector, query string) int64 {
 	v, err := c.queryVector(ctx, query)
 	if err != nil || len(v) == 0 {
 		return 0
