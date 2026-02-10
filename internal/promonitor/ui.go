@@ -98,7 +98,7 @@ func renderView(m Model) string {
 	case m.showExposure:
 		if m.exposureLoading {
 			b.WriteString(m.spinner.View())
-			b.WriteString(dimStyle.Render(" Querying load sources..."))
+			b.WriteString(dimStyle.Render(" Querying exposure map..."))
 		} else if m.exposureMap != nil {
 			b.WriteString(renderExposureMap(m.exposureMap))
 		}
@@ -150,7 +150,7 @@ func renderView(m Model) string {
 		if m.showExposure {
 			keys = append(keys, "l: dismiss")
 		} else {
-			keys = append(keys, "l: load sources")
+			keys = append(keys, "l: exposure map")
 		}
 		if m.exposureCollector.HasPrometheus() {
 			if m.showTraffic {
@@ -515,7 +515,7 @@ func formatDuration(d time.Duration) string {
 func renderExposureMap(em *exposure.ExposureMap) string {
 	var b strings.Builder
 
-	b.WriteString(headerStyle.Render("--- Load Sources ---"))
+	b.WriteString(headerStyle.Render("--- Exposure Map ---"))
 	b.WriteString("\n\n")
 
 	renderExposureServices(&b, em.Services)
@@ -535,7 +535,7 @@ func renderExposureMap(em *exposure.ExposureMap) string {
 
 	// Disclaimer
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("Possible traffic paths, not measured traffic"))
+	b.WriteString(dimStyle.Render("Structural topology from K8s API — not measured traffic. Press t for live Linkerd data."))
 
 	return b.String()
 }
@@ -637,7 +637,7 @@ func renderTrafficMap(tm *exposure.TrafficMap) string {
 
 	// Footer
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("Data from Linkerd proxy metrics via Prometheus"))
+	b.WriteString(dimStyle.Render("Data from Linkerd proxy metrics via Prometheus (window is independent of latch duration)"))
 
 	return b.String()
 }

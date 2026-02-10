@@ -17,10 +17,15 @@ import (
 )
 
 var latchConfig struct {
-	duration       string
-	interval       string
-	acknowledgeHPA bool
-	prometheusURL  string
+	duration           string
+	interval           string
+	acknowledgeHPA     bool
+	prometheusURL      string
+	k8sService         string
+	k8sNamespace       string
+	k8sLocalPort       string
+	k8sRemotePort      string
+	portforwardTimeout string
 }
 
 var latchCmd = &cobra.Command{
@@ -63,6 +68,13 @@ func init() {
 	latchCmd.Flags().StringVar(&latchConfig.interval, "interval", "5s", "sample interval (e.g., 1s, 5s)")
 	latchCmd.Flags().BoolVar(&latchConfig.acknowledgeHPA, "acknowledge-hpa", false, "acknowledge HPA presence and allow apply despite HPA")
 	latchCmd.Flags().StringVar(&latchConfig.prometheusURL, "prometheus-url", "", "Prometheus endpoint for Linkerd traffic metrics (e.g., http://prometheus:9090)")
+
+	// Kubernetes port-forward flags
+	latchCmd.Flags().StringVar(&latchConfig.k8sService, "k8s-service", "", "Kubernetes service name for port-forward (e.g., 'prometheus-operated')")
+	latchCmd.Flags().StringVar(&latchConfig.k8sNamespace, "k8s-namespace", "monitoring", "Kubernetes namespace for service")
+	latchCmd.Flags().StringVar(&latchConfig.k8sLocalPort, "k8s-local-port", "9090", "Local port for port-forward")
+	latchCmd.Flags().StringVar(&latchConfig.k8sRemotePort, "k8s-remote-port", "9090", "Remote port for port-forward")
+	latchCmd.Flags().StringVar(&latchConfig.portforwardTimeout, "portforward-timeout", "30s", "Timeout for port-forward readiness (e.g., 30s, 1m)")
 }
 
 func runLatch(cmd *cobra.Command, args []string) error {
@@ -186,7 +198,40 @@ func runLatch(cmd *cobra.Command, args []string) error {
 		}
 		model.SetPolicy(bounds)
 	}
-	// Wire exposure map (load sources + optional Linkerd traffic)
+	// Setup native port-forward if --k8s-service is specified
+	if latchConfig.k8sService != "" {
+		pfTimeout, pfErr := time.ParseDuration(latchConfig.portforwardTimeout)
+		if pfErr != nil {
+			return fmt.Errorf("invalid --portforward-timeout: %w", pfErr)
+		}
+		pf, pfErr := util.NewPortForward(
+			latchConfig.k8sService,
+			latchConfig.k8sNamespace,
+			latchConfig.k8sLocalPort,
+			latchConfig.k8sRemotePort,
+			pfTimeout,
+		)
+		if pfErr != nil {
+			return fmt.Errorf("failed to create port-forward: %w", pfErr)
+		}
+		if pfErr = pf.Start(); pfErr != nil {
+			return fmt.Errorf("failed to start port-forward: %w", pfErr)
+		}
+		defer func() {
+			if stopErr := pf.Stop(); stopErr != nil {
+				fmt.Fprintf(os.Stderr, "[pro-monitor] Warning: failed to stop port-forward: %v\n", stopErr)
+			}
+		}()
+		if latchConfig.prometheusURL == "" {
+			latchConfig.prometheusURL = fmt.Sprintf("http://localhost:%s", latchConfig.k8sLocalPort)
+		}
+		if IsVerbose() {
+			fmt.Fprintf(os.Stderr, "[pro-monitor] Port-forward active: %s/%s → %s\n",
+				latchConfig.k8sNamespace, latchConfig.k8sService, latchConfig.prometheusURL)
+		}
+	}
+
+	// Wire exposure map (structural topology + optional Linkerd traffic)
 	exposureCollector := exposure.NewExposureCollector(kubeClient, metricsClient)
 	if latchConfig.prometheusURL != "" {
 		promClient, err := metrics.NewPrometheusClient(metrics.Config{PrometheusURL: latchConfig.prometheusURL})
