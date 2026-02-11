@@ -235,6 +235,30 @@ kubenow monitor
 
 Use `--severity critical` to filter for critical issues only.
 
+### Service mesh monitoring
+
+Automatically detects linkerd and istio control plane failures and certificate expiry. Runs regardless of `--namespace` filter because mesh failures affect all namespaces. Silently skips if the mesh is not installed or RBAC denies access.
+
+**What's detected:**
+
+| Check | Severity | Condition |
+|-------|----------|-----------|
+| Control plane down | FATAL | Deployment in mesh namespace has 0 available replicas |
+| Certificate expiry | WARNING | Cert expires within 7 days |
+| Certificate expiry | CRITICAL | Cert expires within 48 hours |
+| Certificate expiry | FATAL | Cert expires within 24 hours or already expired |
+
+**Supported meshes:** Linkerd (`linkerd` namespace), Istio (`istio-system` namespace)
+
+**RBAC requirements:** Read access to Deployments and Secrets in the mesh namespace(s). If access is denied, monitoring is silently skipped — no errors are reported.
+
+**Disable with:** `--no-mesh`
+
+```bash
+# Monitor without service mesh checks
+kubenow monitor --no-mesh
+```
+
 ---
 
 ## LLM Analysis (Optional)
