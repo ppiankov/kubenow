@@ -255,10 +255,3 @@ func certHint(meshName string) string {
 		return "Check service mesh certificate configuration"
 	}
 }
-
-// controlPlaneStatus holds the status of a control plane deployment (used in testing)
-type controlPlaneStatus struct {
-	name      string
-	replicas  int32
-	available int32
-}

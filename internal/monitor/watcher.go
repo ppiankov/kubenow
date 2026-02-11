@@ -15,7 +15,7 @@ import (
 
 // Watcher watches Kubernetes events and pod status
 type Watcher struct {
-	clientset  *kubernetes.Clientset
+	clientset  kubernetes.Interface
 	config     Config
 	problems   map[string]*Problem
 	events     []RecentEvent
@@ -27,7 +27,7 @@ type Watcher struct {
 }
 
 // NewWatcher creates a new cluster watcher
-func NewWatcher(clientset *kubernetes.Clientset, config Config) *Watcher {
+func NewWatcher(clientset kubernetes.Interface, config Config) *Watcher {
 	return &Watcher{
 		clientset:  clientset,
 		config:     config,
@@ -60,8 +60,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 	// Start pod watcher
 	go w.watchPods(ctx)
 
-	// Start service mesh health monitor
-	go w.watchServiceMesh(ctx)
+	// Start service mesh health monitor (unless disabled)
+	if !w.config.DisableMesh {
+		go w.watchServiceMesh(ctx)
+	}
 
 	// Start stats updater
 	go w.updateStats(ctx)

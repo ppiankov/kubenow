@@ -65,4 +65,5 @@ type Config struct {
 	SeverityFilter Severity
 	Quiet          bool
 	AlertSound     bool
+	DisableMesh    bool
 }

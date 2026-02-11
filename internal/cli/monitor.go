@@ -17,6 +17,7 @@ var monitorConfig struct {
 	severityFilter string
 	quiet          bool
 	alertSound     bool
+	noMesh         bool
 }
 
 var monitorCmd = &cobra.Command{
@@ -53,6 +54,9 @@ Examples:
   # Quiet mode (hide stats, show only problems)
   kubenow monitor --quiet
 
+  # Disable service mesh health monitoring
+  kubenow monitor --no-mesh
+
 Philosophy:
   • Attention-first: Screen is empty when healthy
   • No navigation: Problems auto-appear
@@ -69,6 +73,7 @@ func init() {
 	monitorCmd.Flags().StringVar(&monitorConfig.severityFilter, "severity", "", "Minimum severity to show (fatal|critical|warning)")
 	monitorCmd.Flags().BoolVar(&monitorConfig.quiet, "quiet", false, "Quiet mode: only show problems, hide stats")
 	monitorCmd.Flags().BoolVar(&monitorConfig.alertSound, "alert", false, "Terminal bell on critical problems")
+	monitorCmd.Flags().BoolVar(&monitorConfig.noMesh, "no-mesh", false, "Disable service mesh health monitoring")
 }
 
 func runMonitor(cmd *cobra.Command, args []string) error {
@@ -103,6 +108,7 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		SeverityFilter: severityFilter,
 		Quiet:          monitorConfig.quiet,
 		AlertSound:     monitorConfig.alertSound,
+		DisableMesh:    monitorConfig.noMesh,
 	}
 
 	watcher := monitor.NewWatcher(kubeClient, config)

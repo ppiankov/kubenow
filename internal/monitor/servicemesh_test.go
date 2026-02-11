@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -13,6 +14,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 // generateTestCert creates a self-signed PEM certificate with the given expiry
@@ -185,18 +190,6 @@ func TestCertHint(t *testing.T) {
 	assert.Contains(t, certHint("unknown"), "certificate configuration")
 }
 
-func TestControlPlaneStatus_Fields(t *testing.T) {
-	s := controlPlaneStatus{
-		name:      "istiod",
-		replicas:  3,
-		available: 2,
-	}
-
-	assert.Equal(t, "istiod", s.name)
-	assert.Equal(t, int32(3), s.replicas)
-	assert.Equal(t, int32(2), s.available)
-}
-
 func TestServiceMeshCheck_Definitions(t *testing.T) {
 	// Verify the mesh checks cover both linkerd and istio
 	meshChecks := []serviceMeshCheck{
@@ -353,4 +346,148 @@ func TestAddProblem_ServiceMeshDedup(t *testing.T) {
 	problems, _, _ := w.GetState()
 	require.Len(t, problems, 1)
 	assert.Equal(t, 2, problems[0].Count)
+}
+
+// newTestWatcher creates a Watcher with a fake clientset for integration tests
+func newTestWatcher(client *fake.Clientset) *Watcher {
+	return &Watcher{
+		clientset:  client,
+		problems:   make(map[string]*Problem),
+		events:     make([]RecentEvent, 0),
+		updateChan: make(chan struct{}, 100),
+	}
+}
+
+func TestCheckControlPlane_DeploymentDown(t *testing.T) {
+	client := fake.NewClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "linkerd-destination", Namespace: "linkerd"},
+			Status: appsv1.DeploymentStatus{
+				Replicas:          2,
+				AvailableReplicas: 0,
+			},
+		},
+	)
+
+	w := newTestWatcher(client)
+	w.checkControlPlane(context.Background(), serviceMeshCheck{namespace: "linkerd", meshName: "linkerd"})
+
+	problems, _, _ := w.GetState()
+	require.Len(t, problems, 1)
+	assert.Equal(t, SeverityFatal, problems[0].Severity)
+	assert.Equal(t, "ServiceMeshControlPlaneDown", problems[0].Type)
+	assert.Contains(t, problems[0].Message, "linkerd-destination")
+	assert.Contains(t, problems[0].Message, "0/2")
+}
+
+func TestCheckControlPlane_Healthy(t *testing.T) {
+	client := fake.NewClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "linkerd-destination", Namespace: "linkerd"},
+			Status: appsv1.DeploymentStatus{
+				Replicas:          2,
+				AvailableReplicas: 2,
+			},
+		},
+	)
+
+	w := newTestWatcher(client)
+	w.checkControlPlane(context.Background(), serviceMeshCheck{namespace: "linkerd", meshName: "linkerd"})
+
+	problems, _, _ := w.GetState()
+	assert.Empty(t, problems)
+}
+
+func TestCheckControlPlane_NamespaceNotFound(t *testing.T) {
+	client := fake.NewClientset() // empty — no namespaces
+
+	w := newTestWatcher(client)
+	w.checkControlPlane(context.Background(), serviceMeshCheck{namespace: "linkerd", meshName: "linkerd"})
+
+	problems, _, _ := w.GetState()
+	assert.Empty(t, problems)
+}
+
+func TestCheckCertExpiry_Warning(t *testing.T) {
+	certPEM := generateTestCert(t, time.Now().Add(3*24*time.Hour)) // 3 days — WARNING
+
+	client := fake.NewClientset(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "linkerd-identity-issuer", Namespace: "linkerd"},
+			Data:       map[string][]byte{"tls.crt": certPEM},
+		},
+	)
+
+	w := newTestWatcher(client)
+	w.checkCertExpiry(context.Background(), certCheck{
+		namespace:  "linkerd",
+		secretName: "linkerd-identity-issuer",
+		meshName:   "linkerd",
+		certKeys:   []string{"tls.crt"},
+	})
+
+	problems, _, _ := w.GetState()
+	require.Len(t, problems, 1)
+	assert.Equal(t, SeverityWarning, problems[0].Severity)
+	assert.Equal(t, "CertExpiringSoon", problems[0].Type)
+}
+
+func TestCheckCertExpiry_Critical(t *testing.T) {
+	certPEM := generateTestCert(t, time.Now().Add(36*time.Hour)) // 36h — CRITICAL
+
+	client := fake.NewClientset(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "linkerd-identity-issuer", Namespace: "linkerd"},
+			Data:       map[string][]byte{"tls.crt": certPEM},
+		},
+	)
+
+	w := newTestWatcher(client)
+	w.checkCertExpiry(context.Background(), certCheck{
+		namespace:  "linkerd",
+		secretName: "linkerd-identity-issuer",
+		meshName:   "linkerd",
+		certKeys:   []string{"tls.crt"},
+	})
+
+	problems, _, _ := w.GetState()
+	require.Len(t, problems, 1)
+	assert.Equal(t, SeverityCritical, problems[0].Severity)
+}
+
+func TestCheckCertExpiry_Healthy(t *testing.T) {
+	certPEM := generateTestCert(t, time.Now().Add(30*24*time.Hour)) // 30 days — healthy
+
+	client := fake.NewClientset(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "linkerd-identity-issuer", Namespace: "linkerd"},
+			Data:       map[string][]byte{"tls.crt": certPEM},
+		},
+	)
+
+	w := newTestWatcher(client)
+	w.checkCertExpiry(context.Background(), certCheck{
+		namespace:  "linkerd",
+		secretName: "linkerd-identity-issuer",
+		meshName:   "linkerd",
+		certKeys:   []string{"tls.crt"},
+	})
+
+	problems, _, _ := w.GetState()
+	assert.Empty(t, problems)
+}
+
+func TestCheckCertExpiry_MissingSecret(t *testing.T) {
+	client := fake.NewClientset() // no secrets
+
+	w := newTestWatcher(client)
+	w.checkCertExpiry(context.Background(), certCheck{
+		namespace:  "linkerd",
+		secretName: "linkerd-identity-issuer",
+		meshName:   "linkerd",
+		certKeys:   []string{"tls.crt"},
+	})
+
+	problems, _, _ := w.GetState()
+	assert.Empty(t, problems)
 }
