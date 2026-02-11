@@ -28,11 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Linkerd identity issuer cert: tiered alerts (<7d WARNING, <48h CRITICAL, <24h FATAL)
   - Istio CA cert: tiered alerts (<7d WARNING, <48h CRITICAL, <24h FATAL)
   - Direct X.509 parsing from K8s Secrets (no Prometheus dependency)
+- `--no-mesh` flag to disable service mesh health monitoring
+- Integration tests for control plane and cert expiry detection using fake clientset
 
 ### Changed
 
+- Watcher clientset type widened from `*kubernetes.Clientset` to `kubernetes.Interface` for testability
 - CLAUDE.md synced with global project standards (Philosophy, Code Style, Git Safety, etc.)
 - CONTRIBUTING.md Go version corrected to 1.25+, commit format aligned with conventional commits
+
+### Fixed
+
+- golangci-lint errors: struct field alignment, range value copies, unused function, missing package comment
 
 ---
 
