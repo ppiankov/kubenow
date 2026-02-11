@@ -16,6 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-02-11
+
+### Added
+
+- CRD workload discovery in requests-skew analyzer
+  - Pods managed by CNPG, Strimzi, RabbitMQ, Redis, and Elasticsearch operators now appear in analysis reports
+  - Uses `ResolveWorkloadIdentity()` to detect operator type from pod labels and `managed-by` annotations
+  - Groups CRD-managed pods by workload name with oldest creation timestamp
+  - Only includes pods with recognized operator labels (no false positives from unknown controllers)
+  - Deduplicates against already-discovered Deployments/StatefulSets/DaemonSets
+  - Works in both metrics and no-metrics code paths (`analyzeNamespace` and `listNamespaceWorkloads`)
+
+### Fixed
+
+- Node footprint stability check used hardcoded "Deployment" for all PromQL queries regardless of actual owner kind
+  - Now resolves workload type from ownerReferences: ReplicaSet→Deployment, StatefulSet, DaemonSet, CRD→StatefulSet
+
+### Changed
+
+- Analyzer `kubeClient` fields widened from `*kubernetes.Clientset` to `kubernetes.Interface` for testability
+
+---
+
 ## [0.2.7] - 2026-02-11
 
 ### Added
@@ -850,7 +873,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.7...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.3.0...HEAD
+- [0.3.0]: https://github.com/ppiankov/kubenow/compare/v0.2.7...v0.3.0
 - [0.2.7]: https://github.com/ppiankov/kubenow/compare/v0.2.6...v0.2.7
 - [0.2.6]: https://github.com/ppiankov/kubenow/compare/v0.2.5...v0.2.6
 - [0.2.5]: https://github.com/ppiankov/kubenow/compare/v0.2.4...v0.2.5
