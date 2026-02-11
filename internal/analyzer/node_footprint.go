@@ -13,7 +13,7 @@ import (
 
 // NodeFootprintAnalyzer analyzes cluster node topology and simulates alternatives
 type NodeFootprintAnalyzer struct {
-	kubeClient      *kubernetes.Clientset
+	kubeClient      kubernetes.Interface
 	metricsProvider metrics.MetricsProvider
 	config          NodeFootprintConfig
 }
@@ -86,7 +86,7 @@ type NodeScenario struct {
 }
 
 // NewNodeFootprintAnalyzer creates a new node-footprint analyzer
-func NewNodeFootprintAnalyzer(kubeClient *kubernetes.Clientset, metricsProvider metrics.MetricsProvider, config NodeFootprintConfig) *NodeFootprintAnalyzer {
+func NewNodeFootprintAnalyzer(kubeClient kubernetes.Interface, metricsProvider metrics.MetricsProvider, config NodeFootprintConfig) *NodeFootprintAnalyzer {
 	// Set defaults
 	if config.Window == 0 {
 		config.Window = 30 * 24 * time.Hour // 30 days default
@@ -286,10 +286,31 @@ func (a *NodeFootprintAnalyzer) checkWorkloadStability(ctx context.Context, pods
 			continue
 		}
 
-		// Get owner reference (Deployment, StatefulSet, etc.)
+		// Resolve workload name and type from ownerReferences
 		workloadName := ""
+		workloadType := "Deployment" // default for PromQL pattern
 		if len(pod.OwnerReferences) > 0 {
-			workloadName = pod.OwnerReferences[0].Name
+			ownerKind := pod.OwnerReferences[0].Kind
+			switch ownerKind {
+			case "ReplicaSet":
+				workloadType = "Deployment"
+				workloadName = metrics.ResolveWorkloadName(pod.Name, pod.Labels)
+			case "StatefulSet":
+				workloadType = "StatefulSet"
+				workloadName = pod.OwnerReferences[0].Name
+			case "DaemonSet":
+				workloadType = "DaemonSet"
+				workloadName = pod.OwnerReferences[0].Name
+			default:
+				// CRD-managed pod — resolve via operator labels
+				name, operatorType := metrics.ResolveWorkloadIdentity(pod.Name, pod.Labels)
+				if operatorType != "" {
+					workloadType = "StatefulSet" // ordinal naming pattern
+					workloadName = name
+				} else {
+					workloadName = pod.OwnerReferences[0].Name
+				}
+			}
 		} else {
 			workloadName = pod.Name
 		}
@@ -301,7 +322,7 @@ func (a *NodeFootprintAnalyzer) checkWorkloadStability(ctx context.Context, pods
 		}
 
 		// Query for restarts in the last 7 days (shorter window for node planning)
-		safetyData, err := promClient.GetWorkloadSafetyData(ctx, pod.Namespace, workloadName, "Deployment", 7*24*time.Hour)
+		safetyData, err := promClient.GetWorkloadSafetyData(ctx, pod.Namespace, workloadName, workloadType, 7*24*time.Hour)
 		if err != nil {
 			continue
 		}
