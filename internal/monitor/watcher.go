@@ -60,6 +60,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 	// Start pod watcher
 	go w.watchPods(ctx)
 
+	// Start service mesh health monitor
+	go w.watchServiceMesh(ctx)
+
 	// Start stats updater
 	go w.updateStats(ctx)
 
