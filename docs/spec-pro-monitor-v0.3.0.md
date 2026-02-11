@@ -1,6 +1,6 @@
 # kubenow v0.3.0 — Pro-Monitor Hardening & Workload Coverage
 
-## Status: DRAFT
+## Status: SHIPPED (v0.3.0, 2026-02-11)
 ## Authors: ppiankov
 ## Date: 2026-02-08
 

@@ -472,7 +472,7 @@ func (m Model) executeApplyCmd() tea.Cmd {
 				KubeClient:     kubeClient,
 				KubeconfigPath: kubeconfigPath,
 				Input:          input,
-				Version:        "0.2.0",
+				Version:        "0.3.0",
 				FullPolicy:     fullPolicy,
 				RateLimitCfg: audit.RateLimitConfig{
 					MaxGlobal:      fullPolicy.RateLimits.MaxAppliesPerHour,

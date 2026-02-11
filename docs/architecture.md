@@ -1,6 +1,6 @@
 # kubenow Architecture
 
-This document describes the architecture, design decisions, and implementation details of kubenow v2.0.
+This document describes the architecture, design decisions, and implementation details of kubenow.
 
 ---
 
@@ -592,7 +592,7 @@ Result:
 
 ## Exit Code Strategy
 
-kubenow v2.0 uses standardized exit codes for automation-friendly behavior.
+kubenow uses standardized exit codes for automation-friendly behavior.
 
 | Code | Constant | Meaning | Use Case |
 |------|----------|---------|----------|
