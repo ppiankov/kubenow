@@ -79,8 +79,8 @@ func TestParseCertExpiry_EmptyData(t *testing.T) {
 func TestCertSeverity(t *testing.T) {
 	tests := []struct {
 		name      string
-		remaining time.Duration
 		want      Severity
+		remaining time.Duration
 	}{
 		{
 			name:      "healthy cert (30 days)",
@@ -160,15 +160,15 @@ func TestCertSeverity(t *testing.T) {
 func TestFormatCertDuration(t *testing.T) {
 	tests := []struct {
 		name string
-		d    time.Duration
 		want string
+		d    time.Duration
 	}{
-		{"expired", -1 * time.Hour, "EXPIRED"},
-		{"zero", 0, "EXPIRED"},
-		{"minutes", 30 * time.Minute, "30m"},
-		{"hours", 12 * time.Hour, "12h"},
-		{"days", 5 * 24 * time.Hour, "5d"},
-		{"one day", 24 * time.Hour, "1d"},
+		{"expired", "EXPIRED", -1 * time.Hour},
+		{"zero", "EXPIRED", 0},
+		{"minutes", "30m", 30 * time.Minute},
+		{"hours", "12h", 12 * time.Hour},
+		{"days", "5d", 5 * 24 * time.Hour},
+		{"one day", "1d", 24 * time.Hour},
 	}
 
 	for _, tt := range tests {
