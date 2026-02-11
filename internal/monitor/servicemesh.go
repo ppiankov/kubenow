@@ -1,3 +1,4 @@
+// Package monitor provides real-time Kubernetes cluster monitoring via a BubbleTea TUI.
 package monitor
 
 import (
@@ -9,7 +10,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
 // Service mesh detection constants
@@ -41,8 +41,8 @@ type serviceMeshCheck struct {
 type certCheck struct {
 	namespace  string
 	secretName string
-	certKeys   []string // possible keys in the secret data (e.g., "tls.crt", "ca-cert.pem")
 	meshName   string
+	certKeys   []string // possible keys in the secret data (e.g., "tls.crt", "ca-cert.pem")
 }
 
 // watchServiceMesh polls service mesh control plane deployments and certificates.
@@ -110,7 +110,8 @@ func (w *Watcher) checkControlPlane(ctx context.Context, check serviceMeshCheck)
 		return // No deployments in namespace — mesh not installed
 	}
 
-	for _, deploy := range deployments.Items {
+	for i := range deployments.Items {
+		deploy := &deployments.Items[i]
 		if deploy.Status.AvailableReplicas == 0 && deploy.Status.Replicas > 0 {
 			w.addProblem(
 				SeverityFatal,
@@ -253,28 +254,6 @@ func certHint(meshName string) string {
 	default:
 		return "Check service mesh certificate configuration"
 	}
-}
-
-// checkServiceMeshHealthWithClient is a testable version that accepts a clientset parameter.
-// Production code uses the Watcher method which accesses w.clientset.
-func checkControlPlaneHealth(ctx context.Context, clientset kubernetes.Interface, namespace string) ([]controlPlaneStatus, error) {
-	deployments, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) || errors.IsForbidden(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var results []controlPlaneStatus
-	for _, deploy := range deployments.Items {
-		results = append(results, controlPlaneStatus{
-			name:      deploy.Name,
-			replicas:  deploy.Status.Replicas,
-			available: deploy.Status.AvailableReplicas,
-		})
-	}
-	return results, nil
 }
 
 // controlPlaneStatus holds the status of a control plane deployment (used in testing)
