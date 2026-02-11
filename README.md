@@ -229,6 +229,7 @@ kubenow monitor
 
 - Attention-first: empty screen when healthy, shows only broken things
 - Watches for: OOMKills, CrashLoopBackOff, ImagePullBackOff, failed pods, node issues
+- Service mesh health: linkerd/istio control plane failures and certificate expiry
 - Sortable by severity, recency, or count
 - Press `c` to dump everything to terminal for copying
 

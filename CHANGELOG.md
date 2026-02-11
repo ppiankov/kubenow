@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.7] - 2026-02-11
+
+### Added
+
+- Service mesh control plane detection in monitor mode
+  - Linkerd: detects deployments with zero replicas in `linkerd` namespace (FATAL)
+  - Istio: detects istiod and other deployments with zero replicas in `istio-system` namespace (FATAL)
+  - Runs regardless of `--namespace` filter (mesh failures affect all namespaces)
+- Service mesh certificate expiry detection
+  - Linkerd identity issuer cert: tiered alerts (<7d WARNING, <48h CRITICAL, <24h FATAL)
+  - Istio CA cert: tiered alerts (<7d WARNING, <48h CRITICAL, <24h FATAL)
+  - Direct X.509 parsing from K8s Secrets (no Prometheus dependency)
+
+### Changed
+
+- CLAUDE.md synced with global project standards (Philosophy, Code Style, Git Safety, etc.)
+- CONTRIBUTING.md Go version corrected to 1.25+, commit format aligned with conventional commits
+
+---
+
 ## [0.2.6] - 2026-02-10
 
 ### Added
@@ -823,7 +843,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.6...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.2.7...HEAD
+- [0.2.7]: https://github.com/ppiankov/kubenow/compare/v0.2.6...v0.2.7
 - [0.2.6]: https://github.com/ppiankov/kubenow/compare/v0.2.5...v0.2.6
 - [0.2.5]: https://github.com/ppiankov/kubenow/compare/v0.2.4...v0.2.5
 - [0.2.4]: https://github.com/ppiankov/kubenow/compare/v0.2.3...v0.2.4
