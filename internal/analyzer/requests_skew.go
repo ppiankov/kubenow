@@ -26,7 +26,7 @@ func logProgress(format string, args ...interface{}) {
 
 // RequestsSkewAnalyzer analyzes resource request vs usage skew
 type RequestsSkewAnalyzer struct {
-	kubeClient      *kubernetes.Clientset
+	kubeClient      kubernetes.Interface
 	metricsProvider metrics.MetricsProvider
 	config          RequestsSkewConfig
 }
@@ -162,7 +162,7 @@ type WorkloadSkewAnalysis struct {
 }
 
 // NewRequestsSkewAnalyzer creates a new requests-skew analyzer
-func NewRequestsSkewAnalyzer(kubeClient *kubernetes.Clientset, metricsProvider metrics.MetricsProvider, config RequestsSkewConfig) *RequestsSkewAnalyzer {
+func NewRequestsSkewAnalyzer(kubeClient kubernetes.Interface, metricsProvider metrics.MetricsProvider, config RequestsSkewConfig) *RequestsSkewAnalyzer {
 	// Set defaults
 	if config.Window == 0 {
 		config.Window = 30 * 24 * time.Hour // 30 days default
@@ -654,6 +654,21 @@ func (a *RequestsSkewAnalyzer) listNamespaceWorkloads(ctx context.Context, names
 		})
 	}
 
+	// Discover CRD-managed workloads
+	knownWorkloads := make(map[string]bool)
+	for _, w := range result {
+		knownWorkloads[w.Workload] = true
+	}
+	crdGroups, err := a.discoverCRDWorkloads(ctx, namespace, knownWorkloads)
+	if err != nil {
+		return result, nil // non-fatal, return what we have
+	}
+	for _, g := range crdGroups {
+		result = append(result, WorkloadWithoutMetrics{
+			Namespace: namespace, Workload: g.workloadName, Type: g.displayType, Diagnosis: diagnosis,
+		})
+	}
+
 	return result, nil
 }
 
@@ -725,6 +740,36 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 				Type:      "DaemonSet",
 			})
 		} else if analysis != nil {
+			workloads = append(workloads, *analysis)
+		}
+	}
+
+	// Discover CRD-managed workloads (CNPG, Strimzi, RabbitMQ, etc.)
+	knownWorkloads := make(map[string]bool)
+	for _, w := range workloads {
+		knownWorkloads[w.Workload] = true
+	}
+	for _, w := range noMetrics {
+		knownWorkloads[w.Workload] = true
+	}
+
+	crdGroups, err := a.discoverCRDWorkloads(ctx, namespace, knownWorkloads)
+	if err != nil {
+		logProgress("[kubenow]   Warning: CRD discovery failed in %s: %v\n", namespace, err)
+	}
+	for _, g := range crdGroups {
+		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, g.workloadName, g.promqlType, g.creationTime)
+		if err != nil {
+			continue
+		}
+		if !hasMetrics {
+			noMetrics = append(noMetrics, WorkloadWithoutMetrics{
+				Namespace: namespace,
+				Workload:  g.workloadName,
+				Type:      g.displayType,
+			})
+		} else if analysis != nil {
+			analysis.Type = g.displayType
 			workloads = append(workloads, *analysis)
 		}
 	}
