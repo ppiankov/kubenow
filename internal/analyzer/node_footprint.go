@@ -242,8 +242,9 @@ func (a *NodeFootprintAnalyzer) getWorkloadEnvelope(ctx context.Context) (*Workl
 			podMem += memReq
 		}
 
-		// TODO: Query actual usage from Prometheus and use percentile
-		// For now, use requests as approximation
+		// Requests are the scheduling-level footprint and the correct default.
+		// Future: optionally overlay Prometheus percentile data for tighter packing,
+		// but requests remain valid when operators intentionally overprovision.
 
 		podRequirements = append(podRequirements, PodRequirement{
 			Name:      pod.Name,

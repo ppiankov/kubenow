@@ -146,7 +146,7 @@ func Validate(p *Policy) *ValidationResult {
 
 	// Audit validation
 	if p.Audit.Backend != "" && p.Audit.Backend != "filesystem" {
-		result.addError("audit.backend", fmt.Sprintf("unsupported backend %q (v0.2.0 supports: filesystem)", p.Audit.Backend))
+		result.addError("audit.backend", fmt.Sprintf("unsupported backend %q (v0.3.0 supports: filesystem)", p.Audit.Backend))
 	}
 
 	if p.Apply.Enabled {

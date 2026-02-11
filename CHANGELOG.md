@@ -16,6 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] - 2026-02-11
+
+### Fixed
+
+- README version badge updated from 0.2.5 to 0.3.0
+- Hardcoded "0.2.0" version strings in apply bundle and policy validation
+- Documentation references to "v2.0" corrected to match actual versioning
+- Pro-monitor v0.3.0 spec status changed from DRAFT to SHIPPED
+- Node footprint TODO clarified: requests are the correct default, Prometheus percentile is optional overlay
+
+### Changed
+
+- Stale root-level working docs archived to `docs/archive/`
+- `SPIKE-ANALYSIS.md` moved to `docs/spike-analysis.md`
+- Migration guide version references corrected (v1.x/v2.0 → v0.1.x/v0.2+)
+
+---
+
 ## [0.3.0] - 2026-02-11
 
 ### Added
@@ -873,7 +891,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.3.0...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.3.1...HEAD
+- [0.3.1]: https://github.com/ppiankov/kubenow/compare/v0.3.0...v0.3.1
 - [0.3.0]: https://github.com/ppiankov/kubenow/compare/v0.2.7...v0.3.0
 - [0.2.7]: https://github.com/ppiankov/kubenow/compare/v0.2.6...v0.2.7
 - [0.2.6]: https://github.com/ppiankov/kubenow/compare/v0.2.5...v0.2.6
