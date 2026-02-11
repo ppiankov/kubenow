@@ -25,7 +25,7 @@ Be respectful, constructive, and professional in all interactions.
 
 ### Prerequisites
 
-- **Go** ≥ 1.21
+- **Go** ≥ 1.25
 - **kubectl** configured with access to a Kubernetes cluster (for testing)
 - **make** (for build automation)
 - **git**
@@ -106,39 +106,21 @@ git checkout -b fix/bug-description
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
+type: concise imperative statement
 ```
 
-**Types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `refactor`: Code refactoring
-- `test`: Test additions or fixes
-- `chore`: Build, CI, or tooling changes
-- `perf`: Performance improvements
+Lowercase after colon, no period. Max 72 chars.
+
+**Types:** `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`
 
 **Examples:**
 ```
-feat(analyze): add requests-skew command
-
-Implements resource over-provisioning analysis using Prometheus metrics.
-Calculates skew ratio and impact scores for workloads.
-
-Closes #42
+feat: add requests-skew analysis command
+fix: handle empty prometheus response
+docs: update architecture diagram
 ```
 
-```
-fix(metrics): handle empty prometheus response
-
-Fixes panic when Prometheus returns no data for a query.
-
-Fixes #56
-```
+Body (optional, separated by blank line) for WHY, not WHAT.
 
 ---
 
