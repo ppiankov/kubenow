@@ -6,7 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/kubenow)](https://goreportcard.com/report/github.com/ppiankov/kubenow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Version 0.3.1** — Deterministic resource analysis, policy-gated apply, and real-time monitoring for Kubernetes clusters.
+**Version 0.3.2** — Deterministic resource analysis, policy-gated apply, and real-time monitoring for Kubernetes clusters.
 
 ---
 
@@ -332,7 +332,7 @@ Available for Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64).
 
 ```bash
 kubenow version
-# kubenow version 0.3.1
+# kubenow version 0.3.2
 ```
 
 ---

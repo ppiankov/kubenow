@@ -16,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.2] - 2026-02-13
+
+### Fixed
+
+- Empty requests-skew analysis table ("Analyzed: 0 of N workloads") caused by three root issues:
+  - Hardcoded 1-minute query step overloaded Prometheus on 30d windows (43,200 points); now uses adaptive step targeting ~1,000 points
+  - `unit="core"` / `unit="byte"` labels in PromQL queries incompatible with kube-state-metrics v2+; removed
+  - Request queries used wrong pod pattern (hardcoded `-.*`) and `by (pod)` aggregation; replaced with workload-type-aware queries (`WorkloadCPURequests`, `WorkloadMemoryRequests`) using `workloadPodPattern()` helper
+- Silent error swallowing in Prometheus queries now logs warnings to stderr
+
+### Added
+
+- Resource limits vs actual usage analysis in requests-skew analyzer
+  - New `WorkloadCPULimits` / `WorkloadMemoryLimits` PromQL query methods
+  - `LimitCPU`, `LimitMemoryGi`, `LimitSkewCPU`, `LimitSkewMemory` fields on workload analysis
+  - "Lim CPU" and "Lim Skew" columns in table output
+  - Recommendations flag over-provisioned limits (limit > 3x P95 usage)
+  - Summary tracks total wasted limit capacity
+
+---
+
 ## [0.3.1] - 2026-02-11
 
 ### Fixed
@@ -891,7 +912,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.3.1...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.3.2...HEAD
+- [0.3.2]: https://github.com/ppiankov/kubenow/compare/v0.3.1...v0.3.2
 - [0.3.1]: https://github.com/ppiankov/kubenow/compare/v0.3.0...v0.3.1
 - [0.3.0]: https://github.com/ppiankov/kubenow/compare/v0.2.7...v0.3.0
 - [0.2.7]: https://github.com/ppiankov/kubenow/compare/v0.2.6...v0.2.7
