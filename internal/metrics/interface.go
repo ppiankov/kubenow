@@ -95,6 +95,10 @@ type WorkloadUsage struct {
 	CPURequested    float64
 	MemoryRequested float64 // bytes
 
+	// Resource limits (from Kubernetes API)
+	CPULimit    float64
+	MemoryLimit float64 // bytes
+
 	// Number of pods/replicas
 	PodCount int
 

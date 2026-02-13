@@ -119,6 +119,8 @@ func (m *MockMetrics) GetWorkloadResourceUsage(ctx context.Context, namespace, w
 		MemoryP95:       2 * 1024 * 1024 * 1024, // 2Gi
 		CPURequested:    4.0,
 		MemoryRequested: 8 * 1024 * 1024 * 1024, // 8Gi
+		CPULimit:        8.0,
+		MemoryLimit:     16 * 1024 * 1024 * 1024, // 16Gi
 		PodCount:        3,
 		CPUSkew:         4.0, // 4.0 / 1.0
 		MemorySkew:      8.0, // 8Gi / 1Gi
