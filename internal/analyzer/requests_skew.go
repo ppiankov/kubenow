@@ -121,13 +121,15 @@ type RequestsSkewMetadata struct {
 
 // RequestsSkewSummary contains summary statistics
 type RequestsSkewSummary struct {
-	TotalWorkloads      int     `json:"total_workloads"`
-	AnalyzedWorkloads   int     `json:"analyzed_workloads"`
-	SkippedWorkloads    int     `json:"skipped_workloads"`
-	AvgSkewCPU          float64 `json:"avg_skew_cpu"`
-	AvgSkewMemory       float64 `json:"avg_skew_memory"`
-	TotalWastedCPU      float64 `json:"total_wasted_cpu"`
-	TotalWastedMemoryGi float64 `json:"total_wasted_memory_gi"`
+	TotalWorkloads           int     `json:"total_workloads"`
+	AnalyzedWorkloads        int     `json:"analyzed_workloads"`
+	SkippedWorkloads         int     `json:"skipped_workloads"`
+	AvgSkewCPU               float64 `json:"avg_skew_cpu"`
+	AvgSkewMemory            float64 `json:"avg_skew_memory"`
+	TotalWastedCPU           float64 `json:"total_wasted_cpu"`
+	TotalWastedMemoryGi      float64 `json:"total_wasted_memory_gi"`
+	TotalWastedLimitCPU      float64 `json:"total_wasted_limit_cpu"`
+	TotalWastedLimitMemoryGi float64 `json:"total_wasted_limit_memory_gi"`
 }
 
 // WorkloadSkewAnalysis contains skew analysis for a single workload
@@ -147,6 +149,10 @@ type WorkloadSkewAnalysis struct {
 	P999UsedMemoryGi  float64 `json:"p999_used_memory_gi"`
 	MaxUsedCPU        float64 `json:"max_used_cpu"`
 	MaxUsedMemoryGi   float64 `json:"max_used_memory_gi"`
+	LimitCPU          float64 `json:"limit_cpu"`
+	LimitMemoryGi     float64 `json:"limit_memory_gi"`
+	LimitSkewCPU      float64 `json:"limit_skew_cpu"`    // limit / p95 used
+	LimitSkewMemory   float64 `json:"limit_skew_memory"` // limit / p95 used
 	SkewCPU           float64 `json:"skew_cpu"`
 	SkewMemory        float64 `json:"skew_memory"`
 	ImpactScore       float64 `json:"impact_score"`
@@ -812,6 +818,16 @@ func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, w
 		memorySkew = usage.MemoryRequested / usage.MemoryAvg
 	}
 
+	// Calculate limit skew (limit / p95 usage)
+	limitSkewCPU := 0.0
+	if usage.CPUP95 > 0 && usage.CPULimit > 0 {
+		limitSkewCPU = usage.CPULimit / usage.CPUP95
+	}
+	limitSkewMemory := 0.0
+	if usage.MemoryP95 > 0 && usage.MemoryLimit > 0 {
+		limitSkewMemory = usage.MemoryLimit / usage.MemoryP95
+	}
+
 	// Calculate impact score: skew × absolute resources
 	impactScore := (cpuSkew * usage.CPURequested) + (memorySkew * (usage.MemoryRequested / (1024 * 1024 * 1024)))
 
@@ -819,7 +835,7 @@ func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, w
 	safety := a.fetchSafetyData(ctx, namespace, workloadName, workloadType, usage)
 
 	// Generate recommendation note
-	note := generateRecommendation(usage.CPURequested, usage.CPUP95, usage.MemoryRequested, usage.MemoryP95)
+	note := generateRecommendation(usage.CPURequested, usage.CPUP95, usage.MemoryRequested, usage.MemoryP95, usage.CPULimit, usage.MemoryLimit)
 
 	// Override note if safety issues detected
 	if safety != nil && safety.Rating != models.SafetyRatingSafe {
@@ -842,6 +858,10 @@ func (a *RequestsSkewAnalyzer) analyzeWorkload(ctx context.Context, namespace, w
 		P999UsedMemoryGi:  0, // Will be filled by fetchSafetyData
 		MaxUsedCPU:        usage.CPUMax,
 		MaxUsedMemoryGi:   usage.MemoryMax / (1024 * 1024 * 1024),
+		LimitCPU:          usage.CPULimit,
+		LimitMemoryGi:     usage.MemoryLimit / (1024 * 1024 * 1024),
+		LimitSkewCPU:      limitSkewCPU,
+		LimitSkewMemory:   limitSkewMemory,
 		SkewCPU:           cpuSkew,
 		SkewMemory:        memorySkew,
 		ImpactScore:       impactScore,
@@ -945,17 +965,27 @@ func (a *RequestsSkewAnalyzer) calculateSummary(result *RequestsSkewResult) {
 	totalMemSkew := 0.0
 	totalWastedCPU := 0.0
 	totalWastedMem := 0.0
+	totalWastedLimitCPU := 0.0
+	totalWastedLimitMem := 0.0
 
 	for _, w := range result.Results {
 		totalCPUSkew += w.SkewCPU
 		totalMemSkew += w.SkewMemory
 
-		// Wasted = requested - p95 (with safety margin)
+		// Wasted requests = requested - p95
 		if w.RequestedCPU > w.P95UsedCPU {
 			totalWastedCPU += (w.RequestedCPU - w.P95UsedCPU)
 		}
 		if w.RequestedMemoryGi > w.P95UsedMemoryGi {
 			totalWastedMem += (w.RequestedMemoryGi - w.P95UsedMemoryGi)
+		}
+
+		// Wasted limits = limit - p95
+		if w.LimitCPU > 0 && w.LimitCPU > w.P95UsedCPU {
+			totalWastedLimitCPU += (w.LimitCPU - w.P95UsedCPU)
+		}
+		if w.LimitMemoryGi > 0 && w.LimitMemoryGi > w.P95UsedMemoryGi {
+			totalWastedLimitMem += (w.LimitMemoryGi - w.P95UsedMemoryGi)
 		}
 	}
 
@@ -963,6 +993,8 @@ func (a *RequestsSkewAnalyzer) calculateSummary(result *RequestsSkewResult) {
 	result.Summary.AvgSkewMemory = totalMemSkew / float64(len(result.Results))
 	result.Summary.TotalWastedCPU = totalWastedCPU
 	result.Summary.TotalWastedMemoryGi = totalWastedMem
+	result.Summary.TotalWastedLimitCPU = totalWastedLimitCPU
+	result.Summary.TotalWastedLimitMemoryGi = totalWastedLimitMem
 }
 
 // sortResults sorts workload results based on configured sort option
@@ -1008,17 +1040,35 @@ func (a *RequestsSkewAnalyzer) sortResults(result *RequestsSkewResult) {
 }
 
 // generateRecommendation generates a recommendation note
-func generateRecommendation(cpuReq, cpuP95, memReq, memP95 float64) string {
+func generateRecommendation(cpuReq, cpuP95, memReq, memP95, cpuLimit, memLimit float64) string {
 	// Add 50% headroom to p95 for safety
 	recommendedCPU := cpuP95 * 1.5
 	recommendedMem := memP95 * 1.5
 
+	parts := make([]string, 0, 2)
+
 	if cpuReq > recommendedCPU*2 || memReq > recommendedMem*2 {
-		return fmt.Sprintf("Consider reducing CPU request to %.2f cores (p95 + 50%% headroom) and memory to %.2fGi",
-			recommendedCPU, recommendedMem/(1024*1024*1024))
+		parts = append(parts, fmt.Sprintf("Consider reducing CPU request to %.2f cores and memory to %.2fGi (p95 + 50%% headroom)",
+			recommendedCPU, recommendedMem/(1024*1024*1024)))
 	}
 
-	return "Resource requests appear reasonable"
+	// Flag over-provisioned limits (limit > 3x P95)
+	if cpuLimit > 0 && cpuP95 > 0 && cpuLimit > cpuP95*3 {
+		parts = append(parts, fmt.Sprintf("CPU limit %.2f is %.0fx P95 usage", cpuLimit, cpuLimit/cpuP95))
+	}
+	if memLimit > 0 && memP95 > 0 && memLimit > memP95*3 {
+		parts = append(parts, fmt.Sprintf("Memory limit %.2fGi is %.0fx P95 usage", memLimit/(1024*1024*1024), memLimit/memP95))
+	}
+
+	if len(parts) == 0 {
+		return "Resource requests appear reasonable"
+	}
+
+	result := parts[0]
+	for _, p := range parts[1:] {
+		result += "; " + p
+	}
+	return result
 }
 
 // formatDuration formats a duration for display

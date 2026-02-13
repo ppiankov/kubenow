@@ -55,32 +55,69 @@ func (qb *QueryBuilder) MemoryQuantileOverTime(namespace string, percentile floa
 
 // CPURequestsByNamespace returns a query for CPU requests by namespace
 func (qb *QueryBuilder) CPURequestsByNamespace(namespace string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",resource="cpu",unit="core"}) by (namespace)`, namespace)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",resource="cpu"}) by (namespace)`, namespace)
 }
 
 // MemoryRequestsByNamespace returns a query for memory requests by namespace
 func (qb *QueryBuilder) MemoryRequestsByNamespace(namespace string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",resource="memory",unit="byte"}) by (namespace)`, namespace)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",resource="memory"}) by (namespace)`, namespace)
 }
 
 // CPURequestsByPod returns a query for CPU requests by pod
 func (qb *QueryBuilder) CPURequestsByPod(namespace, podPattern string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="cpu",unit="core"}) by (pod)`, namespace, podPattern)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="cpu"}) by (pod)`, namespace, podPattern)
 }
 
 // MemoryRequestsByPod returns a query for memory requests by pod
 func (qb *QueryBuilder) MemoryRequestsByPod(namespace, podPattern string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="memory",unit="byte"}) by (pod)`, namespace, podPattern)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="memory"}) by (pod)`, namespace, podPattern)
 }
 
 // NodeCPUCapacity returns a query for total node CPU capacity
 func (qb *QueryBuilder) NodeCPUCapacity() string {
-	return `sum(kube_node_status_capacity{resource="cpu",unit="core"})`
+	return `sum(kube_node_status_capacity{resource="cpu"})`
 }
 
 // NodeMemoryCapacity returns a query for total node memory capacity
 func (qb *QueryBuilder) NodeMemoryCapacity() string {
-	return `sum(kube_node_status_capacity{resource="memory",unit="byte"})`
+	return `sum(kube_node_status_capacity{resource="memory"})`
+}
+
+// workloadPodPattern returns a regex pattern for matching pods belonging to a workload
+func workloadPodPattern(workloadName, workloadType string) string {
+	switch workloadType {
+	case "StatefulSet":
+		return workloadName + "-[0-9]+"
+	case "Pod":
+		return workloadName
+	default:
+		// Deployment, DaemonSet, and others use replicaset-hash suffix
+		return workloadName + "-.*"
+	}
+}
+
+// WorkloadCPURequests returns a query for total CPU requests across all pods of a workload
+func (qb *QueryBuilder) WorkloadCPURequests(namespace, workloadName, workloadType string) string {
+	pattern := workloadPodPattern(workloadName, workloadType)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="cpu"})`, namespace, pattern)
+}
+
+// WorkloadMemoryRequests returns a query for total memory requests across all pods of a workload
+func (qb *QueryBuilder) WorkloadMemoryRequests(namespace, workloadName, workloadType string) string {
+	pattern := workloadPodPattern(workloadName, workloadType)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="memory"})`, namespace, pattern)
+}
+
+// WorkloadCPULimits returns a query for total CPU limits across all pods of a workload
+func (qb *QueryBuilder) WorkloadCPULimits(namespace, workloadName, workloadType string) string {
+	pattern := workloadPodPattern(workloadName, workloadType)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_limits{namespace="%s",pod=~"%s",resource="cpu"})`, namespace, pattern)
+}
+
+// WorkloadMemoryLimits returns a query for total memory limits across all pods of a workload
+func (qb *QueryBuilder) WorkloadMemoryLimits(namespace, workloadName, workloadType string) string {
+	pattern := workloadPodPattern(workloadName, workloadType)
+	return fmt.Sprintf(`sum(kube_pod_container_resource_limits{namespace="%s",pod=~"%s",resource="memory"})`, namespace, pattern)
 }
 
 // NodeCount returns a query for the number of nodes

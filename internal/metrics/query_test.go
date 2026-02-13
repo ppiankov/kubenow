@@ -126,12 +126,14 @@ func TestQueryBuilder_NodeMetrics(t *testing.T) {
 		query := qb.NodeCPUCapacity()
 		assert.Contains(t, query, "kube_node_status_capacity")
 		assert.Contains(t, query, "resource=\"cpu\"")
+		assert.NotContains(t, query, "unit=")
 	})
 
 	t.Run("NodeMemoryCapacity", func(t *testing.T) {
 		query := qb.NodeMemoryCapacity()
 		assert.Contains(t, query, "kube_node_status_capacity")
 		assert.Contains(t, query, "resource=\"memory\"")
+		assert.NotContains(t, query, "unit=")
 	})
 
 	t.Run("NodeCount", func(t *testing.T) {
@@ -139,4 +141,111 @@ func TestQueryBuilder_NodeMetrics(t *testing.T) {
 		assert.Contains(t, query, "kube_node_info")
 		assert.Contains(t, query, "count")
 	})
+}
+
+func TestQueryBuilder_RequestQueries_NoUnitLabel(t *testing.T) {
+	qb := NewQueryBuilder()
+
+	t.Run("CPURequestsByNamespace", func(t *testing.T) {
+		query := qb.CPURequestsByNamespace("production")
+		assert.Contains(t, query, "resource=\"cpu\"")
+		assert.NotContains(t, query, "unit=")
+	})
+
+	t.Run("MemoryRequestsByNamespace", func(t *testing.T) {
+		query := qb.MemoryRequestsByNamespace("production")
+		assert.Contains(t, query, "resource=\"memory\"")
+		assert.NotContains(t, query, "unit=")
+	})
+
+	t.Run("CPURequestsByPod", func(t *testing.T) {
+		query := qb.CPURequestsByPod("production", "api-.*")
+		assert.Contains(t, query, "resource=\"cpu\"")
+		assert.NotContains(t, query, "unit=")
+	})
+
+	t.Run("MemoryRequestsByPod", func(t *testing.T) {
+		query := qb.MemoryRequestsByPod("production", "api-.*")
+		assert.Contains(t, query, "resource=\"memory\"")
+		assert.NotContains(t, query, "unit=")
+	})
+}
+
+func TestWorkloadPodPattern(t *testing.T) {
+	tests := []struct {
+		name         string
+		workloadType string
+		expected     string
+	}{
+		{"Deployment", "Deployment", "myapp-.*"},
+		{"StatefulSet", "StatefulSet", "myapp-[0-9]+"},
+		{"DaemonSet", "DaemonSet", "myapp-.*"},
+		{"Pod", "Pod", "myapp"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pattern := workloadPodPattern("myapp", tt.workloadType)
+			assert.Equal(t, tt.expected, pattern)
+		})
+	}
+}
+
+func TestQueryBuilder_WorkloadRequests(t *testing.T) {
+	qb := NewQueryBuilder()
+
+	t.Run("WorkloadCPURequests_Deployment", func(t *testing.T) {
+		query := qb.WorkloadCPURequests("prod", "api", "Deployment")
+		assert.Contains(t, query, "kube_pod_container_resource_requests")
+		assert.Contains(t, query, `pod=~"api-.*"`)
+		assert.Contains(t, query, `resource="cpu"`)
+		assert.NotContains(t, query, "by (pod)")
+	})
+
+	t.Run("WorkloadMemoryRequests_StatefulSet", func(t *testing.T) {
+		query := qb.WorkloadMemoryRequests("prod", "db", "StatefulSet")
+		assert.Contains(t, query, "kube_pod_container_resource_requests")
+		assert.Contains(t, query, `pod=~"db-[0-9]+"`)
+		assert.Contains(t, query, `resource="memory"`)
+	})
+}
+
+func TestQueryBuilder_WorkloadLimits(t *testing.T) {
+	qb := NewQueryBuilder()
+
+	t.Run("WorkloadCPULimits", func(t *testing.T) {
+		query := qb.WorkloadCPULimits("prod", "api", "Deployment")
+		assert.Contains(t, query, "kube_pod_container_resource_limits")
+		assert.Contains(t, query, `pod=~"api-.*"`)
+		assert.Contains(t, query, `resource="cpu"`)
+	})
+
+	t.Run("WorkloadMemoryLimits", func(t *testing.T) {
+		query := qb.WorkloadMemoryLimits("prod", "api", "Deployment")
+		assert.Contains(t, query, "kube_pod_container_resource_limits")
+		assert.Contains(t, query, `resource="memory"`)
+	})
+}
+
+func TestAdaptiveStep(t *testing.T) {
+	tests := []struct {
+		name     string
+		window   time.Duration
+		max      int
+		expected time.Duration
+	}{
+		{"30d window", 30 * 24 * time.Hour, 1000, 43 * time.Minute},
+		{"1h window clamps to 1m", time.Hour, 1000, time.Minute},
+		{"7d window", 7 * 24 * time.Hour, 1000, 10 * time.Minute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			step := adaptiveStep(tt.window, tt.max)
+			assert.GreaterOrEqual(t, step, time.Minute)
+			// Verify the number of points is roughly in the expected range
+			points := int(tt.window / step)
+			assert.LessOrEqual(t, points, tt.max+1)
+		})
+	}
 }

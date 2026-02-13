@@ -566,7 +566,7 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 
 	// Create table
 	table := tablewriter.NewWriter(os.Stdout)
-	table.Header([]string{"Namespace", "Workload", "Req CPU", "P99 CPU", "Skew", "Safety", "Impact"})
+	table.Header([]string{"Namespace", "Workload", "Req CPU", "Lim CPU", "P99 CPU", "Skew", "Lim Skew", "Safety", "Impact"})
 
 	for _, w := range result.Results {
 		safetyLabel := "?"
@@ -585,12 +585,24 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 			}
 		}
 
+		limCPU := "-"
+		if w.LimitCPU > 0 {
+			limCPU = fmt.Sprintf("%.2f", w.LimitCPU)
+		}
+
+		limSkew := "-"
+		if w.LimitSkewCPU > 0 {
+			limSkew = fmt.Sprintf("%.1fx", w.LimitSkewCPU)
+		}
+
 		table.Append([]string{
 			w.Namespace,
 			w.Workload,
 			fmt.Sprintf("%.2f", w.RequestedCPU),
+			limCPU,
 			fmt.Sprintf("%.2f", w.P99UsedCPU),
 			fmt.Sprintf("%.1fx", w.SkewCPU),
+			limSkew,
 			safetyLabel,
 			impactScoreLabel(w.ImpactScore),
 		})
@@ -636,8 +648,12 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 	fmt.Printf("\nSummary:\n")
 	fmt.Printf("  Average CPU Skew: %.2fx\n", result.Summary.AvgSkewCPU)
 	fmt.Printf("  Average Memory Skew: %.2fx\n", result.Summary.AvgSkewMemory)
-	fmt.Printf("  Total Wasted CPU: %.2f cores\n", result.Summary.TotalWastedCPU)
-	fmt.Printf("  Total Wasted Memory: %.2fGi\n", result.Summary.TotalWastedMemoryGi)
+	fmt.Printf("  Total Wasted CPU (requests): %.2f cores\n", result.Summary.TotalWastedCPU)
+	fmt.Printf("  Total Wasted Memory (requests): %.2fGi\n", result.Summary.TotalWastedMemoryGi)
+	if result.Summary.TotalWastedLimitCPU > 0 || result.Summary.TotalWastedLimitMemoryGi > 0 {
+		fmt.Printf("  Total Wasted CPU (limits): %.2f cores\n", result.Summary.TotalWastedLimitCPU)
+		fmt.Printf("  Total Wasted Memory (limits): %.2fGi\n", result.Summary.TotalWastedLimitMemoryGi)
+	}
 
 	// Print safety warnings
 	printSafetyWarnings(result)
@@ -1175,7 +1191,7 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 
 	// Create table writing to buffer
 	table := tablewriter.NewWriter(&buf)
-	table.Header([]string{"Namespace", "Workload", "Req CPU", "P99 CPU", "Skew", "Safety", "Impact"})
+	table.Header([]string{"Namespace", "Workload", "Req CPU", "Lim CPU", "P99 CPU", "Skew", "Lim Skew", "Safety", "Impact"})
 
 	for _, w := range result.Results {
 		safetyLabel := "?"
@@ -1194,12 +1210,24 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 			}
 		}
 
+		limCPU := "-"
+		if w.LimitCPU > 0 {
+			limCPU = fmt.Sprintf("%.2f", w.LimitCPU)
+		}
+
+		limSkew := "-"
+		if w.LimitSkewCPU > 0 {
+			limSkew = fmt.Sprintf("%.1fx", w.LimitSkewCPU)
+		}
+
 		table.Append([]string{
 			w.Namespace,
 			w.Workload,
 			fmt.Sprintf("%.2f", w.RequestedCPU),
+			limCPU,
 			fmt.Sprintf("%.2f", w.P99UsedCPU),
 			fmt.Sprintf("%.1fx", w.SkewCPU),
+			limSkew,
 			safetyLabel,
 			fmt.Sprintf("%.2f cores", w.ImpactScore),
 		})

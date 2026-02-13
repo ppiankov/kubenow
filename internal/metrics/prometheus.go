@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
@@ -10,6 +11,20 @@ import (
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 )
+
+// adaptiveStep calculates a query step that targets approximately maxPoints data points.
+// This prevents overloading Prometheus with too many samples for large time windows.
+func adaptiveStep(window time.Duration, maxPoints int) time.Duration {
+	if maxPoints <= 0 {
+		maxPoints = 1000
+	}
+	step := window / time.Duration(maxPoints)
+	// Clamp to minimum 1 minute
+	if step < time.Minute {
+		step = time.Minute
+	}
+	return step
+}
 
 // PrometheusClient implements MetricsProvider for Prometheus
 type PrometheusClient struct {
@@ -153,16 +168,18 @@ func (p *PrometheusClient) GetPodResourceUsage(ctx context.Context, namespace, p
 	end := time.Now()
 	start := end.Add(-window)
 
+	step := adaptiveStep(window, 1000)
+
 	// Query CPU by pod
 	cpuQuery := p.builder.CPUUsageByPod(namespace, podPattern)
-	cpuMatrix, err := p.QueryRange(ctx, cpuQuery, start, end, time.Minute)
+	cpuMatrix, err := p.QueryRange(ctx, cpuQuery, start, end, step)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query CPU by pod: %w", err)
 	}
 
 	// Query memory by pod
 	memQuery := p.builder.MemoryUsageByPod(namespace, podPattern)
-	memMatrix, err := p.QueryRange(ctx, memQuery, start, end, time.Minute)
+	memMatrix, err := p.QueryRange(ctx, memQuery, start, end, step)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory by pod: %w", err)
 	}
@@ -220,6 +237,7 @@ func (p *PrometheusClient) GetPodResourceUsage(ctx context.Context, namespace, p
 func (p *PrometheusClient) GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName, workloadType string, window time.Duration) (*WorkloadUsage, error) {
 	end := time.Now()
 	start := end.Add(-window)
+	step := adaptiveStep(window, 1000)
 
 	usage := &WorkloadUsage{
 		WorkloadName: workloadName,
@@ -229,8 +247,10 @@ func (p *PrometheusClient) GetWorkloadResourceUsage(ctx context.Context, namespa
 
 	// Query workload CPU
 	cpuQuery := p.builder.WorkloadCPUUsage(namespace, workloadName, workloadType)
-	cpuMatrix, err := p.QueryRange(ctx, cpuQuery, start, end, time.Minute)
-	if err == nil && len(cpuMatrix) > 0 {
+	cpuMatrix, err := p.QueryRange(ctx, cpuQuery, start, end, step)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: CPU usage query failed for %s/%s: %v\n", namespace, workloadName, err)
+	} else if len(cpuMatrix) > 0 {
 		usage.CPUAvg = calculateAverage(cpuMatrix[0].Values)
 		usage.CPUP95 = calculatePercentile(cpuMatrix[0].Values, 0.95)
 		usage.CPUP99 = calculatePercentile(cpuMatrix[0].Values, 0.99)
@@ -239,25 +259,48 @@ func (p *PrometheusClient) GetWorkloadResourceUsage(ctx context.Context, namespa
 
 	// Query workload memory
 	memQuery := p.builder.WorkloadMemoryUsage(namespace, workloadName, workloadType)
-	memMatrix, err := p.QueryRange(ctx, memQuery, start, end, time.Minute)
-	if err == nil && len(memMatrix) > 0 {
+	memMatrix, err := p.QueryRange(ctx, memQuery, start, end, step)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: memory usage query failed for %s/%s: %v\n", namespace, workloadName, err)
+	} else if len(memMatrix) > 0 {
 		usage.MemoryAvg = calculateAverage(memMatrix[0].Values)
 		usage.MemoryP95 = calculatePercentile(memMatrix[0].Values, 0.95)
 		usage.MemoryP99 = calculatePercentile(memMatrix[0].Values, 0.99)
 		usage.MemoryMax = calculateMax(memMatrix[0].Values)
 	}
 
-	// Query resource requests (from kube-state-metrics)
-	cpuReqQuery := p.builder.CPURequestsByPod(namespace, workloadName+"-.*")
+	// Query resource requests using workload-type-aware queries
+	cpuReqQuery := p.builder.WorkloadCPURequests(namespace, workloadName, workloadType)
 	cpuReqResult, err := p.QueryInstant(ctx, cpuReqQuery, end)
-	if err == nil && len(cpuReqResult) > 0 {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: CPU requests query failed for %s/%s: %v\n", namespace, workloadName, err)
+	} else if len(cpuReqResult) > 0 {
 		usage.CPURequested = float64(cpuReqResult[0].Value)
 	}
 
-	memReqQuery := p.builder.MemoryRequestsByPod(namespace, workloadName+"-.*")
+	memReqQuery := p.builder.WorkloadMemoryRequests(namespace, workloadName, workloadType)
 	memReqResult, err := p.QueryInstant(ctx, memReqQuery, end)
-	if err == nil && len(memReqResult) > 0 {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: memory requests query failed for %s/%s: %v\n", namespace, workloadName, err)
+	} else if len(memReqResult) > 0 {
 		usage.MemoryRequested = float64(memReqResult[0].Value)
+	}
+
+	// Query resource limits
+	cpuLimQuery := p.builder.WorkloadCPULimits(namespace, workloadName, workloadType)
+	cpuLimResult, err := p.QueryInstant(ctx, cpuLimQuery, end)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: CPU limits query failed for %s/%s: %v\n", namespace, workloadName, err)
+	} else if len(cpuLimResult) > 0 {
+		usage.CPULimit = float64(cpuLimResult[0].Value)
+	}
+
+	memLimQuery := p.builder.WorkloadMemoryLimits(namespace, workloadName, workloadType)
+	memLimResult, err := p.QueryInstant(ctx, memLimQuery, end)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: memory limits query failed for %s/%s: %v\n", namespace, workloadName, err)
+	} else if len(memLimResult) > 0 {
+		usage.MemoryLimit = float64(memLimResult[0].Value)
 	}
 
 	// Calculate skew
@@ -298,18 +341,24 @@ func (p *PrometheusClient) GetClusterResourceUsage(ctx context.Context, window t
 		usage.NodeCount = int(nodeCountResult[0].Value)
 	}
 
+	step := adaptiveStep(window, 1000)
+
 	// Query cluster-wide CPU usage (all namespaces)
 	clusterCPUQuery := `sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))`
-	cpuMatrix, err := p.QueryRange(ctx, clusterCPUQuery, end.Add(-window), end, time.Minute)
-	if err == nil && len(cpuMatrix) > 0 {
+	cpuMatrix, err := p.QueryRange(ctx, clusterCPUQuery, end.Add(-window), end, step)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: cluster CPU usage query failed: %v\n", err)
+	} else if len(cpuMatrix) > 0 {
 		usage.CPUAvg = calculateAverage(cpuMatrix[0].Values)
 		usage.CPUP95 = calculatePercentile(cpuMatrix[0].Values, 0.95)
 	}
 
 	// Query cluster-wide memory usage
 	clusterMemQuery := `sum(container_memory_working_set_bytes{container!="",container!="POD"})`
-	memMatrix, err := p.QueryRange(ctx, clusterMemQuery, end.Add(-window), end, time.Minute)
-	if err == nil && len(memMatrix) > 0 {
+	memMatrix, err := p.QueryRange(ctx, clusterMemQuery, end.Add(-window), end, step)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] Warning: cluster memory usage query failed: %v\n", err)
+	} else if len(memMatrix) > 0 {
 		usage.MemoryAvg = calculateAverage(memMatrix[0].Values)
 		usage.MemoryP95 = calculatePercentile(memMatrix[0].Values, 0.95)
 	}
