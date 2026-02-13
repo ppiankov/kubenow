@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// Workload type constants used in PromQL query construction
+const (
+	WorkloadTypeStatefulSet = "StatefulSet"
+	WorkloadTypePod         = "Pod"
+)
+
 // QueryBuilder constructs PromQL queries for common metrics
 type QueryBuilder struct{}
 
@@ -55,22 +61,22 @@ func (qb *QueryBuilder) MemoryQuantileOverTime(namespace string, percentile floa
 
 // CPURequestsByNamespace returns a query for CPU requests by namespace
 func (qb *QueryBuilder) CPURequestsByNamespace(namespace string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",resource="cpu"}) by (namespace)`, namespace)
+	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,resource="cpu"}) by (namespace)`
 }
 
 // MemoryRequestsByNamespace returns a query for memory requests by namespace
 func (qb *QueryBuilder) MemoryRequestsByNamespace(namespace string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",resource="memory"}) by (namespace)`, namespace)
+	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,resource="memory"}) by (namespace)`
 }
 
 // CPURequestsByPod returns a query for CPU requests by pod
 func (qb *QueryBuilder) CPURequestsByPod(namespace, podPattern string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="cpu"}) by (pod)`, namespace, podPattern)
+	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(podPattern) + `,resource="cpu"}) by (pod)`
 }
 
 // MemoryRequestsByPod returns a query for memory requests by pod
 func (qb *QueryBuilder) MemoryRequestsByPod(namespace, podPattern string) string {
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="memory"}) by (pod)`, namespace, podPattern)
+	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(podPattern) + `,resource="memory"}) by (pod)`
 }
 
 // NodeCPUCapacity returns a query for total node CPU capacity
@@ -86,9 +92,9 @@ func (qb *QueryBuilder) NodeMemoryCapacity() string {
 // workloadPodPattern returns a regex pattern for matching pods belonging to a workload
 func workloadPodPattern(workloadName, workloadType string) string {
 	switch workloadType {
-	case "StatefulSet":
+	case WorkloadTypeStatefulSet:
 		return workloadName + "-[0-9]+"
-	case "Pod":
+	case WorkloadTypePod:
 		return workloadName
 	default:
 		// Deployment, DaemonSet, and others use replicaset-hash suffix
@@ -99,25 +105,30 @@ func workloadPodPattern(workloadName, workloadType string) string {
 // WorkloadCPURequests returns a query for total CPU requests across all pods of a workload
 func (qb *QueryBuilder) WorkloadCPURequests(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="cpu"})`, namespace, pattern)
+	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="cpu"})`
 }
 
 // WorkloadMemoryRequests returns a query for total memory requests across all pods of a workload
 func (qb *QueryBuilder) WorkloadMemoryRequests(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return fmt.Sprintf(`sum(kube_pod_container_resource_requests{namespace="%s",pod=~"%s",resource="memory"})`, namespace, pattern)
+	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="memory"})`
 }
 
 // WorkloadCPULimits returns a query for total CPU limits across all pods of a workload
 func (qb *QueryBuilder) WorkloadCPULimits(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return fmt.Sprintf(`sum(kube_pod_container_resource_limits{namespace="%s",pod=~"%s",resource="cpu"})`, namespace, pattern)
+	return `sum(kube_pod_container_resource_limits{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="cpu"})`
 }
 
 // WorkloadMemoryLimits returns a query for total memory limits across all pods of a workload
 func (qb *QueryBuilder) WorkloadMemoryLimits(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return fmt.Sprintf(`sum(kube_pod_container_resource_limits{namespace="%s",pod=~"%s",resource="memory"})`, namespace, pattern)
+	return `sum(kube_pod_container_resource_limits{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="memory"})`
+}
+
+// quote wraps a value in double quotes for PromQL label matchers
+func quote(s string) string {
+	return `"` + s + `"`
 }
 
 // NodeCount returns a query for the number of nodes
