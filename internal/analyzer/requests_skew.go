@@ -14,21 +14,18 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// SilentMode controls whether progress output is suppressed
-var SilentMode = false
-
-// logProgress prints progress messages unless silent mode is enabled
-func logProgress(format string, args ...interface{}) {
-	if !SilentMode {
-		fmt.Fprintf(os.Stderr, format, args...)
-	}
-}
-
 // RequestsSkewAnalyzer analyzes resource request vs usage skew
 type RequestsSkewAnalyzer struct {
 	kubeClient      kubernetes.Interface
 	metricsProvider metrics.MetricsProvider
 	config          RequestsSkewConfig
+}
+
+// logProgress prints progress messages unless silent mode is enabled
+func (a *RequestsSkewAnalyzer) logProgress(format string, args ...interface{}) {
+	if !a.config.Silent {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
 }
 
 // RequestsSkewConfig holds configuration for requests-skew analysis
@@ -42,6 +39,7 @@ type RequestsSkewConfig struct {
 	MinRuntimeDays    int           // Minimum runtime in days to consider
 	IncludeKubeSystem bool          // Include kube-system namespace
 	SortBy            string        // Sort by: impact|skew|cpu|memory|name (default: impact)
+	Silent            bool          // Suppress progress output
 }
 
 // RequestsSkewResult contains the analysis results
@@ -200,20 +198,20 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 	}
 
 	// Get all namespaces
-	logProgress("[kubenow] Discovering namespaces...\n")
+	a.logProgress("[kubenow] Discovering namespaces...\n")
 	namespaces, err := a.getFilteredNamespaces(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get namespaces: %w", err)
 	}
-	logProgress("[kubenow] Found %d namespaces to analyze\n", len(namespaces))
+	a.logProgress("[kubenow] Found %d namespaces to analyze\n", len(namespaces))
 
 	// Fetch quota/limitrange info for namespaces
-	logProgress("[kubenow] Fetching ResourceQuotas and LimitRanges...\n")
+	a.logProgress("[kubenow] Fetching ResourceQuotas and LimitRanges...\n")
 	quotaMap := make(map[string]*NamespaceQuotaInfo)
 	for _, ns := range namespaces {
 		quotaInfo, err := a.getNamespaceQuotaInfo(ctx, ns)
 		if err != nil {
-			logProgress("[kubenow] Warning: failed to get quota info for namespace %s: %v\n", ns, err)
+			a.logProgress("[kubenow] Warning: failed to get quota info for namespace %s: %v\n", ns, err)
 			continue
 		}
 		if quotaInfo != nil {
@@ -223,12 +221,12 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 	}
 
 	// Check per-namespace Prometheus data availability before analyzing workloads
-	logProgress("[kubenow] Checking Prometheus data availability per namespace...\n")
+	a.logProgress("[kubenow] Checking Prometheus data availability per namespace...\n")
 	nsHasMetrics := make(map[string]bool, len(namespaces))
 	for _, ns := range namespaces {
 		hasMetrics, seriesCount, err := a.metricsProvider.HasNamespaceMetrics(ctx, ns)
 		if err != nil {
-			logProgress("[kubenow] Warning: failed to check metrics for namespace %s: %v\n", ns, err)
+			a.logProgress("[kubenow] Warning: failed to check metrics for namespace %s: %v\n", ns, err)
 			nsHasMetrics[ns] = true // assume yes on error, let per-workload check decide
 		} else {
 			nsHasMetrics[ns] = hasMetrics
@@ -239,37 +237,37 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 			SeriesCount: seriesCount,
 		})
 		if !hasMetrics {
-			logProgress("[kubenow]   %s: no Prometheus metrics (0 container_cpu series)\n", ns)
+			a.logProgress("[kubenow]   %s: no Prometheus metrics (0 container_cpu series)\n", ns)
 		}
 	}
 
 	// Analyze each namespace
 	for i, ns := range namespaces {
-		logProgress("[kubenow] [%d/%d] Analyzing namespace: %s\n", i+1, len(namespaces), ns)
+		a.logProgress("[kubenow] [%d/%d] Analyzing namespace: %s\n", i+1, len(namespaces), ns)
 
 		// If namespace has no Prometheus data, skip per-workload queries and
 		// record all workloads as missing metrics with a clear reason
 		if !nsHasMetrics[ns] {
 			noMetrics, err := a.listNamespaceWorkloads(ctx, ns, "no Prometheus container metrics for this namespace")
 			if err != nil {
-				logProgress("[kubenow] Warning: failed to list workloads in %s: %v\n", ns, err)
+				a.logProgress("[kubenow] Warning: failed to list workloads in %s: %v\n", ns, err)
 				continue
 			}
-			logProgress("[kubenow]   → Skipped %d workloads (namespace has no Prometheus data)\n", len(noMetrics))
+			a.logProgress("[kubenow]   → Skipped %d workloads (namespace has no Prometheus data)\n", len(noMetrics))
 			result.WorkloadsWithoutMetrics = append(result.WorkloadsWithoutMetrics, noMetrics...)
 			continue
 		}
 
 		workloads, noMetrics, err := a.analyzeNamespace(ctx, ns)
 		if err != nil {
-			logProgress("[kubenow] Warning: failed to analyze namespace %s: %v\n", ns, err)
+			a.logProgress("[kubenow] Warning: failed to analyze namespace %s: %v\n", ns, err)
 			continue
 		}
 		if len(workloads) > 0 {
-			logProgress("[kubenow]   → Found %d workloads with metrics\n", len(workloads))
+			a.logProgress("[kubenow]   → Found %d workloads with metrics\n", len(workloads))
 		}
 		if len(noMetrics) > 0 {
-			logProgress("[kubenow]   → Found %d workloads WITHOUT metrics\n", len(noMetrics))
+			a.logProgress("[kubenow]   → Found %d workloads WITHOUT metrics\n", len(noMetrics))
 		}
 
 		// Add quota context to workloads
@@ -284,17 +282,17 @@ func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult
 	}
 
 	// Calculate potential quota savings
-	logProgress("[kubenow] Calculating potential quota savings...\n")
+	a.logProgress("[kubenow] Calculating potential quota savings...\n")
 	a.calculateQuotaSavings(result)
 
 	// Diagnose why workloads don't have metrics (sample up to 5)
 	if len(result.WorkloadsWithoutMetrics) > 0 {
-		logProgress("[kubenow] Diagnosing why workloads lack metrics (sampling up to 5)...\n")
+		a.logProgress("[kubenow] Diagnosing why workloads lack metrics (sampling up to 5)...\n")
 		a.diagnoseWorkloadsWithoutMetrics(ctx, result)
 	}
 
 	// Calculate summary statistics
-	logProgress("[kubenow] Calculating summary statistics...\n")
+	a.logProgress("[kubenow] Calculating summary statistics...\n")
 	a.calculateSummary(result)
 
 	// Sort results based on configured option
@@ -327,9 +325,13 @@ func (a *RequestsSkewAnalyzer) getFilteredNamespaces(ctx context.Context) ([]str
 
 	namespaces := make([]string, 0)
 
-	// Compile regex if provided
+	// Compile regex if provided (cap length to prevent ReDoS)
+	const maxRegexLen = 256
 	var namespaceRegex *regexp.Regexp
 	if a.config.NamespaceRegex != "" && a.config.NamespaceRegex != ".*" {
+		if len(a.config.NamespaceRegex) > maxRegexLen {
+			return nil, fmt.Errorf("namespace regex too long (%d chars, max %d)", len(a.config.NamespaceRegex), maxRegexLen)
+		}
 		namespaceRegex, err = regexp.Compile(a.config.NamespaceRegex)
 		if err != nil {
 			return nil, fmt.Errorf("invalid namespace regex: %w", err)
@@ -761,7 +763,7 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 
 	crdGroups, err := a.discoverCRDWorkloads(ctx, namespace, knownWorkloads)
 	if err != nil {
-		logProgress("[kubenow]   Warning: CRD discovery failed in %s: %v\n", namespace, err)
+		a.logProgress("[kubenow]   Warning: CRD discovery failed in %s: %v\n", namespace, err)
 	}
 	for _, g := range crdGroups {
 		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, g.workloadName, g.promqlType, g.creationTime)

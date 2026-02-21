@@ -146,10 +146,7 @@ func init() {
 }
 
 func runRequestsSkew(cmd *cobra.Command, args []string) error {
-	// Set silent mode for CI/CD
-	if requestsSkewConfig.silent {
-		analyzer.SilentMode = true
-	}
+	// Silent mode is passed via config to the analyzer (no global state)
 
 	// Setup kubectl port-forward if k8s-service is specified
 	var portForward *util.PortForward
@@ -245,8 +242,9 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create Prometheus client: %w", err)
 	}
 
-	// Health check
-	ctx := context.Background()
+	// Health check — use timeout to prevent unbounded calls
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	if err := metricsProvider.Health(ctx); err != nil {
 		return fmt.Errorf("prometheus health check failed: %w", err)
 	}
@@ -313,6 +311,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		NamespaceExclude: requestsSkewConfig.namespaceExclude,
 		MinRuntimeDays:   requestsSkewConfig.minRuntimeDays,
 		SortBy:           requestsSkewConfig.sortBy,
+		Silent:           requestsSkewConfig.silent,
 	}
 
 	skewAnalyzer := analyzer.NewRequestsSkewAnalyzer(kubeClient, metricsProvider, analyzerConfig)
@@ -508,7 +507,7 @@ func outputRequestsSkewJSON(result *analyzer.RequestsSkewResult, exportFile stri
 
 	// Export to file if specified
 	if exportFile != "" {
-		if err := os.WriteFile(exportFile, data, 0644); err != nil {
+		if err := os.WriteFile(exportFile, data, 0600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", exportFile)
@@ -528,7 +527,7 @@ func outputRequestsSkewSARIF(result *analyzer.RequestsSkewResult, exportFile str
 
 	// Export to file if specified
 	if exportFile != "" {
-		if err := os.WriteFile(exportFile, data, 0644); err != nil {
+		if err := os.WriteFile(exportFile, data, 0600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[kubenow] SARIF report saved to: %s\n", exportFile)
@@ -549,7 +548,7 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON for export: %w", err)
 			}
-			if err := os.WriteFile(exportFile, data, 0644); err != nil {
+			if err := os.WriteFile(exportFile, data, 0600); err != nil {
 				return fmt.Errorf("failed to write export file: %w", err)
 			}
 			fmt.Fprintf(os.Stderr, "[kubenow] Full results exported to: %s (JSON format)\n", exportFile)
@@ -1332,7 +1331,7 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 	}
 
 	// Write to file
-	if err := os.WriteFile(exportFile, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(exportFile, buf.Bytes(), 0600); err != nil {
 		return fmt.Errorf("failed to write export file: %w", err)
 	}
 

@@ -30,7 +30,7 @@ func Export(rec *AlignmentRecommendation, format ExportFormat, currentJSON []byt
 
 	switch format {
 	case FormatPatch:
-		return exportPatch(rec), nil
+		return exportPatch(rec)
 	case FormatManifest:
 		if len(currentJSON) == 0 {
 			return "", fmt.Errorf("manifest format requires the current workload object")
@@ -55,7 +55,7 @@ func ExportToFile(rec *AlignmentRecommendation, workload WorkloadRef) (string, e
 	ts := time.Now().Format("20060102-150405")
 	filename := fmt.Sprintf("kubenow-patch-%s-%s-%s-%s.yaml",
 		strings.ToLower(workload.Kind), workload.Namespace, workload.Name, ts)
-	if err := os.WriteFile(filename, []byte(output), 0644); err != nil {
+	if err := os.WriteFile(filename, []byte(output), 0600); err != nil {
 		return "", fmt.Errorf("failed to write export file: %w", err)
 	}
 	return filename, nil
@@ -98,7 +98,7 @@ type patchResources struct {
 	Limits   map[string]string `yaml:"limits"`
 }
 
-func exportPatch(rec *AlignmentRecommendation) string {
+func exportPatch(rec *AlignmentRecommendation) (string, error) {
 	var b strings.Builder
 
 	b.WriteString(evidenceComments(rec))
@@ -134,9 +134,12 @@ func exportPatch(rec *AlignmentRecommendation) string {
 		},
 	}
 
-	data, _ := yaml.Marshal(doc)
+	data, err := yaml.Marshal(doc)
+	if err != nil {
+		return "", fmt.Errorf("marshal patch YAML: %w", err)
+	}
 	b.Write(data)
-	return b.String()
+	return b.String(), nil
 }
 
 // --- Manifest format ---

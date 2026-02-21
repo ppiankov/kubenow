@@ -4,7 +4,8 @@
 BINARY_NAME=kubenow
 BUILD_DIR=bin
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
+VERSION_NUM=$(VERSION:v%=%)
+LDFLAGS=-ldflags "-X main.Version=$(VERSION_NUM)"
 
 # Go parameters
 GOCMD=go
@@ -23,7 +24,7 @@ help: ## Show this help message
 build: ## Build the binary
 	@echo "Building $(BINARY_NAME) version $(VERSION)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
+	$(GOBUILD) -trimpath $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 test: ## Run tests
@@ -83,23 +84,23 @@ run: build ## Build and run the binary
 # Multi-platform builds
 build-linux: ## Build for Linux (amd64)
 	@echo "Building for Linux amd64..."
-	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/$(BINARY_NAME)
+	GOOS=linux GOARCH=amd64 $(GOBUILD) -trimpath $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/$(BINARY_NAME)
 
 build-linux-arm: ## Build for Linux (arm64)
 	@echo "Building for Linux arm64..."
-	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 ./cmd/$(BINARY_NAME)
+	GOOS=linux GOARCH=arm64 $(GOBUILD) -trimpath $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 ./cmd/$(BINARY_NAME)
 
 build-darwin: ## Build for macOS (amd64)
 	@echo "Building for macOS amd64..."
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/$(BINARY_NAME)
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) -trimpath $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/$(BINARY_NAME)
 
 build-darwin-arm: ## Build for macOS (arm64)
 	@echo "Building for macOS arm64..."
-	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/$(BINARY_NAME)
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) -trimpath $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/$(BINARY_NAME)
 
 build-windows: ## Build for Windows (amd64)
 	@echo "Building for Windows amd64..."
-	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/$(BINARY_NAME)
+	GOOS=windows GOARCH=amd64 $(GOBUILD) -trimpath $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/$(BINARY_NAME)
 
 build-all: build-linux build-linux-arm build-darwin build-darwin-arm build-windows ## Build for all platforms
 	@echo "All platform builds complete"

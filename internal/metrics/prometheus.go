@@ -3,8 +3,11 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/api"
@@ -39,6 +42,10 @@ func NewPrometheusClient(config Config) (*PrometheusClient, error) {
 		return nil, fmt.Errorf("prometheus URL is required")
 	}
 
+	if err := validatePrometheusURL(config.PrometheusURL); err != nil {
+		return nil, err
+	}
+
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
@@ -55,6 +62,42 @@ func NewPrometheusClient(config Config) (*PrometheusClient, error) {
 		config:  config,
 		builder: NewQueryBuilder(),
 	}, nil
+}
+
+// validatePrometheusURL rejects URLs with dangerous schemes or SSRF-prone hosts.
+func validatePrometheusURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid Prometheus URL: %w", err)
+	}
+
+	// Only allow http and https schemes
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("unsupported Prometheus URL scheme %q (only http/https allowed)", u.Scheme)
+	}
+
+	// Resolve hostname and reject cloud metadata / link-local addresses
+	hostname := u.Hostname()
+	ips, err := net.LookupHost(hostname)
+	if err != nil {
+		// DNS failure is not necessarily malicious — allow it so the
+		// Prometheus client itself can surface a clearer connection error.
+		return nil
+	}
+
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		// Block link-local (169.254.0.0/16) — cloud metadata endpoint
+		if ip4 := ip.To4(); ip4 != nil && ip4[0] == 169 && ip4[1] == 254 {
+			return fmt.Errorf("prometheus URL resolves to link-local address %s (possible SSRF)", ipStr)
+		}
+	}
+
+	return nil
 }
 
 // GetAPI returns the underlying Prometheus API client
@@ -389,7 +432,7 @@ func (p *PrometheusClient) Health(ctx context.Context) error {
 // HasNamespaceMetrics checks if Prometheus has any container CPU metrics for a namespace.
 // Returns (hasMetrics, seriesCount, error).
 func (p *PrometheusClient) HasNamespaceMetrics(ctx context.Context, namespace string) (bool, int, error) {
-	query := fmt.Sprintf(`count(container_cpu_usage_seconds_total{namespace="%s",container!="",container!="POD"})`, namespace)
+	query := `count(container_cpu_usage_seconds_total{namespace=` + escapeLabel(namespace) + `,container!="",container!="POD"})`
 	result, err := p.QueryInstant(ctx, query, time.Now())
 	if err != nil {
 		return false, 0, err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -654,7 +655,9 @@ func ExecuteApplyWithAudit(ctx context.Context, cfg *AuditApplyConfig) *ApplyRes
 	if !applyResult.Applied && len(applyResult.DenialReasons) > 0 {
 		status = "denied"
 	}
-	_ = audit.FinalizeBundle(bundle, afterObj, status, ts, applyResult.Error) // best-effort
+	if err := audit.FinalizeBundle(bundle, afterObj, status, ts, applyResult.Error); err != nil {
+		fmt.Fprintf(os.Stderr, "[kubenow] warning: audit finalization failed: %v\n", err)
+	}
 
 	return applyResult
 }

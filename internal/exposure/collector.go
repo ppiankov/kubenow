@@ -9,14 +9,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/metrics"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
+
+	"github.com/ppiankov/kubenow/internal/metrics"
 )
+
+// escapePromLabel escapes a string for safe use in PromQL label matchers.
+func escapePromLabel(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	return `"` + s + `"`
+}
 
 // ExposureCollector queries Kubernetes APIs to build an ExposureMap.
 type ExposureCollector struct {
@@ -414,21 +423,40 @@ func selectorMatchesLabels(selector, labels map[string]string) bool {
 const (
 	trafficQueryWindow = time.Hour
 	maxTrafficEdges    = 20
-
-	// PromQL templates for Linkerd proxy metrics.
-	// Inbound: query outbound side with dst_deployment/dst_namespace to find who calls us.
-	linkerdInboundTotal   = `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[1h]))`
-	linkerdInboundSuccess = `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment="%s", dst_namespace="%s", classification="success"}[1h]))`
-	// Outbound: query outbound side with deployment/namespace to find who we call.
-	linkerdOutboundTotal   = `sum by(dst_deployment, dst_namespace)(increase(response_total{direction="outbound", deployment="%s", namespace="%s"}[1h]))`
-	linkerdOutboundSuccess = `sum by(dst_deployment, dst_namespace)(increase(response_total{direction="outbound", deployment="%s", namespace="%s", classification="success"}[1h]))`
-	// Latency: p50 and p99 for inbound traffic.
-	linkerdInboundLatencyP50 = `histogram_quantile(0.5, sum by(le, deployment, namespace)(rate(response_latency_ms_bucket{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[5m])))`
-	linkerdInboundLatencyP99 = `histogram_quantile(0.99, sum by(le, deployment, namespace)(rate(response_latency_ms_bucket{direction="outbound", dst_deployment="%s", dst_namespace="%s"}[5m])))`
-	// TCP connection counts.
-	linkerdTCPInbound  = `sum(increase(tcp_open_total{direction="inbound", deployment="%s", namespace="%s"}[1h]))`
-	linkerdTCPOutbound = `sum(increase(tcp_open_total{direction="outbound", deployment="%s", namespace="%s"}[1h]))`
 )
+
+// linkerdQuery builds a Linkerd PromQL query with escaped label values.
+func linkerdInboundTotalQuery(workload, namespace string) string {
+	return `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment=` + escapePromLabel(workload) + `, dst_namespace=` + escapePromLabel(namespace) + `}[1h]))`
+}
+
+func linkerdInboundSuccessQuery(workload, namespace string) string {
+	return `sum by(deployment, namespace)(increase(response_total{direction="outbound", dst_deployment=` + escapePromLabel(workload) + `, dst_namespace=` + escapePromLabel(namespace) + `, classification="success"}[1h]))`
+}
+
+func linkerdOutboundTotalQuery(workload, namespace string) string {
+	return `sum by(dst_deployment, dst_namespace)(increase(response_total{direction="outbound", deployment=` + escapePromLabel(workload) + `, namespace=` + escapePromLabel(namespace) + `}[1h]))`
+}
+
+func linkerdOutboundSuccessQuery(workload, namespace string) string {
+	return `sum by(dst_deployment, dst_namespace)(increase(response_total{direction="outbound", deployment=` + escapePromLabel(workload) + `, namespace=` + escapePromLabel(namespace) + `, classification="success"}[1h]))`
+}
+
+func linkerdInboundLatencyP50Query(workload, namespace string) string {
+	return `histogram_quantile(0.5, sum by(le, deployment, namespace)(rate(response_latency_ms_bucket{direction="outbound", dst_deployment=` + escapePromLabel(workload) + `, dst_namespace=` + escapePromLabel(namespace) + `}[5m])))`
+}
+
+func linkerdInboundLatencyP99Query(workload, namespace string) string {
+	return `histogram_quantile(0.99, sum by(le, deployment, namespace)(rate(response_latency_ms_bucket{direction="outbound", dst_deployment=` + escapePromLabel(workload) + `, dst_namespace=` + escapePromLabel(namespace) + `}[5m])))`
+}
+
+func linkerdTCPInboundQuery(workload, namespace string) string {
+	return `sum(increase(tcp_open_total{direction="inbound", deployment=` + escapePromLabel(workload) + `, namespace=` + escapePromLabel(namespace) + `}[1h]))`
+}
+
+func linkerdTCPOutboundQuery(workload, namespace string) string {
+	return `sum(increase(tcp_open_total{direction="outbound", deployment=` + escapePromLabel(workload) + `, namespace=` + escapePromLabel(namespace) + `}[1h]))`
+}
 
 // CollectTrafficMap queries Linkerd proxy metrics from Prometheus to build
 // a bidirectional traffic map showing inbound sources and outbound destinations.
@@ -440,21 +468,21 @@ func (c *ExposureCollector) CollectTrafficMap(ctx context.Context, namespace, wo
 	tm := &TrafficMap{Window: trafficQueryWindow}
 
 	// Query inbound total + success in sequence (success rate depends on total)
-	inTotal, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundTotal, workloadName, namespace))
+	inTotal, err := c.queryVector(ctx, linkerdInboundTotalQuery(workloadName, namespace))
 	if err != nil {
 		return nil, fmt.Errorf("inbound total: %w", err)
 	}
-	inSuccess, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundSuccess, workloadName, namespace))
+	inSuccess, err := c.queryVector(ctx, linkerdInboundSuccessQuery(workloadName, namespace))
 	if err != nil {
 		inSuccess = nil
 	}
 
 	// Query inbound latency (best-effort)
-	inP50, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP50, workloadName, namespace))
+	inP50, err := c.queryVector(ctx, linkerdInboundLatencyP50Query(workloadName, namespace))
 	if err != nil {
 		inP50 = nil
 	}
-	inP99, err := c.queryVector(ctx, fmt.Sprintf(linkerdInboundLatencyP99, workloadName, namespace))
+	inP99, err := c.queryVector(ctx, linkerdInboundLatencyP99Query(workloadName, namespace))
 	if err != nil {
 		inP99 = nil
 	}
@@ -462,12 +490,12 @@ func (c *ExposureCollector) CollectTrafficMap(ctx context.Context, namespace, wo
 	tm.Inbound = buildEdges(inTotal, inSuccess, inP50, inP99, "deployment", "namespace")
 
 	// Query outbound total + success
-	outTotal, err := c.queryVector(ctx, fmt.Sprintf(linkerdOutboundTotal, workloadName, namespace))
+	outTotal, err := c.queryVector(ctx, linkerdOutboundTotalQuery(workloadName, namespace))
 	if err != nil {
 		// Outbound query failure is non-fatal — still return inbound data
 		tm.Outbound = []TrafficEdge{}
 	} else {
-		outSuccess, sErr := c.queryVector(ctx, fmt.Sprintf(linkerdOutboundSuccess, workloadName, namespace))
+		outSuccess, sErr := c.queryVector(ctx, linkerdOutboundSuccessQuery(workloadName, namespace))
 		if sErr != nil {
 			outSuccess = nil
 		}
@@ -475,8 +503,8 @@ func (c *ExposureCollector) CollectTrafficMap(ctx context.Context, namespace, wo
 	}
 
 	// TCP counts (best-effort)
-	tm.TCPIn = queryScalar(ctx, c, fmt.Sprintf(linkerdTCPInbound, workloadName, namespace))
-	tm.TCPOut = queryScalar(ctx, c, fmt.Sprintf(linkerdTCPOutbound, workloadName, namespace))
+	tm.TCPIn = queryScalar(ctx, c, linkerdTCPInboundQuery(workloadName, namespace))
+	tm.TCPOut = queryScalar(ctx, c, linkerdTCPOutboundQuery(workloadName, namespace))
 
 	return tm, nil
 }

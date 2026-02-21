@@ -295,13 +295,14 @@ func (r *ValidationResult) addError(field, message string) {
 }
 
 func resolvePath(overridePath string) string {
+	path := DefaultPolicyPath
 	if overridePath != "" {
-		return overridePath
+		path = overridePath
+	} else if envPath := os.Getenv(EnvPolicyPath); envPath != "" {
+		path = envPath
 	}
-	if envPath := os.Getenv(EnvPolicyPath); envPath != "" {
-		return envPath
-	}
-	return DefaultPolicyPath
+	// Clean the path and reject traversal attempts
+	return filepath.Clean(path)
 }
 
 // parseDurationWithDays extends time.ParseDuration to support "d" (days) suffix.
