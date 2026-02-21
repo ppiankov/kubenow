@@ -55,6 +55,77 @@ A Kubernetes cluster analysis tool that combines:
 
 ---
 
+## Safety Model
+
+kubenow is designed to be safe to run against production clusters. Every mode has structural guarantees — not just warnings.
+
+### Zero Cluster Footprint
+
+kubenow installs nothing into your cluster. No agents, no sidecars, no CRDs, no webhooks. It reads existing APIs and exits. Uninstall means deleting the binary.
+
+### Read-Only by Default
+
+| Mode | Cluster Access | Writes? |
+|------|---------------|---------|
+| `monitor` | Watch API (pods, events, nodes) | Never |
+| `analyze requests-skew` | List API + Prometheus queries | Never |
+| `analyze node-footprint` | List API + Prometheus queries | Never |
+| `pro-monitor latch` | Metrics API (read) | Never |
+| `pro-monitor export` | Read current workload | Never |
+| `pro-monitor apply` | Server-Side Apply | **Yes — only with policy file + confirmation** |
+
+Only `pro-monitor apply` can mutate cluster state, and it requires all of the following:
+
+### Apply Guardrails (10+ Pre-Flight Checks)
+
+Before any mutation, every condition must pass:
+
+1. Admin policy file loaded and `apply.enabled: true`
+2. Safety rating meets policy minimum (UNSAFE always blocked)
+3. Namespace not denied by policy
+4. No HPA conflict detected (unless explicitly acknowledged)
+5. Latch data fresh (within policy `max_latch_age`, default 7 days)
+6. Change deltas within policy bounds (`max_request_delta_percent`, `max_limit_delta_percent`)
+7. Audit directory exists and is writable
+8. Rate limit not exceeded (global and per-workload)
+9. GitOps field manager conflict check (ArgoCD, Flux, Helm, Kustomize)
+10. User confirmation prompt
+
+If any check fails, apply is denied. No partial applies.
+
+### Immutable Audit Trail
+
+Every apply attempt — successful or denied — creates an audit bundle:
+
+```
+20260221T143022Z__production__deployment__payment-api/
+├── before.yaml      # workload state before apply
+├── after.yaml       # workload state after apply
+├── diff.patch       # unified diff of changes
+└── decision.json    # full decision record (identity, evidence, guardrails, result)
+```
+
+### Bounded Changes
+
+Admins control maximum change magnitude via policy:
+
+```yaml
+apply:
+  max_request_delta_percent: 25   # no single change > 25%
+  max_limit_delta_percent: 25
+  allow_limit_decrease: false     # limits can only increase
+  min_safety_rating: SAFE         # block CAUTION/RISKY/UNSAFE
+rate_limits:
+  max_applies_per_hour: 5
+  max_applies_per_workload: 2
+```
+
+### Reversible
+
+Apply uses Kubernetes Server-Side Apply (SSA). Changes are standard resource patches — revert with `kubectl apply` using the `before.yaml` from the audit bundle, or let GitOps controllers reconcile back to the desired state.
+
+---
+
 ## Deterministic Analysis
 
 ### requests-skew: Find Over-Provisioned Resources
