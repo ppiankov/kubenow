@@ -16,6 +16,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.3] - 2026-02-21
+
+### Security
+
+- Fix PromQL injection across 38+ interpolation sites in 4 files — new `escapeLabel()` and `escapeRegex()` functions replace unsafe `quote()` helper
+- Pin all third-party GitHub Actions to SHA (Trivy, Codecov, golangci-lint, action-gh-release)
+- Add Prometheus URL validation — reject `file://` scheme and link-local (169.254.x.x) SSRF targets
+- Remove global mutable `SilentMode` — replaced with config struct fields on both analyzers
+- Add context timeouts for all Prometheus API calls
+- Add regex DoS protection — cap namespace regex patterns at 256 characters
+- Validate policy file paths with `filepath.Clean` to prevent traversal
+- Tighten file permissions from 0644 to 0600 on audit bundles, latch data, rate-limit state, and export files
+- Add `-trimpath` to all build targets to prevent filesystem path leaks in binaries
+- Scope release workflow permissions to job level (`contents: write` only on release job)
+- Fix LDFLAGS to use `VERSION_NUM` (no `v` prefix) per project convention
+- Add `go mod verify` to release workflow for supply chain integrity
+- Add GPG signing step for release checksums (activates when `GPG_PRIVATE_KEY` secret is configured)
+
+### Fixed
+
+- Handle ignored `FinalizeBundle` error in apply flow — now logs warning to stderr
+- Handle ignored `io.ReadAll` error in LLM client — truncate response body in error messages
+- Propagate `yaml.Marshal` error in export patch format instead of silently returning empty string
+- Return errors from `deepCopyMap` instead of silently returning nil on marshal/unmarshal failure
+- Log best-effort audit rate-limit recording failures instead of discarding with `_ =`
+- Bounds-check `ParseDuration` — reject negative values and cap at 365 days
+- Cap latch sample buffer at 17,280 entries (24h at 5s intervals) to bound memory usage
+- Validate API key minimum length before use in LLM client
+
+---
+
 ## [0.3.2] - 2026-02-13
 
 ### Fixed
@@ -912,7 +943,8 @@ Kubernetes cluster analysis tool combining deterministic cost optimization with 
 
 ## Links
 
-- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.3.2...HEAD
+- [Unreleased]: https://github.com/ppiankov/kubenow/compare/v0.3.3...HEAD
+- [0.3.3]: https://github.com/ppiankov/kubenow/compare/v0.3.2...v0.3.3
 - [0.3.2]: https://github.com/ppiankov/kubenow/compare/v0.3.1...v0.3.2
 - [0.3.1]: https://github.com/ppiankov/kubenow/compare/v0.3.0...v0.3.1
 - [0.3.0]: https://github.com/ppiankov/kubenow/compare/v0.2.7...v0.3.0
