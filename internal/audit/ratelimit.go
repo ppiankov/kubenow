@@ -185,7 +185,7 @@ func writeState(path string, state *RateLimitState) error {
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	return os.WriteFile(path, data, 0600)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // Peek checks the global rate limit without incrementing counters.

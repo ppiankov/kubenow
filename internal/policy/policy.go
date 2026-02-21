@@ -221,7 +221,7 @@ func CheckAuditPath(path string) error {
 
 	// Try writing a temp file to verify writability
 	testFile := filepath.Join(path, ".kubenow-write-test")
-	if err := os.WriteFile(testFile, []byte("test"), 0600); err != nil {
+	if err := os.WriteFile(testFile, []byte("test"), 0o600); err != nil {
 		return fmt.Errorf("audit path is not writable: %v", err)
 	}
 	_ = os.Remove(testFile) // best-effort cleanup

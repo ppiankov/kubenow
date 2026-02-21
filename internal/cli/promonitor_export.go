@@ -120,7 +120,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 
 	// Write output
 	if exportConfig.output != "" {
-		if err := os.WriteFile(exportConfig.output, []byte(output), 0600); err != nil {
+		if err := os.WriteFile(exportConfig.output, []byte(output), 0o600); err != nil {
 			return fmt.Errorf("failed to write output file: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "Written to %s\n", exportConfig.output)
