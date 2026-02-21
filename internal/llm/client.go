@@ -60,6 +60,11 @@ func (c Client) Complete(ctx context.Context, prompt string) (string, error) {
 		}
 	}
 
+	// Basic validation: reject obviously invalid keys
+	if c.APIKey != "" && len(c.APIKey) < 8 {
+		return "", fmt.Errorf("API key too short (minimum 8 characters)")
+	}
+
 	reqBody := chatRequest{
 		Model: c.Model,
 		Messages: []chatMessage{
@@ -94,11 +99,18 @@ func (c Client) Complete(ctx context.Context, prompt string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response body: %w", err)
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Let caller see both status code and body for debugging (401, 429, etc.)
-		return "", fmt.Errorf("%d %s: %s", resp.StatusCode, http.StatusText(resp.StatusCode), string(body))
+		// Truncate body to prevent leaking sensitive data in error messages
+		bodyStr := string(body)
+		if len(bodyStr) > 500 {
+			bodyStr = bodyStr[:500] + "...(truncated)"
+		}
+		return "", fmt.Errorf("%d %s: %s", resp.StatusCode, http.StatusText(resp.StatusCode), bodyStr)
 	}
 
 	var cr chatResponse

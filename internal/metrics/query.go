@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -21,62 +22,62 @@ func NewQueryBuilder() *QueryBuilder {
 
 // CPUUsageByNamespace returns a query for CPU usage by namespace
 func (qb *QueryBuilder) CPUUsageByNamespace(namespace string) string {
-	return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",container!="",container!="POD"}[5m])) by (namespace)`, namespace)
+	return `sum(rate(container_cpu_usage_seconds_total{namespace=` + escapeLabel(namespace) + `,container!="",container!="POD"}[5m])) by (namespace)`
 }
 
 // CPUUsageByPod returns a query for CPU usage by pod
 func (qb *QueryBuilder) CPUUsageByPod(namespace, podPattern string) string {
-	return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s",container!="",container!="POD"}[5m])) by (pod)`, namespace, podPattern)
+	return `sum(rate(container_cpu_usage_seconds_total{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(podPattern) + `,container!="",container!="POD"}[5m])) by (pod)`
 }
 
 // MemoryUsageByNamespace returns a query for memory usage by namespace
 func (qb *QueryBuilder) MemoryUsageByNamespace(namespace string) string {
-	return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",container!="",container!="POD"}) by (namespace)`, namespace)
+	return `sum(container_memory_working_set_bytes{namespace=` + escapeLabel(namespace) + `,container!="",container!="POD"}) by (namespace)`
 }
 
 // MemoryUsageByPod returns a query for memory usage by pod
 func (qb *QueryBuilder) MemoryUsageByPod(namespace, podPattern string) string {
-	return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s",container!="",container!="POD"}) by (pod)`, namespace, podPattern)
+	return `sum(container_memory_working_set_bytes{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(podPattern) + `,container!="",container!="POD"}) by (pod)`
 }
 
 // CPUAvgOverTime returns a query for average CPU usage over a time window
 func (qb *QueryBuilder) CPUAvgOverTime(namespace string, window time.Duration) string {
-	return fmt.Sprintf(`avg_over_time(sum(rate(container_cpu_usage_seconds_total{namespace="%s",container!="",container!="POD"}[5m]))[%s:])`, namespace, formatDuration(window))
+	return `avg_over_time(sum(rate(container_cpu_usage_seconds_total{namespace=` + escapeLabel(namespace) + `,container!="",container!="POD"}[5m]))[` + formatDuration(window) + `:])`
 }
 
 // MemoryAvgOverTime returns a query for average memory usage over a time window
 func (qb *QueryBuilder) MemoryAvgOverTime(namespace string, window time.Duration) string {
-	return fmt.Sprintf(`avg_over_time(sum(container_memory_working_set_bytes{namespace="%s",container!="",container!="POD"})[%s:])`, namespace, formatDuration(window))
+	return `avg_over_time(sum(container_memory_working_set_bytes{namespace=` + escapeLabel(namespace) + `,container!="",container!="POD"})[` + formatDuration(window) + `:])`
 }
 
 // CPUQuantileOverTime returns a query for CPU usage at a specific percentile
 func (qb *QueryBuilder) CPUQuantileOverTime(namespace string, percentile float64, window time.Duration) string {
-	return fmt.Sprintf(`quantile_over_time(%.2f, sum(rate(container_cpu_usage_seconds_total{namespace="%s",container!="",container!="POD"}[5m]))[%s:])`, percentile, namespace, formatDuration(window))
+	return fmt.Sprintf(`quantile_over_time(%.2f, sum(rate(container_cpu_usage_seconds_total{namespace=`+escapeLabel(namespace)+`,container!="",container!="POD"}[5m]))[`+formatDuration(window)+`:])`, percentile)
 }
 
 // MemoryQuantileOverTime returns a query for memory usage at a specific percentile
 func (qb *QueryBuilder) MemoryQuantileOverTime(namespace string, percentile float64, window time.Duration) string {
-	return fmt.Sprintf(`quantile_over_time(%.2f, sum(container_memory_working_set_bytes{namespace="%s",container!="",container!="POD"})[%s:])`, percentile, namespace, formatDuration(window))
+	return fmt.Sprintf(`quantile_over_time(%.2f, sum(container_memory_working_set_bytes{namespace=`+escapeLabel(namespace)+`,container!="",container!="POD"})[`+formatDuration(window)+`:])`, percentile)
 }
 
 // CPURequestsByNamespace returns a query for CPU requests by namespace
 func (qb *QueryBuilder) CPURequestsByNamespace(namespace string) string {
-	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,resource="cpu"}) by (namespace)`
+	return `sum(kube_pod_container_resource_requests{namespace=` + escapeLabel(namespace) + `,resource="cpu"}) by (namespace)`
 }
 
 // MemoryRequestsByNamespace returns a query for memory requests by namespace
 func (qb *QueryBuilder) MemoryRequestsByNamespace(namespace string) string {
-	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,resource="memory"}) by (namespace)`
+	return `sum(kube_pod_container_resource_requests{namespace=` + escapeLabel(namespace) + `,resource="memory"}) by (namespace)`
 }
 
 // CPURequestsByPod returns a query for CPU requests by pod
 func (qb *QueryBuilder) CPURequestsByPod(namespace, podPattern string) string {
-	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(podPattern) + `,resource="cpu"}) by (pod)`
+	return `sum(kube_pod_container_resource_requests{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(podPattern) + `,resource="cpu"}) by (pod)`
 }
 
 // MemoryRequestsByPod returns a query for memory requests by pod
 func (qb *QueryBuilder) MemoryRequestsByPod(namespace, podPattern string) string {
-	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(podPattern) + `,resource="memory"}) by (pod)`
+	return `sum(kube_pod_container_resource_requests{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(podPattern) + `,resource="memory"}) by (pod)`
 }
 
 // NodeCPUCapacity returns a query for total node CPU capacity
@@ -105,30 +106,61 @@ func workloadPodPattern(workloadName, workloadType string) string {
 // WorkloadCPURequests returns a query for total CPU requests across all pods of a workload
 func (qb *QueryBuilder) WorkloadCPURequests(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="cpu"})`
+	return `sum(kube_pod_container_resource_requests{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(pattern) + `,resource="cpu"})`
 }
 
 // WorkloadMemoryRequests returns a query for total memory requests across all pods of a workload
 func (qb *QueryBuilder) WorkloadMemoryRequests(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return `sum(kube_pod_container_resource_requests{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="memory"})`
+	return `sum(kube_pod_container_resource_requests{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(pattern) + `,resource="memory"})`
 }
 
 // WorkloadCPULimits returns a query for total CPU limits across all pods of a workload
 func (qb *QueryBuilder) WorkloadCPULimits(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return `sum(kube_pod_container_resource_limits{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="cpu"})`
+	return `sum(kube_pod_container_resource_limits{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(pattern) + `,resource="cpu"})`
 }
 
 // WorkloadMemoryLimits returns a query for total memory limits across all pods of a workload
 func (qb *QueryBuilder) WorkloadMemoryLimits(namespace, workloadName, workloadType string) string {
 	pattern := workloadPodPattern(workloadName, workloadType)
-	return `sum(kube_pod_container_resource_limits{namespace=` + quote(namespace) + `,pod=~` + quote(pattern) + `,resource="memory"})`
+	return `sum(kube_pod_container_resource_limits{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeLabel(pattern) + `,resource="memory"})`
 }
 
-// quote wraps a value in double quotes for PromQL label matchers
-func quote(s string) string {
+// escapeLabel escapes a string for use in a PromQL label equality matcher (=).
+// Escapes backslashes, double quotes, and newlines.
+func escapeLabel(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
 	return `"` + s + `"`
+}
+
+// escapeRegex escapes a string for safe embedding in a PromQL regex matcher (=~).
+// The workload/namespace part is escaped for regex metacharacters; the pattern
+// suffix (e.g., "-.*", "-[0-9]+") is appended after escaping.
+func escapeRegex(name, patternSuffix string) string {
+	// Escape regex metacharacters in the name portion
+	metacharReplacer := strings.NewReplacer(
+		`\`, `\\`,
+		`.`, `\.`,
+		`*`, `\*`,
+		`+`, `\+`,
+		`?`, `\?`,
+		`(`, `\(`,
+		`)`, `\)`,
+		`[`, `\[`,
+		`]`, `\]`,
+		`{`, `\{`,
+		`}`, `\}`,
+		`|`, `\|`,
+		`^`, `\^`,
+		`$`, `\$`,
+		`"`, `\"`,
+		"\n", `\n`,
+	)
+	escaped := metacharReplacer.Replace(name)
+	return `"` + escaped + patternSuffix + `"`
 }
 
 // NodeCount returns a query for the number of nodes
@@ -138,40 +170,40 @@ func (qb *QueryBuilder) NodeCount() string {
 
 // PodStartTime returns a query for pod start time
 func (qb *QueryBuilder) PodStartTime(namespace, podName string) string {
-	return fmt.Sprintf(`kube_pod_start_time{namespace="%s",pod="%s"}`, namespace, podName)
+	return `kube_pod_start_time{namespace=` + escapeLabel(namespace) + `,pod=` + escapeLabel(podName) + `}`
 }
 
 // WorkloadCPUUsage returns a query for workload CPU usage (aggregated by deployment/statefulset)
 func (qb *QueryBuilder) WorkloadCPUUsage(namespace, workloadName, workloadType string) string {
-	// For deployments: match pods with replicaset label matching deployment name
-	// For statefulsets: pods are named {statefulset}-{ordinal}
+	ns := escapeLabel(namespace)
 	switch workloadType {
 	case "Deployment":
-		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s-.*",container!="",container!="POD"}[5m]))`, namespace, workloadName)
+		return `sum(rate(container_cpu_usage_seconds_total{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, "-.*") + `,container!="",container!="POD"}[5m]))`
 	case "StatefulSet":
-		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s-[0-9]+",container!="",container!="POD"}[5m]))`, namespace, workloadName)
+		return `sum(rate(container_cpu_usage_seconds_total{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, "-[0-9]+") + `,container!="",container!="POD"}[5m]))`
 	case "DaemonSet":
-		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s-.*",container!="",container!="POD"}[5m]))`, namespace, workloadName)
+		return `sum(rate(container_cpu_usage_seconds_total{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, "-.*") + `,container!="",container!="POD"}[5m]))`
 	case "Pod":
-		return `sum(rate(container_cpu_usage_seconds_total{namespace="` + namespace + `",pod="` + workloadName + `",container!="",container!="POD"}[5m]))`
+		return `sum(rate(container_cpu_usage_seconds_total{namespace=` + ns + `,pod=` + escapeLabel(workloadName) + `,container!="",container!="POD"}[5m]))`
 	default:
-		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*",container!="",container!="POD"}[5m]))`, namespace, workloadName)
+		return `sum(rate(container_cpu_usage_seconds_total{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, ".*") + `,container!="",container!="POD"}[5m]))`
 	}
 }
 
 // WorkloadMemoryUsage returns a query for workload memory usage
 func (qb *QueryBuilder) WorkloadMemoryUsage(namespace, workloadName, workloadType string) string {
+	ns := escapeLabel(namespace)
 	switch workloadType {
 	case "Deployment":
-		return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s-.*",container!="",container!="POD"})`, namespace, workloadName)
+		return `sum(container_memory_working_set_bytes{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, "-.*") + `,container!="",container!="POD"})`
 	case "StatefulSet":
-		return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s-[0-9]+",container!="",container!="POD"})`, namespace, workloadName)
+		return `sum(container_memory_working_set_bytes{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, "-[0-9]+") + `,container!="",container!="POD"})`
 	case "DaemonSet":
-		return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s-.*",container!="",container!="POD"})`, namespace, workloadName)
+		return `sum(container_memory_working_set_bytes{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, "-.*") + `,container!="",container!="POD"})`
 	case "Pod":
-		return `sum(container_memory_working_set_bytes{namespace="` + namespace + `",pod="` + workloadName + `",container!="",container!="POD"})`
+		return `sum(container_memory_working_set_bytes{namespace=` + ns + `,pod=` + escapeLabel(workloadName) + `,container!="",container!="POD"})`
 	default:
-		return fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s.*",container!="",container!="POD"})`, namespace, workloadName)
+		return `sum(container_memory_working_set_bytes{namespace=` + ns + `,pod=~` + escapeRegex(workloadName, ".*") + `,container!="",container!="POD"})`
 	}
 }
 
@@ -188,6 +220,9 @@ func formatDuration(d time.Duration) string {
 }
 
 // ParseDuration parses a duration string (supports d, h, m, s)
+// maxDurationDays is the upper bound for parsed durations (1 year).
+const maxDurationDays = 365
+
 func ParseDuration(s string) (time.Duration, error) {
 	// Handle Prometheus-style durations like "30d", "7d", "24h"
 	if len(s) < 2 {
@@ -202,50 +237,60 @@ func ParseDuration(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid duration value: %s", s)
 	}
 
+	if value < 0 {
+		return 0, fmt.Errorf("negative duration not allowed: %s", s)
+	}
+
+	var d time.Duration
 	switch unit {
 	case 'd':
-		return time.Duration(value) * 24 * time.Hour, nil
+		d = time.Duration(value) * 24 * time.Hour
 	case 'h':
-		return time.Duration(value) * time.Hour, nil
+		d = time.Duration(value) * time.Hour
 	case 'm':
-		return time.Duration(value) * time.Minute, nil
+		d = time.Duration(value) * time.Minute
 	case 's':
-		return time.Duration(value) * time.Second, nil
+		d = time.Duration(value) * time.Second
 	case 'w':
-		return time.Duration(value) * 7 * 24 * time.Hour, nil
+		d = time.Duration(value) * 7 * 24 * time.Hour
 	default:
 		// Try standard Go duration parsing as fallback
-		return time.ParseDuration(s)
+		var err error
+		d, err = time.ParseDuration(s)
+		if err != nil {
+			return 0, err
+		}
 	}
+
+	maxDuration := time.Duration(maxDurationDays) * 24 * time.Hour
+	if d > maxDuration {
+		return 0, fmt.Errorf("duration %s exceeds maximum (%dd)", s, maxDurationDays)
+	}
+
+	return d, nil
 }
 
 // === Safety Analysis Queries ===
 
 // OOMKillsByWorkload returns a query for OOM kills for a workload over time window
 func (qb *QueryBuilder) OOMKillsByWorkload(namespace, workloadName string, window time.Duration) string {
-	// Sum of container restarts due to OOMKilled reason
-	// This uses kube_pod_container_status_last_terminated_reason metric
-	return fmt.Sprintf(`sum(increase(kube_pod_container_status_restarts_total{namespace="%s",pod=~"%s.*"}[%s])) by (pod)`,
-		namespace, workloadName, formatDuration(window))
+	return `sum(increase(kube_pod_container_status_restarts_total{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeRegex(workloadName, ".*") + `}[` + formatDuration(window) + `])) by (pod)`
 }
 
 // RestartsByWorkload returns a query for total container restarts for a workload
 func (qb *QueryBuilder) RestartsByWorkload(namespace, workloadName string, window time.Duration) string {
-	return fmt.Sprintf(`sum(increase(kube_pod_container_status_restarts_total{namespace="%s",pod=~"%s.*"}[%s]))`,
-		namespace, workloadName, formatDuration(window))
+	return `sum(increase(kube_pod_container_status_restarts_total{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeRegex(workloadName, ".*") + `}[` + formatDuration(window) + `]))`
 }
 
 // CPUThrottledByWorkload returns a query for CPU throttling time for a workload
 func (qb *QueryBuilder) CPUThrottledByWorkload(namespace, workloadName string, window time.Duration) string {
-	return fmt.Sprintf(`sum(increase(container_cpu_cfs_throttled_seconds_total{namespace="%s",pod=~"%s.*",container!="",container!="POD"}[%s]))`,
-		namespace, workloadName, formatDuration(window))
+	return `sum(increase(container_cpu_cfs_throttled_seconds_total{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeRegex(workloadName, ".*") + `,container!="",container!="POD"}[` + formatDuration(window) + `]))`
 }
 
 // CPUThrottledPercentByWorkload returns CPU throttling as percentage of time window
 func (qb *QueryBuilder) CPUThrottledPercentByWorkload(namespace, workloadName string, window time.Duration) string {
 	windowSeconds := window.Seconds()
-	return fmt.Sprintf(`(sum(increase(container_cpu_cfs_throttled_seconds_total{namespace="%s",pod=~"%s.*",container!="",container!="POD"}[%s])) / %f) * 100`,
-		namespace, workloadName, formatDuration(window), windowSeconds)
+	return fmt.Sprintf(`(sum(increase(container_cpu_cfs_throttled_seconds_total{namespace=`+escapeLabel(namespace)+`,pod=~`+escapeRegex(workloadName, ".*")+`,container!="",container!="POD"}[`+formatDuration(window)+`])) / %f) * 100`, windowSeconds)
 }
 
 // MaxCPUUsageByWorkload returns max CPU usage for a workload in time window
@@ -274,10 +319,10 @@ func (qb *QueryBuilder) MemoryP999ByWorkload(namespace, workloadName, workloadTy
 
 // PodStatusByWorkload returns current pod status for a workload
 func (qb *QueryBuilder) PodStatusByWorkload(namespace, workloadName string) string {
-	return fmt.Sprintf(`kube_pod_status_phase{namespace="%s",pod=~"%s.*"}`, namespace, workloadName)
+	return `kube_pod_status_phase{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeRegex(workloadName, ".*") + `}`
 }
 
 // LastTerminatedReasonByWorkload returns the last container termination reason
 func (qb *QueryBuilder) LastTerminatedReasonByWorkload(namespace, workloadName string) string {
-	return fmt.Sprintf(`kube_pod_container_status_last_terminated_reason{namespace="%s",pod=~"%s.*"}`, namespace, workloadName)
+	return `kube_pod_container_status_last_terminated_reason{namespace=` + escapeLabel(namespace) + `,pod=~` + escapeRegex(workloadName, ".*") + `}`
 }

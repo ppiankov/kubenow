@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -31,6 +31,8 @@ jobs:
     name: Release
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Resolve tag
         id: tag
@@ -49,8 +51,8 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Download and verify dependencies
+        run: go mod download && go mod verify
 
       - name: Get project name
         id: project
@@ -61,7 +63,7 @@ jobs:
           VERSION=${{ steps.tag.outputs.version }}
           VERSION_NUM=${VERSION#v}
           PROJECT=${{ steps.project.outputs.name }}
-          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          LDFLAGS="-s -w -X main.Version=${VERSION_NUM}"
 
           platforms=(
             "linux/amd64"
@@ -81,10 +83,10 @@ jobs:
 
             if [ "$GOOS" = "windows" ]; then
               binary="${binary}.exe"
-              GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="$LDFLAGS" -o "staging/${binary}" ./cmd/${PROJECT}/
+              GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="$LDFLAGS" -o "staging/${binary}" ./cmd/${PROJECT}/
               cd staging && zip "../dist/${archive}.zip" "${binary}" && cd ..
             else
-              GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="$LDFLAGS" -o "staging/${binary}" ./cmd/${PROJECT}/
+              GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags="$LDFLAGS" -o "staging/${binary}" ./cmd/${PROJECT}/
               tar -czf "dist/${archive}.tar.gz" -C staging "${binary}"
             fi
             rm -f "staging/${binary}"
@@ -94,6 +96,14 @@ jobs:
         run: |
           cd dist
           sha256sum * > checksums.txt
+
+      - name: GPG sign checksums
+        if: env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --detach-sign --armor dist/checksums.txt
 
       - name: Extract release notes from CHANGELOG
         id: notes
@@ -137,7 +147,7 @@ jobs:
           cat /tmp/release-body.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: ${{ steps.tag.outputs.version }}
           body: ${{ steps.notes.outputs.notes }}

@@ -81,10 +81,7 @@ func init() {
 }
 
 func runNodeFootprint(cmd *cobra.Command, args []string) error {
-	// Set silent mode for CI/CD
-	if nodeFootprintConfig.silent {
-		analyzer.SilentMode = true
-	}
+	// Silent mode is passed via config to the analyzer (no global state)
 
 	// Validate flags
 	if nodeFootprintConfig.prometheusURL == "" && !nodeFootprintConfig.autoDetect {
@@ -147,8 +144,9 @@ func runNodeFootprint(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create Prometheus client: %w", err)
 	}
 
-	// Health check
-	ctx := context.Background()
+	// Health check — use timeout to prevent unbounded calls
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	if err := metricsProvider.Health(ctx); err != nil {
 		return fmt.Errorf("prometheus health check failed: %w", err)
 	}
@@ -162,6 +160,7 @@ func runNodeFootprint(cmd *cobra.Command, args []string) error {
 		Window:     window,
 		Percentile: nodeFootprintConfig.percentile,
 		NodeTypes:  nodeTypes,
+		Silent:     nodeFootprintConfig.silent,
 	}
 
 	footprintAnalyzer := analyzer.NewNodeFootprintAnalyzer(kubeClient, metricsProvider, analyzerConfig)
@@ -188,7 +187,7 @@ func outputNodeFootprintJSON(result *analyzer.NodeFootprintResult, exportFile st
 
 	// Export to file if specified
 	if exportFile != "" {
-		if err := os.WriteFile(exportFile, data, 0644); err != nil {
+		if err := os.WriteFile(exportFile, data, 0600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", exportFile)

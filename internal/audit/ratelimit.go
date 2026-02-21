@@ -83,11 +83,15 @@ func CheckAndIncrement(cfg RateLimitConfig, workloadUID, workloadRef, user strin
 
 	// If we skipped checks (max=0), still record the entry in global
 	if cfg.MaxGlobal == 0 {
-		_ = recordEntry(globalPath, cfg.Window, entry)
+		if err := recordEntry(globalPath, cfg.Window, entry); err != nil {
+			fmt.Fprintf(os.Stderr, "[kubenow] warning: failed to record global rate entry: %v\n", err)
+		}
 	}
 	if cfg.MaxPerWorkload == 0 && workloadUID != "" {
 		wlPath := filepath.Join(rateLimitDir, workloadUID+".json")
-		_ = recordEntry(wlPath, cfg.Window, entry)
+		if err := recordEntry(wlPath, cfg.Window, entry); err != nil {
+			fmt.Fprintf(os.Stderr, "[kubenow] warning: failed to record workload rate entry: %v\n", err)
+		}
 	}
 
 	return &RateLimitResult{Allowed: true}, nil
@@ -181,7 +185,7 @@ func writeState(path string, state *RateLimitState) error {
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 // Peek checks the global rate limit without incrementing counters.

@@ -126,28 +126,27 @@ func (m *AvailableMetrics) ValidateMetrics() error {
 
 // GetCPUQuery builds a CPU query with the best available metric
 func (m *AvailableMetrics) GetCPUQuery(namespace, workload, workloadType string) string {
+	ns := escapeLabel(namespace)
+	pod := escapeRegex(workload, "-.*")
 	switch {
 	case strings.Contains(m.CPUMetric, "usage_seconds_total"):
-		// Rate-based metric
-		return fmt.Sprintf(`rate(%s{namespace="%s",pod=~"%s-.*"}[5m])`, m.CPUMetric, namespace, workload)
+		return `rate(` + m.CPUMetric + `{namespace=` + ns + `,pod=~` + pod + `}[5m])`
 	case strings.Contains(m.CPUMetric, "resource_requests"):
-		// Fallback to kube-state-metrics (static values, not usage)
-		return fmt.Sprintf(`kube_pod_container_resource_requests{namespace="%s",pod=~"%s-.*",resource="cpu"}`, namespace, workload)
+		return `kube_pod_container_resource_requests{namespace=` + ns + `,pod=~` + pod + `,resource="cpu"}`
 	default:
-		// Direct usage metric
-		return fmt.Sprintf(`%s{namespace="%s",pod=~"%s-.*"}`, m.CPUMetric, namespace, workload)
+		return m.CPUMetric + `{namespace=` + ns + `,pod=~` + pod + `}`
 	}
 }
 
 // GetMemoryQuery builds a memory query with the best available metric
 func (m *AvailableMetrics) GetMemoryQuery(namespace, workload, workloadType string) string {
+	ns := escapeLabel(namespace)
+	pod := escapeRegex(workload, "-.*")
 	switch {
 	case strings.Contains(m.MemoryMetric, "resource_requests"):
-		// Fallback to kube-state-metrics (static values, not usage)
-		return fmt.Sprintf(`kube_pod_container_resource_requests{namespace="%s",pod=~"%s-.*",resource="memory"}`, namespace, workload)
+		return `kube_pod_container_resource_requests{namespace=` + ns + `,pod=~` + pod + `,resource="memory"}`
 	default:
-		// Direct usage metric
-		return fmt.Sprintf(`%s{namespace="%s",pod=~"%s-.*"}`, m.MemoryMetric, namespace, workload)
+		return m.MemoryMetric + `{namespace=` + ns + `,pod=~` + pod + `}`
 	}
 }
 

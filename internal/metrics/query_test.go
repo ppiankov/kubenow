@@ -7,6 +7,60 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestEscapeLabel(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"production", `"production"`},
+		{`ns"injection`, `"ns\"injection"`},
+		{`ns\path`, `"ns\\path"`},
+		{"ns\nline", `"ns\nline"`},
+		{`prod",namespace="admin`, `"prod\",namespace=\"admin"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, escapeLabel(tt.input))
+		})
+	}
+}
+
+func TestEscapeRegex(t *testing.T) {
+	tests := []struct {
+		name     string
+		suffix   string
+		expected string
+	}{
+		{"myapp", "-.*", `"myapp-.*"`},
+		{"my.app", "-.*", `"my\.app-.*"`},
+		{`app"inject`, "-[0-9]+", `"app\"inject-[0-9]+"`},
+		{"app+plus", "-.*", `"app\+plus-.*"`},
+		{"app(parens)", "-.*", `"app\(parens\)-.*"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, escapeRegex(tt.name, tt.suffix))
+		})
+	}
+}
+
+func TestQueryBuilder_InjectionSafe(t *testing.T) {
+	qb := NewQueryBuilder()
+
+	// Namespace with injection attempt
+	maliciousNS := `prod",namespace="admin`
+	query := qb.CPUUsageByNamespace(maliciousNS)
+	assert.Contains(t, query, `namespace="prod\"`)
+	assert.NotContains(t, query, `namespace="prod",namespace="admin"`)
+
+	// Workload name with regex metacharacters
+	maliciousWL := `app.*all`
+	query = qb.WorkloadCPUUsage("prod", maliciousWL, "Deployment")
+	assert.Contains(t, query, `app\.\*all`)
+}
+
 func TestQueryBuilder_CPUUsageByNamespace(t *testing.T) {
 	qb := NewQueryBuilder()
 	query := qb.CPUUsageByNamespace("production")

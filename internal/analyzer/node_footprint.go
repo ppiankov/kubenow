@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/ppiankov/kubenow/internal/metrics"
@@ -23,6 +24,14 @@ type NodeFootprintConfig struct {
 	Window     time.Duration // Time window for analysis
 	Percentile string        // p50, p95, p99
 	NodeTypes  []string      // Candidate node types to simulate
+	Silent     bool          // Suppress progress output
+}
+
+// logProgress prints progress messages unless silent mode is enabled
+func (a *NodeFootprintAnalyzer) logProgress(format string, args ...interface{}) {
+	if !a.config.Silent {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
 }
 
 // NodeFootprintResult contains the analysis results
@@ -118,23 +127,23 @@ func (a *NodeFootprintAnalyzer) Analyze(ctx context.Context) (*NodeFootprintResu
 	}
 
 	// Get current topology
-	logProgress("[kubenow] Analyzing current cluster topology...\n")
+	a.logProgress("[kubenow] Analyzing current cluster topology...\n")
 	currentTopology, err := a.getCurrentTopology(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current topology: %w", err)
 	}
 	result.CurrentTopology = *currentTopology
-	logProgress("[kubenow] Current: %d x %s nodes\n", currentTopology.NodeCount, currentTopology.NodeType)
+	a.logProgress("[kubenow] Current: %d x %s nodes\n", currentTopology.NodeCount, currentTopology.NodeType)
 
 	// Get workload envelope
-	logProgress("[kubenow] Calculating workload envelope (%s percentile)...\n", a.config.Percentile)
+	a.logProgress("[kubenow] Calculating workload envelope (%s percentile)...\n", a.config.Percentile)
 	envelope, podRequirements, err := a.getWorkloadEnvelope(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workload envelope: %w", err)
 	}
 	result.WorkloadEnvelope = *envelope
 	result.Metadata.WorkloadCount = envelope.PodCount
-	logProgress("[kubenow] Found %d pods requiring %.2f CPU cores, %.2f GiB memory\n",
+	a.logProgress("[kubenow] Found %d pods requiring %.2f CPU cores, %.2f GiB memory\n",
 		envelope.PodCount, envelope.TotalCPURequired, envelope.TotalMemoryRequired/(1024*1024*1024))
 
 	// Add current topology as first scenario
@@ -150,20 +159,20 @@ func (a *NodeFootprintAnalyzer) Analyze(ctx context.Context) (*NodeFootprintResu
 	result.Scenarios = append(result.Scenarios, currentScenario)
 
 	// Simulate alternative topologies
-	logProgress("[kubenow] Simulating alternative topologies...\n")
+	a.logProgress("[kubenow] Simulating alternative topologies...\n")
 	nodeTemplates := GetNodeTemplates()
 	for i, nodeType := range a.config.NodeTypes {
 		template, exists := nodeTemplates[nodeType]
 		if !exists {
-			logProgress("[kubenow] Warning: unknown node type %s, skipping\n", nodeType)
+			a.logProgress("[kubenow] Warning: unknown node type %s, skipping\n", nodeType)
 			continue
 		}
 
-		logProgress("[kubenow] [%d/%d] Testing %s configuration...\n", i+1, len(a.config.NodeTypes), nodeType)
+		a.logProgress("[kubenow] [%d/%d] Testing %s configuration...\n", i+1, len(a.config.NodeTypes), nodeType)
 		scenario := a.simulateTopology(i+1, template, podRequirements, currentTopology.NodeCount, envelope)
 		result.Scenarios = append(result.Scenarios, scenario)
 	}
-	logProgress("[kubenow] Analysis complete!\n\n")
+	a.logProgress("[kubenow] Analysis complete!\n\n")
 
 	return result, nil
 }

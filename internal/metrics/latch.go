@@ -335,6 +335,12 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 		// Update metrics
 		data.LastSeen = now
 		data.SampleCount++
+		// Cap sample buffer at 17280 (24h at 5s intervals) to bound memory
+		const maxSamples = 17280
+		if len(data.CPUSamples) >= maxSamples {
+			data.CPUSamples = data.CPUSamples[1:]
+			data.MemSamples = data.MemSamples[1:]
+		}
 		data.CPUSamples = append(data.CPUSamples, totalCPU)
 		data.MemSamples = append(data.MemSamples, totalMemory)
 
