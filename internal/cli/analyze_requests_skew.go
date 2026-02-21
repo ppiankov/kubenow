@@ -507,7 +507,7 @@ func outputRequestsSkewJSON(result *analyzer.RequestsSkewResult, exportFile stri
 
 	// Export to file if specified
 	if exportFile != "" {
-		if err := os.WriteFile(exportFile, data, 0600); err != nil {
+		if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", exportFile)
@@ -527,7 +527,7 @@ func outputRequestsSkewSARIF(result *analyzer.RequestsSkewResult, exportFile str
 
 	// Export to file if specified
 	if exportFile != "" {
-		if err := os.WriteFile(exportFile, data, 0600); err != nil {
+		if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[kubenow] SARIF report saved to: %s\n", exportFile)
@@ -548,7 +548,7 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON for export: %w", err)
 			}
-			if err := os.WriteFile(exportFile, data, 0600); err != nil {
+			if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 				return fmt.Errorf("failed to write export file: %w", err)
 			}
 			fmt.Fprintf(os.Stderr, "[kubenow] Full results exported to: %s (JSON format)\n", exportFile)
@@ -1331,7 +1331,7 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 	}
 
 	// Write to file
-	if err := os.WriteFile(exportFile, buf.Bytes(), 0600); err != nil {
+	if err := os.WriteFile(exportFile, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("failed to write export file: %w", err)
 	}
 
