@@ -144,7 +144,7 @@ func CreateBundle(cfg BundleConfig) (*AuditBundle, error) {
 		return nil, fmt.Errorf("marshal before YAML: %w", err)
 	}
 	beforePath := filepath.Join(bundleDir, "before.yaml")
-	if err := os.WriteFile(beforePath, beforeYAML, 0600); err != nil {
+	if err := os.WriteFile(beforePath, beforeYAML, 0o600); err != nil {
 		return nil, fmt.Errorf("write before.yaml: %w", err)
 	}
 
@@ -155,7 +155,7 @@ func CreateBundle(cfg BundleConfig) (*AuditBundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal decision.json: %w", err)
 	}
-	if err := os.WriteFile(decisionPath, decisionData, 0600); err != nil {
+	if err := os.WriteFile(decisionPath, decisionData, 0o600); err != nil {
 		return nil, fmt.Errorf("write decision.json: %w", err)
 	}
 
@@ -184,7 +184,7 @@ func FinalizeBundle(bundle *AuditBundle, afterObject map[string]interface{}, sta
 		return fmt.Errorf("marshal after YAML: %w", err)
 	}
 	afterPath := filepath.Join(bundle.Dir, "after.yaml")
-	if err := os.WriteFile(afterPath, afterYAML, 0600); err != nil {
+	if err := os.WriteFile(afterPath, afterYAML, 0o600); err != nil {
 		return fmt.Errorf("write after.yaml: %w", err)
 	}
 
@@ -206,7 +206,7 @@ func FinalizeBundle(bundle *AuditBundle, afterObject map[string]interface{}, sta
 		return fmt.Errorf("generate diff: %w", err)
 	}
 	diffPath := filepath.Join(bundle.Dir, "diff.patch")
-	if err := os.WriteFile(diffPath, []byte(diffText), 0600); err != nil {
+	if err := os.WriteFile(diffPath, []byte(diffText), 0o600); err != nil {
 		return fmt.Errorf("write diff.patch: %w", err)
 	}
 
@@ -231,7 +231,7 @@ func FinalizeBundle(bundle *AuditBundle, afterObject map[string]interface{}, sta
 	if err != nil {
 		return fmt.Errorf("marshal updated decision.json: %w", err)
 	}
-	return os.WriteFile(bundle.DecisionPath, updatedData, 0600)
+	return os.WriteFile(bundle.DecisionPath, updatedData, 0o600)
 }
 
 // bundleDirName formats the bundle directory name.
