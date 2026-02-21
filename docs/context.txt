@@ -1,0 +1,50 @@
+# kubenow — Session Context
+# Last updated: 2026-02-21
+
+## Current Version
+v0.3.3
+
+## What Was Done This Session
+
+### Security Audit & Remediation (v0.3.3)
+Comprehensive security audit ran 5 parallel agents covering: input validation,
+secrets/auth, K8s API/network, deps/CI, error handling/data integrity.
+
+24 findings (4 CRITICAL, 6 HIGH, 9 MEDIUM, 5 LOW) — all remediated:
+
+**CRITICAL**: PromQL injection (38+ sites), Trivy SHA-pinned, FinalizeBundle
+error handling, global SilentMode eliminated.
+
+**HIGH**: Context timeouts, Prometheus URL SSRF validation, io.ReadAll error
+handling, yaml.Marshal propagation, go mod verify, SHA-pinned 3 more actions.
+
+**MEDIUM**: Regex DoS cap, policy path traversal, audit perms 0600, deepCopyMap
+errors, -trimpath, latch buffer cap, ParseDuration bounds, release perms scoped,
+LDFLAGS VERSION_NUM fix.
+
+**LOW**: Audit failure logging, latch perms 0600, export perms 0600, GPG signing
+step, API key validation.
+
+### Commits Pushed
+- f860e2f fix: remediate 24 security audit findings (22 files, +766/-184)
+- 726c887 docs: update changelog and version for v0.3.3
+
+## Project Wiring
+- Shared skills: ~/dev/claude-skills (symlinked via setup-project.sh)
+- Git hooks: pre-commit + commit-msg installed
+- settings.local.json: clean (stale infranow entry removed)
+
+## Open Items
+- 640 pre-existing lint warnings (mostly errcheck, gocritic, revive) — not introduced by security fixes
+- Planned features (from CHANGELOG [Unreleased]):
+  - Auto-detect Prometheus in-cluster
+  - Cloud provider cost integration (AWS, GCP, Azure)
+  - Historical trend tracking
+  - Concurrency controls (--workers, --query-timeout)
+  - Prometheus metrics endpoint for meta-monitoring
+
+## Key Files
+- docs/work-orders.md — Full security WO document (all 24 marked complete)
+- CHANGELOG.md — v0.3.3 security section added
+- internal/metrics/query.go — escapeLabel()/escapeRegex() injection fix
+- internal/analyzer/requests_skew.go — SilentMode refactored to config struct
