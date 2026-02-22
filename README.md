@@ -55,6 +55,26 @@ A Kubernetes cluster analysis tool that combines:
 
 ---
 
+## Project Status
+
+**Status: Beta** · **v0.3.3** · Pre-1.0
+
+| Milestone | Status |
+|-----------|--------|
+| Core functionality | Complete |
+| Test coverage >85% | Complete |
+| Security audit | Complete |
+| golangci-lint config | Complete |
+| CI pipeline (test/lint/scan) | Complete |
+| Homebrew distribution | Complete |
+| Safety model documented | Complete |
+| API stability guarantees | Partial |
+| v1.0 release | Planned |
+
+Pre-1.0: CLI flags and JSON output schemas may change between minor versions. Exit codes (0/2/3) are stable.
+
+---
+
 ## Safety Model
 
 kubenow is designed to be safe to run against production clusters. Every mode has structural guarantees — not just warnings.
