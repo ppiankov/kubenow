@@ -1,7 +1,7 @@
 ![kubenow logo](https://raw.githubusercontent.com/ppiankov/kubenow/main/docs/img/logo.png)
 
 # kubenow — Kubernetes Resource Analysis & Cost Optimization
-[![CI](https://github.com/ppiankov/kubenow/workflows/CI/badge.svg)](https://github.com/ppiankov/kubenow/actions)
+[![CI](https://github.com/ppiankov/kubenow/actions/workflows/ci.yml/badge.svg)](https://github.com/ppiankov/kubenow/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/kubenow)](https://goreportcard.com/report/github.com/ppiankov/kubenow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
