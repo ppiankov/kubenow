@@ -8,6 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+
 	"github.com/ppiankov/kubenow/internal/export"
 	"github.com/ppiankov/kubenow/internal/llm"
 	"github.com/ppiankov/kubenow/internal/prompt"
@@ -15,9 +19,6 @@ import (
 	"github.com/ppiankov/kubenow/internal/snapshot"
 	"github.com/ppiankov/kubenow/internal/util"
 	"github.com/ppiankov/kubenow/internal/watch"
-	"github.com/spf13/cobra"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // LLMCommandConfig holds common configuration for LLM commands

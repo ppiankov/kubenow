@@ -38,6 +38,8 @@ linters:
       min-complexity: 15
     govet:
       enable-all: true
+      disable:
+        - fieldalignment
     lll:
       line-length: 140
     misspell:
@@ -53,6 +55,14 @@ linters:
       - linters:
           - staticcheck
         text: 'SA9003:'
+      - linters:
+          - staticcheck
+        text: 'SA1019:'
+        path: _test\.go
+      - linters:
+          - revive
+        text: 'var-naming:'
+        path: internal/util/
       - linters:
           - goconst
           - gocyclo

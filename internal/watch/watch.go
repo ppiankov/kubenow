@@ -7,11 +7,12 @@ import (
 	"os"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/ppiankov/kubenow/internal/llm"
 	"github.com/ppiankov/kubenow/internal/prompt"
 	"github.com/ppiankov/kubenow/internal/result"
 	"github.com/ppiankov/kubenow/internal/snapshot"
-	"k8s.io/client-go/kubernetes"
 )
 
 // Config holds watch mode configuration.

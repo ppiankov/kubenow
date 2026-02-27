@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/ppiankov/kubenow/internal/analyzer"
 	"github.com/ppiankov/kubenow/internal/baseline"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/output"
 	"github.com/ppiankov/kubenow/internal/util"
-	"github.com/spf13/cobra"
-	"k8s.io/client-go/kubernetes"
 )
 
 var requestsSkewConfig struct {

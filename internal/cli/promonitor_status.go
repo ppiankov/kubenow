@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/promonitor"
 	"github.com/spf13/cobra"
+
+	"github.com/ppiankov/kubenow/internal/promonitor"
 )
 
 var statusCmd = &cobra.Command{

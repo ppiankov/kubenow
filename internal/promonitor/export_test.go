@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ppiankov/kubenow/internal/metrics"
 )
 
 func testRecommendation() *AlignmentRecommendation {

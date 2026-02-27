@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/spf13/cobra"
+
 	"github.com/ppiankov/kubenow/internal/analyzer"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/util"
-	"github.com/spf13/cobra"
 )
 
 var nodeFootprintConfig struct {

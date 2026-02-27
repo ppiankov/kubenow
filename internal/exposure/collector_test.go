@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/metrics"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/ppiankov/kubenow/internal/metrics"
 )
 
 const testIngressClass = "nginx"

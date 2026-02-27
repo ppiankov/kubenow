@@ -7,11 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
+
+	"github.com/ppiankov/kubenow/internal/util"
 )
 
 const podLabelRefreshInterval = 60 * time.Second

@@ -7,9 +7,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+
 	"github.com/ppiankov/kubenow/internal/monitor"
 	"github.com/ppiankov/kubenow/internal/util"
-	"github.com/spf13/cobra"
 )
 
 var monitorConfig struct {

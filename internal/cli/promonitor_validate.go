@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ppiankov/kubenow/internal/policy"
 	"github.com/spf13/cobra"
+
+	"github.com/ppiankov/kubenow/internal/policy"
 )
 
 var validatePolicyCmd = &cobra.Command{

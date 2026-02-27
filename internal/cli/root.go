@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ppiankov/kubenow/internal/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/ppiankov/kubenow/internal/util"
 )
 
 const version = "0.3.3"

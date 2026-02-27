@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/ppiankov/kubenow/internal/analyzer"
 	"github.com/ppiankov/kubenow/internal/models"
 	"github.com/ppiankov/kubenow/internal/monitor"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateSARIFFromRequestsSkew_ValidJSON(t *testing.T) {

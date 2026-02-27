@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/audit"
-	"github.com/ppiankov/kubenow/internal/policy"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/ppiankov/kubenow/internal/audit"
+	"github.com/ppiankov/kubenow/internal/policy"
 )
 
 // KubeApplier abstracts Kubernetes mutations for testability.

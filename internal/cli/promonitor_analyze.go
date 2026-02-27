@@ -6,12 +6,13 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
+
 	"github.com/ppiankov/kubenow/internal/exposure"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/promonitor"
 	"github.com/ppiankov/kubenow/internal/util"
-	"github.com/spf13/cobra"
-	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 var pmAnalyzeConfig struct {

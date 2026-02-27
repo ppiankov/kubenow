@@ -6,10 +6,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/metrics"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/ppiankov/kubenow/internal/metrics"
 )
 
 // NodeFootprintAnalyzer analyzes cluster node topology and simulates alternatives

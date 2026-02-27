@@ -8,11 +8,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
+
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/promonitor"
 	"github.com/ppiankov/kubenow/internal/util"
-	"github.com/spf13/cobra"
-	metricsclientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 var collectConfig struct {

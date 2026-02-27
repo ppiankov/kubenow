@@ -6,9 +6,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/ppiankov/kubenow/internal/exposure"
 	"github.com/ppiankov/kubenow/internal/metrics"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestNewModel(t *testing.T) {

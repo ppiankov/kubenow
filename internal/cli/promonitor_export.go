@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ppiankov/kubenow/internal/promonitor"
-	"github.com/ppiankov/kubenow/internal/util"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/ppiankov/kubenow/internal/promonitor"
+	"github.com/ppiankov/kubenow/internal/util"
 )
 
 var exportConfig struct {

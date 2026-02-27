@@ -8,10 +8,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/metrics"
-	"github.com/ppiankov/kubenow/internal/models"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/ppiankov/kubenow/internal/metrics"
+	"github.com/ppiankov/kubenow/internal/models"
 )
 
 // RequestsSkewAnalyzer analyzes resource request vs usage skew

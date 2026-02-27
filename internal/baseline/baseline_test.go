@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/analyzer"
-	"github.com/ppiankov/kubenow/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ppiankov/kubenow/internal/analyzer"
+	"github.com/ppiankov/kubenow/internal/models"
 )
 
 func TestSaveAndLoadBaseline_RoundTrip(t *testing.T) {

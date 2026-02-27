@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ppiankov/kubenow/internal/metrics"
 )
 
 func TestLatchFilename(t *testing.T) {

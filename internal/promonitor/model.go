@@ -9,11 +9,12 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/ppiankov/kubenow/internal/audit"
 	"github.com/ppiankov/kubenow/internal/exposure"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/policy"
-	"k8s.io/client-go/kubernetes"
 )
 
 // Mode describes what operations the policy allows.
