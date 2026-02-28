@@ -15,6 +15,7 @@ import (
 
 	"github.com/ppiankov/kubenow/internal/analyzer"
 	"github.com/ppiankov/kubenow/internal/baseline"
+	"github.com/ppiankov/kubenow/internal/cost"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/output"
 	"github.com/ppiankov/kubenow/internal/util"
@@ -50,6 +51,10 @@ var requestsSkewConfig struct {
 	obfuscate bool
 	// CI/CD options
 	failOn string
+	// Cost estimation options
+	costCPU      float64
+	costMemory   float64
+	instanceType string
 	// Baseline options
 	saveBaseline    string
 	compareBaseline string
@@ -144,6 +149,11 @@ func init() {
 	// Baseline/drift flags
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.saveBaseline, "save-baseline", "", "Save analysis results as baseline to file")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.compareBaseline, "compare-baseline", "", "Compare current results to saved baseline")
+
+	// Cost estimation flags
+	requestsSkewCmd.Flags().Float64Var(&requestsSkewConfig.costCPU, "cost-cpu", 0, "Cost per CPU core per hour in dollars (overrides instance-type lookup)")
+	requestsSkewCmd.Flags().Float64Var(&requestsSkewConfig.costMemory, "cost-memory", 0, "Cost per GiB memory per hour in dollars (overrides instance-type lookup)")
+	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.instanceType, "instance-type", "", "Node instance type for pricing lookup (e.g., m5.xlarge, n2-standard-4)")
 }
 
 func runRequestsSkew(_ *cobra.Command, _ []string) error {
@@ -339,6 +349,11 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 				result.SpikeData[key] = data
 			}
 		}
+	}
+
+	// Compute cost estimates if any cost flag is provided
+	if requestsSkewConfig.costCPU > 0 || requestsSkewConfig.costMemory > 0 || requestsSkewConfig.instanceType != "" {
+		attachCostEstimates(result)
 	}
 
 	// Create obfuscator
@@ -563,9 +578,14 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 		}
 	}
 
-	// Create table
+	// Create table — add cost column if cost estimates are present
+	hasCost := result.Summary.CostEstimate != nil
 	table := tablewriter.NewWriter(os.Stdout)
-	table.Header([]string{"Namespace", "Workload", "Req CPU", "Lim CPU", "P99 CPU", "Skew", "Lim Skew", "Safety", "Impact"})
+	header := []string{"Namespace", "Workload", "Req CPU", "Lim CPU", "P99 CPU", "Skew", "Lim Skew", "Safety", "Impact"}
+	if hasCost {
+		header = append(header, "Est.Waste")
+	}
+	table.Header(header)
 
 	for _, w := range result.Results {
 		safetyLabel := "?"
@@ -594,7 +614,7 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 			limSkew = fmt.Sprintf("%.1fx", w.LimitSkewCPU)
 		}
 
-		table.Append([]string{
+		row := []string{
 			w.Namespace,
 			w.Workload,
 			fmt.Sprintf("%.2f", w.RequestedCPU),
@@ -604,7 +624,13 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 			limSkew,
 			safetyLabel,
 			impactScoreLabel(w.ImpactScore),
-		})
+		}
+		if hasCost && w.CostEstimate != nil {
+			row = append(row, formatMonthlyCost(w.CostEstimate.WastedMonthly))
+		} else if hasCost {
+			row = append(row, "-")
+		}
+		table.Append(row)
 	}
 
 	// Print summary
@@ -652,6 +678,14 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 	if result.Summary.TotalWastedLimitCPU > 0 || result.Summary.TotalWastedLimitMemoryGi > 0 {
 		fmt.Printf("  Total Wasted CPU (limits): %.2f cores\n", result.Summary.TotalWastedLimitCPU)
 		fmt.Printf("  Total Wasted Memory (limits): %.2fGi\n", result.Summary.TotalWastedLimitMemoryGi)
+	}
+	if result.Summary.CostEstimate != nil {
+		ce := result.Summary.CostEstimate
+		fmt.Printf("  Estimated waste: %s (rates: $%.3f/core/hr, $%.4f/GiB/hr, %s)\n",
+			formatMonthlyCost(ce.TotalWastedMonthly),
+			ce.Rates.CPUPerCoreHour,
+			ce.Rates.MemoryPerGiBHour,
+			ce.Rates.Source)
 	}
 
 	// Print safety warnings
@@ -1428,4 +1462,47 @@ func printDriftReport(report *baseline.DriftReport) {
 	}
 
 	fmt.Printf("💡 Use --save-baseline to update your baseline with current results\n")
+}
+
+// attachCostEstimates computes per-workload and summary cost estimates
+// and attaches them to the analysis result.
+func attachCostEstimates(result *analyzer.RequestsSkewResult) {
+	rates := cost.ResolveRates(
+		requestsSkewConfig.instanceType,
+		requestsSkewConfig.costCPU,
+		requestsSkewConfig.costMemory,
+	)
+
+	var totalRequestedCPU, totalRequestedMemGi float64
+	for i := range result.Results {
+		w := &result.Results[i]
+		est := cost.EstimateWorkload(
+			w.RequestedCPU, w.P95UsedCPU,
+			w.RequestedMemoryGi, w.P95UsedMemoryGi,
+			rates,
+		)
+		w.CostEstimate = &est
+		totalRequestedCPU += w.RequestedCPU
+		totalRequestedMemGi += w.RequestedMemoryGi
+	}
+
+	summary := cost.EstimateSummary(
+		result.Summary.TotalWastedCPU,
+		result.Summary.TotalWastedMemoryGi,
+		totalRequestedCPU,
+		totalRequestedMemGi,
+		rates,
+	)
+	result.Summary.CostEstimate = &summary
+}
+
+// formatMonthlyCost renders a dollar amount as a compact monthly cost string.
+func formatMonthlyCost(amount float64) string {
+	if amount < 1 {
+		return fmt.Sprintf("$%.2f/mo", amount)
+	}
+	if amount < 1000 {
+		return fmt.Sprintf("$%.0f/mo", amount)
+	}
+	return fmt.Sprintf("$%.1fk/mo", amount/1000)
 }

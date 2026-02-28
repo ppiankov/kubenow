@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/ppiankov/kubenow/internal/cost"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/models"
 )
@@ -129,6 +130,9 @@ type RequestsSkewSummary struct {
 	TotalWastedMemoryGi      float64 `json:"total_wasted_memory_gi"`
 	TotalWastedLimitCPU      float64 `json:"total_wasted_limit_cpu"`
 	TotalWastedLimitMemoryGi float64 `json:"total_wasted_limit_memory_gi"`
+
+	// Cost estimation (populated when --cost-cpu or --cost-memory flags are used)
+	CostEstimate *cost.SummaryCostEstimate `json:"cost_estimate,omitempty"`
 }
 
 // WorkloadSkewAnalysis contains skew analysis for a single workload
@@ -164,6 +168,9 @@ type WorkloadSkewAnalysis struct {
 	// Quota/LimitRange context
 	UsingDefaultRequests bool   `json:"using_default_requests,omitempty"` // True if using LimitRange defaults
 	QuotaContext         string `json:"quota_context,omitempty"`          // E.g., "Namespace has quota: 50% utilized"
+
+	// Cost estimation (populated when --cost-cpu or --cost-memory flags are used)
+	CostEstimate *cost.WorkloadCostEstimate `json:"cost_estimate,omitempty"`
 }
 
 // NewRequestsSkewAnalyzer creates a new requests-skew analyzer
