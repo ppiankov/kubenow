@@ -125,7 +125,7 @@ func (m *AvailableMetrics) ValidateMetrics() error {
 }
 
 // GetCPUQuery builds a CPU query with the best available metric
-func (m *AvailableMetrics) GetCPUQuery(namespace, workload, workloadType string) string {
+func (m *AvailableMetrics) GetCPUQuery(namespace, workload, _ string) string {
 	ns := escapeLabel(namespace)
 	pod := escapeRegex(workload, "-.*")
 	switch {
@@ -139,7 +139,7 @@ func (m *AvailableMetrics) GetCPUQuery(namespace, workload, workloadType string)
 }
 
 // GetMemoryQuery builds a memory query with the best available metric
-func (m *AvailableMetrics) GetMemoryQuery(namespace, workload, workloadType string) string {
+func (m *AvailableMetrics) GetMemoryQuery(namespace, workload, _ string) string {
 	ns := escapeLabel(namespace)
 	pod := escapeRegex(workload, "-.*")
 	switch {

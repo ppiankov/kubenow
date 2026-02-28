@@ -23,7 +23,7 @@ Examples:
 
   # Detailed compliance analysis
   kubenow compliance --llm-endpoint http://localhost:11434/v1 --model mixtral:8x22b --enhance-technical --enhance-priority`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		complianceConfig.Mode = "compliance"
 		if err := RunLLMCommand(cmd, &complianceConfig); err != nil {
 			return err

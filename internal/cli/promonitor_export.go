@@ -58,7 +58,7 @@ func init() {
 	exportCmd.Flags().StringVarP(&exportConfig.output, "output", "o", "", "write to file instead of stdout")
 }
 
-func runExport(cmd *cobra.Command, args []string) error {
+func runExport(_ *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	ref, err := promonitor.ParseWorkloadRef(args[0])

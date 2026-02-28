@@ -37,7 +37,7 @@ func NewMockMetrics() *MockMetrics {
 }
 
 // QueryRange implements MetricsProvider
-func (m *MockMetrics) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) (model.Matrix, error) {
+func (m *MockMetrics) QueryRange(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (model.Matrix, error) {
 	m.QueryRangeCalls++
 	if m.QueryRangeError != nil {
 		return nil, m.QueryRangeError
@@ -48,7 +48,7 @@ func (m *MockMetrics) QueryRange(ctx context.Context, query string, start, end t
 }
 
 // QueryInstant implements MetricsProvider
-func (m *MockMetrics) QueryInstant(ctx context.Context, query string, ts time.Time) (model.Vector, error) {
+func (m *MockMetrics) QueryInstant(_ context.Context, _ string, _ time.Time) (model.Vector, error) {
 	m.QueryInstantCalls++
 	if m.QueryInstantError != nil {
 		return nil, m.QueryInstantError
@@ -59,7 +59,7 @@ func (m *MockMetrics) QueryInstant(ctx context.Context, query string, ts time.Ti
 }
 
 // GetNamespaceResourceUsage implements MetricsProvider
-func (m *MockMetrics) GetNamespaceResourceUsage(ctx context.Context, namespace string, window time.Duration) (*NamespaceUsage, error) {
+func (m *MockMetrics) GetNamespaceResourceUsage(_ context.Context, namespace string, window time.Duration) (*NamespaceUsage, error) {
 	if usage, exists := m.NamespaceUsages[namespace]; exists {
 		return usage, nil
 	}
@@ -79,7 +79,7 @@ func (m *MockMetrics) GetNamespaceResourceUsage(ctx context.Context, namespace s
 }
 
 // GetPodResourceUsage implements MetricsProvider
-func (m *MockMetrics) GetPodResourceUsage(ctx context.Context, namespace, podPattern string, window time.Duration) ([]PodUsage, error) {
+func (m *MockMetrics) GetPodResourceUsage(_ context.Context, namespace, podPattern string, _ time.Duration) ([]PodUsage, error) {
 	key := namespace + "/" + podPattern
 	if usages, exists := m.PodUsages[key]; exists {
 		return usages, nil
@@ -102,7 +102,7 @@ func (m *MockMetrics) GetPodResourceUsage(ctx context.Context, namespace, podPat
 }
 
 // GetWorkloadResourceUsage implements MetricsProvider
-func (m *MockMetrics) GetWorkloadResourceUsage(ctx context.Context, namespace, workloadName, workloadType string, window time.Duration) (*WorkloadUsage, error) {
+func (m *MockMetrics) GetWorkloadResourceUsage(_ context.Context, namespace, workloadName, _ string, _ time.Duration) (*WorkloadUsage, error) {
 	key := namespace + "/" + workloadName
 	if usage, exists := m.WorkloadUsages[key]; exists {
 		return usage, nil
@@ -128,7 +128,7 @@ func (m *MockMetrics) GetWorkloadResourceUsage(ctx context.Context, namespace, w
 }
 
 // GetClusterResourceUsage implements MetricsProvider
-func (m *MockMetrics) GetClusterResourceUsage(ctx context.Context, window time.Duration) (*ClusterUsage, error) {
+func (m *MockMetrics) GetClusterResourceUsage(_ context.Context, _ time.Duration) (*ClusterUsage, error) {
 	if m.ClusterUsage.TotalCPU > 0 {
 		return m.ClusterUsage, nil
 	}
@@ -161,7 +161,7 @@ func (m *MockMetrics) HasNamespaceMetrics(_ context.Context, namespace string) (
 }
 
 // Health implements MetricsProvider
-func (m *MockMetrics) Health(ctx context.Context) error {
+func (m *MockMetrics) Health(_ context.Context) error {
 	m.HealthCalls++
 	return m.HealthError
 }

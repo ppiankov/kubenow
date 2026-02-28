@@ -13,6 +13,11 @@ import (
 	"github.com/ppiankov/kubenow/internal/metrics"
 )
 
+const (
+	kubeSystemNS            = "kube-system"
+	workloadTypeStatefulSet = "StatefulSet"
+)
+
 // NodeFootprintAnalyzer analyzes cluster node topology and simulates alternatives
 type NodeFootprintAnalyzer struct {
 	kubeClient      kubernetes.Interface
@@ -228,7 +233,7 @@ func (a *NodeFootprintAnalyzer) getWorkloadEnvelope(ctx context.Context) (*Workl
 
 	for _, pod := range pods.Items {
 		// Skip pods in kube-system
-		if pod.Namespace == "kube-system" {
+		if pod.Namespace == kubeSystemNS {
 			continue
 		}
 
@@ -293,7 +298,7 @@ func (a *NodeFootprintAnalyzer) checkWorkloadStability(ctx context.Context, pods
 
 	// Check each pod's owner (deployment/statefulset) for stability
 	for _, pod := range pods {
-		if pod.Namespace == "kube-system" {
+		if pod.Namespace == kubeSystemNS {
 			continue
 		}
 
@@ -306,8 +311,8 @@ func (a *NodeFootprintAnalyzer) checkWorkloadStability(ctx context.Context, pods
 			case "ReplicaSet":
 				workloadType = "Deployment"
 				workloadName = metrics.ResolveWorkloadName(pod.Name, pod.Labels)
-			case "StatefulSet":
-				workloadType = "StatefulSet"
+			case workloadTypeStatefulSet:
+				workloadType = workloadTypeStatefulSet
 				workloadName = pod.OwnerReferences[0].Name
 			case "DaemonSet":
 				workloadType = "DaemonSet"
@@ -316,7 +321,7 @@ func (a *NodeFootprintAnalyzer) checkWorkloadStability(ctx context.Context, pods
 				// CRD-managed pod — resolve via operator labels
 				name, operatorType := metrics.ResolveWorkloadIdentity(pod.Name, pod.Labels)
 				if operatorType != "" {
-					workloadType = "StatefulSet" // ordinal naming pattern
+					workloadType = workloadTypeStatefulSet // ordinal naming pattern
 					workloadName = name
 				} else {
 					workloadName = pod.OwnerReferences[0].Name

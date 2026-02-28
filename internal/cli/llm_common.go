@@ -60,7 +60,7 @@ type LLMCommandConfig struct {
 }
 
 // RunLLMCommand executes an LLM analysis command
-func RunLLMCommand(cmd *cobra.Command, config *LLMCommandConfig) error {
+func RunLLMCommand(_ *cobra.Command, config *LLMCommandConfig) error {
 	// Validate required fields
 	if config.LLMEndpoint == "" || config.Model == "" {
 		return fmt.Errorf("--llm-endpoint and --model are required")
@@ -376,7 +376,7 @@ func extractJSON(s string) (string, error) {
 }
 
 // setupSignalHandler sets up signal handling for graceful shutdown
-func setupSignalHandler(cancel context.CancelFunc) {
+func setupSignalHandler(_ context.CancelFunc) {
 	// Signal handling is already done in watch.Run, but we can add here if needed
 	// For now, just a placeholder
 }

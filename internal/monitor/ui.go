@@ -40,9 +40,6 @@ var (
 			BorderForeground(lipgloss.Color("240")).
 			Padding(1, 2)
 
-	heartbeatStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("46")) // Green
-
 	disconnectedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("196")). // Bright red
 				Bold(true)
@@ -464,53 +461,6 @@ func (m Model) renderProblemCompact(p Problem) string {
 	return b.String()
 }
 
-// renderProblem renders a single problem
-func (m Model) renderProblem(p Problem) string {
-	var b strings.Builder
-
-	// Severity indicator and type
-	indicator := "⚠️"
-	style := warningStyle
-	switch p.Severity {
-	case SeverityFatal:
-		indicator = "❌"
-		style = fatalStyle
-	case SeverityCritical:
-		indicator = "⚠️"
-		style = criticalStyle
-	}
-
-	// Time ago
-	timeAgo := formatDuration(time.Since(p.LastSeen))
-	if time.Since(p.LastSeen) < 10*time.Second {
-		timeAgo = style.Render("NOW")
-	}
-
-	// Main line
-	mainLine := fmt.Sprintf("%s  %s    %s/%s    %s",
-		indicator,
-		style.Render(p.Type),
-		p.Namespace,
-		p.PodName,
-		timeAgo,
-	)
-	b.WriteString(mainLine)
-	b.WriteString("\n")
-
-	// Details
-	if p.ContainerName != "" {
-		b.WriteString(fmt.Sprintf("     └─ Container: %s\n", dimStyle.Render(p.ContainerName)))
-	}
-	if p.Message != "" {
-		b.WriteString(fmt.Sprintf("     └─ %s\n", dimStyle.Render(truncate(p.Message, 70))))
-	}
-	if p.Count > 1 {
-		b.WriteString(fmt.Sprintf("     └─ Count: %s\n", dimStyle.Render(fmt.Sprintf("%d occurrences", p.Count))))
-	}
-
-	return b.String()
-}
-
 // renderRecentEvents renders recent events (compact)
 func (m Model) renderRecentEvents() string {
 	var b strings.Builder
@@ -549,21 +499,6 @@ func (m Model) renderStats() string {
 	return dimStyle.Render(fmt.Sprintf("\n📈 Cluster: %d pods (%d running, %d problem) | %d nodes (%d ready)",
 		m.stats.TotalPods, m.stats.RunningPods, m.stats.ProblemPods,
 		m.stats.TotalNodes, m.stats.ReadyNodes))
-}
-
-// countNamespaces counts unique namespaces from problems and events
-func (m Model) countNamespaces() int {
-	namespaces := make(map[string]bool)
-	for _, p := range m.problems {
-		namespaces[p.Namespace] = true
-	}
-	for _, e := range m.events {
-		namespaces[e.Namespace] = true
-	}
-	if len(namespaces) == 0 {
-		return 1 // Default
-	}
-	return len(namespaces)
 }
 
 // Helper functions

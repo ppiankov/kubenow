@@ -36,7 +36,7 @@ func init() {
 	proMonitorCmd.AddCommand(statusCmd)
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
+func runStatus(_ *cobra.Command, args []string) error {
 	ref, err := promonitor.ParseWorkloadRef(args[0])
 	if err != nil {
 		return err

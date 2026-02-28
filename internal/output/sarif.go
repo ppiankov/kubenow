@@ -9,6 +9,8 @@ import (
 	"github.com/ppiankov/kubenow/internal/monitor"
 )
 
+const severityError = "error"
+
 // SARIF represents the SARIF 2.1.0 format for static analysis results
 // Spec: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 type SARIF struct {
@@ -159,7 +161,7 @@ func generateRequestsSkewRules() []Rule {
 			Help: MessageString{
 				Text: "Do not reduce resources for this workload. Investigate OOMKills, spikes, or high restart counts before making changes.",
 			},
-			DefaultLevel: "error",
+			DefaultLevel: severityError,
 		},
 	}
 }
@@ -178,7 +180,7 @@ func generateMonitorRules() []Rule {
 			Help: MessageString{
 				Text: "Check pod logs with kubectl logs. Common causes: configuration errors, missing dependencies, application bugs.",
 			},
-			DefaultLevel: "error",
+			DefaultLevel: severityError,
 		},
 		{
 			ID:   "pod-oomkilled",
@@ -192,7 +194,7 @@ func generateMonitorRules() []Rule {
 			Help: MessageString{
 				Text: "Increase memory limits or investigate memory leaks. Check memory usage patterns with monitoring tools.",
 			},
-			DefaultLevel: "error",
+			DefaultLevel: severityError,
 		},
 		{
 			ID:   "pod-imagepull",
@@ -206,7 +208,7 @@ func generateMonitorRules() []Rule {
 			Help: MessageString{
 				Text: "Verify image name, registry access, and authentication. Check imagePullSecrets if using private registry.",
 			},
-			DefaultLevel: "error",
+			DefaultLevel: severityError,
 		},
 		{
 			ID:   "pod-pending",
@@ -220,7 +222,7 @@ func generateMonitorRules() []Rule {
 			Help: MessageString{
 				Text: "Check node resources, pod resource requests, node selectors, taints, and tolerations.",
 			},
-			DefaultLevel: "error",
+			DefaultLevel: severityError,
 		},
 	}
 }
@@ -239,7 +241,7 @@ func convertRequestsSkewToResults(result *analyzer.RequestsSkewResult) []Result 
 
 		// Check if reduction would be unsafe
 		if w.Safety != nil && w.Safety.Rating == "UNSAFE" {
-			level = "error"
+			level = severityError
 			ruleID = "unsafe-reduction"
 		}
 
@@ -355,9 +357,9 @@ func getRuleIDForProblemType(problemType string) string {
 func getSARIFLevelForSeverity(severity monitor.Severity) string {
 	switch severity {
 	case monitor.SeverityFatal:
-		return "error"
+		return severityError
 	case monitor.SeverityCritical:
-		return "error"
+		return severityError
 	case monitor.SeverityWarning:
 		return "warning"
 	default:

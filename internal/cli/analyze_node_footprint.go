@@ -81,7 +81,7 @@ func init() {
 	nodeFootprintCmd.Flags().BoolVar(&nodeFootprintConfig.silent, "silent", false, "Suppress progress output (for CI/CD pipelines)")
 }
 
-func runNodeFootprint(cmd *cobra.Command, args []string) error {
+func runNodeFootprint(_ *cobra.Command, _ []string) error {
 	// Silent mode is passed via config to the analyzer (no global state)
 
 	// Validate flags
@@ -148,7 +148,7 @@ func runNodeFootprint(cmd *cobra.Command, args []string) error {
 	// Health check — use timeout to prevent unbounded calls
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	if err := metricsProvider.Health(ctx); err != nil {
+	if err = metricsProvider.Health(ctx); err != nil {
 		return fmt.Errorf("prometheus health check failed: %w", err)
 	}
 
@@ -200,7 +200,7 @@ func outputNodeFootprintJSON(result *analyzer.NodeFootprintResult, exportFile st
 	return nil
 }
 
-func outputNodeFootprintTable(result *analyzer.NodeFootprintResult, exportFile string) error {
+func outputNodeFootprintTable(result *analyzer.NodeFootprintResult, _ string) error {
 	// Create table
 	table := tablewriter.NewWriter(os.Stdout)
 	table.Header([]string{"Scenario", "Nodes", "Avg CPU%", "Avg Mem%", "Headroom", "Feasibility", "Notes"})

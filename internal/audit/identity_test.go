@@ -57,7 +57,7 @@ func TestResolveKubeconfig_MissingFile(t *testing.T) {
 func TestResolveIdentity_SSRFallback(t *testing.T) {
 	// Create a fake client that returns an error for SSR
 	client := fake.NewSimpleClientset()
-	client.PrependReactor("create", "selfsubjectreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+	client.PrependReactor("create", "selfsubjectreviews", func(_ k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, assert.AnError
 	})
 
@@ -95,7 +95,7 @@ users:
 
 func TestResolveIdentity_SSRSuccess(t *testing.T) {
 	client := fake.NewSimpleClientset()
-	client.PrependReactor("create", "selfsubjectreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+	client.PrependReactor("create", "selfsubjectreviews", func(_ k8stesting.Action) (bool, runtime.Object, error) {
 		return true, &authenticationv1.SelfSubjectReview{
 			Status: authenticationv1.SelfSubjectReviewStatus{
 				UserInfo: authenticationv1.UserInfo{
@@ -114,7 +114,7 @@ func TestResolveIdentity_SSRSuccess(t *testing.T) {
 
 func TestResolveIdentity_BothFail(t *testing.T) {
 	client := fake.NewSimpleClientset()
-	client.PrependReactor("create", "selfsubjectreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+	client.PrependReactor("create", "selfsubjectreviews", func(_ k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, assert.AnError
 	})
 

@@ -53,7 +53,7 @@ func init() {
 	pmAnalyzeCmd.Flags().BoolVar(&pmAnalyzeConfig.acknowledgeHPA, "acknowledge-hpa", false, "acknowledge HPA presence and allow apply despite HPA")
 }
 
-func runAnalyze(cmd *cobra.Command, args []string) error {
+func runAnalyze(_ *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	ref, err := promonitor.ParseWorkloadRef(args[0])

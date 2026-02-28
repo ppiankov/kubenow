@@ -29,7 +29,10 @@ type ClientsetApplier struct {
 	Client *kubernetes.Clientset
 }
 
-const fieldManager = "kubenow"
+const (
+	fieldManager  = "kubenow"
+	statusUnknown = "unknown"
+)
 
 func (a *ClientsetApplier) PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fm string, force bool) error {
 	opts := metav1.PatchOptions{FieldManager: fm, Force: &force}
@@ -442,7 +445,7 @@ func isConflictError(err error) bool {
 func detectConflictManager(ctx context.Context, client KubeApplier, ref WorkloadRef) string {
 	fields, err := client.GetManagedFields(ctx, ref)
 	if err != nil {
-		return "unknown"
+		return statusUnknown
 	}
 
 	for _, f := range fields {
@@ -461,7 +464,7 @@ func detectConflictManager(ctx context.Context, client KubeApplier, ref Workload
 		}
 	}
 
-	return "unknown"
+	return statusUnknown
 }
 
 // isGitOpsManager checks if a field manager name matches a known GitOps controller.
@@ -593,7 +596,7 @@ func ExecuteApplyWithAudit(ctx context.Context, cfg *AuditApplyConfig) *ApplyRes
 
 	// 5. Set flags on input
 	cfg.Input.AuditWritable = true // we got this far, path is writable
-	cfg.Input.IdentityRecorded = identity.IdentitySource != "unknown"
+	cfg.Input.IdentityRecorded = identity.IdentitySource != statusUnknown
 	cfg.Input.RateLimitOK = rateLimitResult.Allowed
 
 	// 6. Run CheckActionable — if denied, return denial result

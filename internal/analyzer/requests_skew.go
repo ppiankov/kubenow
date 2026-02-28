@@ -693,7 +693,9 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	}
 
 	for _, deploy := range deployments.Items {
-		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, deploy.Name, "Deployment", deploy.CreationTimestamp.Time)
+		var analysis *WorkloadSkewAnalysis
+		var hasMetrics bool
+		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, deploy.Name, "Deployment", deploy.CreationTimestamp.Time)
 		if err != nil {
 			// Log but continue
 			continue
@@ -716,7 +718,9 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	}
 
 	for _, sts := range statefulsets.Items {
-		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, sts.Name, "StatefulSet", sts.CreationTimestamp.Time)
+		var analysis *WorkloadSkewAnalysis
+		var hasMetrics bool
+		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, sts.Name, "StatefulSet", sts.CreationTimestamp.Time)
 		if err != nil {
 			continue
 		}
@@ -738,7 +742,9 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	}
 
 	for _, ds := range daemonsets.Items {
-		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, ds.Name, "DaemonSet", ds.CreationTimestamp.Time)
+		var analysis *WorkloadSkewAnalysis
+		var hasMetrics bool
+		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, ds.Name, "DaemonSet", ds.CreationTimestamp.Time)
 		if err != nil {
 			continue
 		}

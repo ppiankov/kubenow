@@ -26,7 +26,7 @@ Examples:
 
   # Export incident report to JSON
   kubenow incident --llm-endpoint http://localhost:11434/v1 --model mixtral:8x22b --output incident-report.json`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		incidentConfig.Mode = "incident"
 		if err := RunLLMCommand(cmd, &incidentConfig); err != nil {
 			return err

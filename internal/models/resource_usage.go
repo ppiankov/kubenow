@@ -236,7 +236,7 @@ func (sa *SafetyAnalysis) DetermineRating(cpuUsageP99, memUsageP99, cpuRequested
 
 // DetectUltraSpikes analyzes statistical patterns to detect ultra-fast spikes
 // that occur between Prometheus scrape intervals (typically 15-30s)
-func (sa *SafetyAnalysis) DetectUltraSpikes(cpuAvg, cpuP95, cpuP99, cpuMax float64) {
+func (sa *SafetyAnalysis) DetectUltraSpikes(_, cpuP95, cpuP99, cpuMax float64) {
 	if cpuMax == 0 || cpuP99 == 0 || cpuP95 == 0 {
 		return
 	}
@@ -365,7 +365,7 @@ func FormatMemoryBytes(bytes float64) string {
 }
 
 // ParseMemoryString converts human-readable memory to bytes
-func ParseMemoryString(s string) (float64, error) {
+func ParseMemoryString(_ string) (float64, error) {
 	// Implementation would parse strings like "8Gi", "512Mi", etc.
 	// For now, placeholder
 	return 0, nil

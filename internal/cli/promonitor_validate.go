@@ -40,7 +40,7 @@ func init() {
 	validatePolicyCmd.Flags().BoolVar(&checkPaths, "check-paths", false, "verify audit path exists and is writable")
 }
 
-func runValidatePolicy(cmd *cobra.Command, args []string) error {
+func runValidatePolicy(_ *cobra.Command, _ []string) error {
 	result := policy.Load(policyPath)
 
 	if result.Absent {

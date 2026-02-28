@@ -23,7 +23,7 @@ Examples:
 
   # Enhanced remediation guidance
   kubenow pod --llm-endpoint http://localhost:11434/v1 --model mixtral:8x22b --enhance-remediation`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		podConfig.Mode = "pod"
 		if err := RunLLMCommand(cmd, &podConfig); err != nil {
 			return err

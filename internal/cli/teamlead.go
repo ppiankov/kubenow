@@ -23,7 +23,7 @@ Examples:
 
   # Focus on production namespace
   kubenow --namespace production teamlead --llm-endpoint http://localhost:11434/v1 --model mixtral:8x22b`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		teamleadConfig.Mode = "teamlead"
 		if err := RunLLMCommand(cmd, &teamleadConfig); err != nil {
 			return err

@@ -146,7 +146,7 @@ func init() {
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.compareBaseline, "compare-baseline", "", "Compare current results to saved baseline")
 }
 
-func runRequestsSkew(cmd *cobra.Command, args []string) error {
+func runRequestsSkew(_ *cobra.Command, _ []string) error {
 	// Silent mode is passed via config to the analyzer (no global state)
 
 	// Setup kubectl port-forward if k8s-service is specified
@@ -246,7 +246,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 	// Health check — use timeout to prevent unbounded calls
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	if err := metricsProvider.Health(ctx); err != nil {
+	if err = metricsProvider.Health(ctx); err != nil {
 		return fmt.Errorf("prometheus health check failed: %w", err)
 	}
 
@@ -262,7 +262,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate that required metrics exist
-	if err := availableMetrics.ValidateMetrics(); err != nil {
+	if err = availableMetrics.ValidateMetrics(); err != nil {
 		fmt.Fprintf(os.Stderr, "\n⚠️  Metric Discovery Failed:\n")
 		fmt.Fprintf(os.Stderr, "════════════════════════\n\n")
 		fmt.Fprintf(os.Stderr, "%s\n\n", err.Error())
@@ -333,7 +333,7 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		}
 
 		// Attach spike data to result for export
-		if spikeData != nil && len(spikeData) > 0 {
+		if len(spikeData) > 0 {
 			result.SpikeData = make(map[string]interface{})
 			for key, data := range spikeData {
 				result.SpikeData[key] = data
@@ -392,13 +392,11 @@ func runRequestsSkew(cmd *cobra.Command, args []string) error {
 		shouldFail := false
 
 		// Check for OOMKills in spike data (always critical)
-		if spikeData != nil {
-			for _, data := range spikeData {
-				if data.OOMKills > 0 {
-					shouldFail = true
-					fmt.Fprintf(os.Stderr, "\n❌ Found OOMKills in spike monitoring data (--fail-on active)\n")
-					break
-				}
+		for _, data := range spikeData {
+			if data.OOMKills > 0 {
+				shouldFail = true
+				fmt.Fprintf(os.Stderr, "\n❌ Found OOMKills in spike monitoring data (--fail-on active)\n")
+				break
 			}
 		}
 
@@ -544,7 +542,8 @@ func outputRequestsSkewSARIF(result *analyzer.RequestsSkewResult, exportFile str
 func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile string, exportFormat string) error {
 	// If export file is specified, save to file in requested format
 	if exportFile != "" {
-		if exportFormat == "json" {
+		switch exportFormat {
+		case "json":
 			data, err := json.MarshalIndent(result, "", "  ")
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON for export: %w", err)
@@ -553,7 +552,7 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 				return fmt.Errorf("failed to write export file: %w", err)
 			}
 			fmt.Fprintf(os.Stderr, "[kubenow] Full results exported to: %s (JSON format)\n", exportFile)
-		} else if exportFormat == "table" {
+		case "table":
 			// Defer the table export until after we render it
 			// We'll capture the table output and save it
 			defer func() {
@@ -1105,7 +1104,7 @@ func printCriticalSignals(workloads []spikeWorkload) {
 			for code, count := range sw.data.ExitCodes {
 				meaning := getExitCodeMeaning(code)
 				// Mark normal exits vs problematic ones
-				icon := "  "
+				var icon string
 				if code == 137 {
 					icon = "🔴"
 				} else if code != 0 {
@@ -1303,7 +1302,7 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 				buf.WriteString("  Exit Codes:\n")
 				for code, count := range sw.data.ExitCodes {
 					meaning := getExitCodeMeaning(code)
-					icon := "⚠️ "
+					var icon string
 					if code == 137 {
 						icon = "🔴"
 					} else if code != 0 {

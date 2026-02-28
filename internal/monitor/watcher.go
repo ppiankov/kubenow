@@ -397,9 +397,10 @@ func (w *Watcher) refreshStats() {
 	running := 0
 	problem := 0
 	for _, pod := range pods.Items {
-		if pod.Status.Phase == corev1.PodRunning {
+		switch pod.Status.Phase {
+		case corev1.PodRunning:
 			running++
-		} else if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodPending {
+		case corev1.PodFailed, corev1.PodPending:
 			problem++
 		}
 	}

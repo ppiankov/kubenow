@@ -433,7 +433,7 @@ func (m Model) buildApplyInput() *ApplyInput {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		identity := audit.ResolveIdentity(ctx, m.kubeClient, m.kubeconfigPath)
-		input.IdentityRecorded = identity.IdentitySource != "unknown"
+		input.IdentityRecorded = identity.IdentitySource != statusUnknown
 
 		peekResult, _ := audit.Peek(audit.RateLimitConfig{
 			MaxGlobal: m.fullPolicy.RateLimits.MaxAppliesPerHour,

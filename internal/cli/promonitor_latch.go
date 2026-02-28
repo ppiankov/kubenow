@@ -78,7 +78,7 @@ func init() {
 	latchCmd.Flags().StringVar(&latchConfig.portforwardTimeout, "portforward-timeout", "30s", "Timeout for port-forward readiness (e.g., 30s, 1m)")
 }
 
-func runLatch(cmd *cobra.Command, args []string) error {
+func runLatch(_ *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	// Parse workload reference
@@ -128,7 +128,7 @@ func runLatch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate workload exists
-	if err := promonitor.ValidateWorkload(ctx, kubeClient, ref); err != nil {
+	if err = promonitor.ValidateWorkload(ctx, kubeClient, ref); err != nil {
 		return err
 	}
 
@@ -137,7 +137,7 @@ func runLatch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check metrics-server
-	if err := promonitor.CheckMetricsServer(ctx, metricsClient, ref.Namespace); err != nil {
+	if err = promonitor.CheckMetricsServer(ctx, metricsClient, ref.Namespace); err != nil {
 		return fmt.Errorf("metrics-server required for latch: %w", err)
 	}
 

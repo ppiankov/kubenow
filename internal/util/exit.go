@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-// Standard exit codes aligned with spectre tools family
+// Standard exit codes aligned with specter tools family
 const (
 	// ExitOK indicates successful execution
 	ExitOK = 0

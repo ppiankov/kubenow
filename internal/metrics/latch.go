@@ -147,7 +147,7 @@ func (m *LatchMonitor) Start(ctx context.Context) error {
 			return nil
 		case <-timeout:
 			m.progress(fmt.Sprintf("[latch] Monitoring complete. Captured %d samples.", sampleCount))
-			m.progress(fmt.Sprintf("[latch] Checking for critical signals (OOMKills, restarts, evictions)..."))
+			m.progress("[latch] Checking for critical signals (OOMKills, restarts, evictions)...")
 			m.checkAllCriticalSignals(ctx)
 			close(m.doneCh)
 			return nil
@@ -265,11 +265,11 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 		// Specific namespaces
 		allMetrics := &metricsv1beta1.PodMetricsList{Items: []metricsv1beta1.PodMetrics{}}
 		for _, ns := range m.config.Namespaces {
-			metrics, err := m.metricsClient.MetricsV1beta1().PodMetricses(ns).List(ctx, metav1.ListOptions{})
-			if err != nil {
+			nsMetrics, listErr := m.metricsClient.MetricsV1beta1().PodMetricses(ns).List(ctx, metav1.ListOptions{})
+			if listErr != nil {
 				continue
 			}
-			allMetrics.Items = append(allMetrics.Items, metrics.Items...)
+			allMetrics.Items = append(allMetrics.Items, nsMetrics.Items...)
 		}
 		podMetricsList = allMetrics
 	}

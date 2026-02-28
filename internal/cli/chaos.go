@@ -23,7 +23,7 @@ Examples:
 
   # Export chaos report
   kubenow chaos --llm-endpoint http://localhost:11434/v1 --model mixtral:8x22b --output chaos-scenarios.md`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		chaosConfig.Mode = "chaos"
 		if err := RunLLMCommand(cmd, &chaosConfig); err != nil {
 			return err

@@ -217,7 +217,7 @@ func FinalizeBundle(bundle *AuditBundle, afterObject map[string]interface{}, sta
 	}
 
 	var decision DecisionJSON
-	if err := json.Unmarshal(decisionData, &decision); err != nil {
+	if err = json.Unmarshal(decisionData, &decision); err != nil {
 		return fmt.Errorf("unmarshal decision.json: %w", err)
 	}
 

@@ -77,7 +77,7 @@ func init() {
 	monitorCmd.Flags().BoolVar(&monitorConfig.noMesh, "no-mesh", false, "Disable service mesh health monitoring")
 }
 
-func runMonitor(cmd *cobra.Command, args []string) error {
+func runMonitor(_ *cobra.Command, _ []string) error {
 	// Build Kubernetes client
 	if IsVerbose() {
 		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")

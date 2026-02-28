@@ -24,7 +24,7 @@ Examples:
 
   # Export to HTML report
   kubenow default --llm-endpoint http://localhost:11434/v1 --model mixtral:8x22b --output report.html`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		defaultConfig.Mode = "default"
 		if err := RunLLMCommand(cmd, &defaultConfig); err != nil {
 			return err

@@ -114,11 +114,7 @@ func TestSetConnectionOK_NoSpuriousUpdate(t *testing.T) {
 }
 
 func TestConnectionStatus_DefaultUnknown(t *testing.T) {
-	w := &Watcher{
-		problems:   make(map[string]*Problem),
-		events:     make([]RecentEvent, 0),
-		updateChan: make(chan struct{}, 100),
-	}
+	w := &Watcher{}
 
 	assert.Equal(t, ConnectionUnknown, w.connStatus)
 }

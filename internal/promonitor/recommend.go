@@ -203,7 +203,7 @@ func recommendContainer(
 	memPerc *metrics.Percentiles,
 	margin float64,
 	bounds *PolicyBounds,
-	hasProm bool,
+	_ bool,
 ) ContainerAlignment {
 	alignment := ContainerAlignment{
 		Name: current.Name,
