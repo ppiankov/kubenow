@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,10 +31,12 @@ for current resource values, computes the recommendation, and outputs it
 in the requested format.
 
 Formats:
-  patch    - SSA-compatible YAML patch with evidence comments (default)
-  manifest - Full controller YAML with recommended values, volatile fields stripped
-  diff     - Unified diff showing current vs recommended values
-  json     - Machine-readable AlignmentRecommendation JSON
+  patch      - SSA-compatible YAML patch with evidence comments (default)
+  manifest   - Full controller YAML with recommended values, volatile fields stripped
+  diff       - Unified diff showing current vs recommended values
+  json       - Machine-readable AlignmentRecommendation JSON
+  kustomize  - Kustomize overlay (kustomization.yaml + strategic merge patch)
+  helm       - Helm values.yaml fragment with resource overrides
 
 Export is always available regardless of admin policy.
 
@@ -47,14 +51,20 @@ Examples:
   kubenow pro-monitor export deployment/payment-api --format diff
 
   # Export JSON for automation
-  kubenow pro-monitor export deployment/payment-api --format json -o rec.json`,
+  kubenow pro-monitor export deployment/payment-api --format json -o rec.json
+
+  # Export as Kustomize overlay (split files to directory)
+  kubenow pro-monitor export deployment/payment-api --format kustomize -o patches/
+
+  # Export Helm values override
+  kubenow pro-monitor export deployment/payment-api --format helm -o values-override.yaml`,
 	Args: cobra.ExactArgs(1),
 	RunE: runExport,
 }
 
 func init() {
 	proMonitorCmd.AddCommand(exportCmd)
-	exportCmd.Flags().StringVar(&exportConfig.format, "format", "patch", "output format (patch, manifest, diff, json)")
+	exportCmd.Flags().StringVar(&exportConfig.format, "format", "patch", "output format (patch, manifest, diff, json, kustomize, helm)")
 	exportCmd.Flags().StringVarP(&exportConfig.output, "output", "o", "", "write to file instead of stdout")
 }
 
@@ -121,6 +131,9 @@ func runExport(_ *cobra.Command, args []string) error {
 
 	// Write output
 	if exportConfig.output != "" {
+		if format == promonitor.FormatKustomize && isDirectoryPath(exportConfig.output) {
+			return writeKustomizeDirectory(output, exportConfig.output, ref)
+		}
 		if err := os.WriteFile(exportConfig.output, []byte(output), 0o600); err != nil {
 			return fmt.Errorf("failed to write output file: %w", err)
 		}
@@ -129,6 +142,37 @@ func runExport(_ *cobra.Command, args []string) error {
 		fmt.Print(output)
 	}
 
+	return nil
+}
+
+// isDirectoryPath returns true if the path ends with a slash or is an existing directory.
+func isDirectoryPath(path string) bool {
+	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, string(filepath.Separator)) {
+		return true
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// writeKustomizeDirectory splits kustomize output into separate files in a directory.
+func writeKustomizeDirectory(output, dir string, ref *promonitor.WorkloadRef) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	kustomization, patch, patchFilename := promonitor.SplitKustomizeOutput(output, *ref)
+
+	kustomizationPath := filepath.Join(dir, "kustomization.yaml")
+	if err := os.WriteFile(kustomizationPath, []byte(kustomization), 0o600); err != nil {
+		return fmt.Errorf("failed to write %s: %w", kustomizationPath, err)
+	}
+
+	patchPath := filepath.Join(dir, patchFilename)
+	if err := os.WriteFile(patchPath, []byte(patch), 0o600); err != nil {
+		return fmt.Errorf("failed to write %s: %w", patchPath, err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Written to %s:\n  %s\n  %s\n", dir, "kustomization.yaml", patchFilename)
 	return nil
 }
 

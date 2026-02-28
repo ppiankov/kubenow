@@ -14,11 +14,14 @@ import (
 // ExportFormat represents the output format for export.
 type ExportFormat string
 
+// ExportFormat values for supported output formats.
 const (
-	FormatPatch    ExportFormat = "patch"
-	FormatManifest ExportFormat = "manifest"
-	FormatDiff     ExportFormat = "diff"
-	FormatJSON     ExportFormat = "json"
+	FormatPatch     ExportFormat = "patch"
+	FormatManifest  ExportFormat = "manifest"
+	FormatDiff      ExportFormat = "diff"
+	FormatJSON      ExportFormat = "json"
+	FormatKustomize ExportFormat = "kustomize"
+	FormatHelm      ExportFormat = "helm"
 )
 
 // Export generates output in the requested format.
@@ -40,8 +43,12 @@ func Export(rec *AlignmentRecommendation, format ExportFormat, currentJSON []byt
 		return exportDiff(rec), nil
 	case FormatJSON:
 		return exportJSON(rec)
+	case FormatKustomize:
+		return exportKustomize(rec)
+	case FormatHelm:
+		return exportHelm(rec)
 	default:
-		return "", fmt.Errorf("unsupported export format: %q (supported: patch, manifest, diff, json)", format)
+		return "", fmt.Errorf("unsupported export format: %q (supported: patch, manifest, diff, json, kustomize, helm)", format)
 	}
 }
 

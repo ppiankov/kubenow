@@ -324,6 +324,203 @@ func TestExport_EmptyContainers(t *testing.T) {
 
 // --- Volatile field stripping ---
 
+// --- Kustomize format ---
+
+func TestExportKustomize_ValidYAML(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatKustomize, nil)
+	require.NoError(t, err)
+
+	// Split on --- separator
+	parts := strings.SplitN(output, "---\n", 2)
+	require.Len(t, parts, 2, "expected two YAML documents separated by ---")
+
+	// First doc (kustomization.yaml) should parse
+	var kustomization map[string]interface{}
+	// Strip comment lines before parsing
+	var kLines []string
+	for _, line := range strings.Split(parts[0], "\n") {
+		if !strings.HasPrefix(line, "#") {
+			kLines = append(kLines, line)
+		}
+	}
+	err = yaml.Unmarshal([]byte(strings.Join(kLines, "\n")), &kustomization)
+	require.NoError(t, err)
+
+	// Second doc (patch) should parse
+	var patch map[string]interface{}
+	var pLines []string
+	for _, line := range strings.Split(parts[1], "\n") {
+		if !strings.HasPrefix(line, "#") {
+			pLines = append(pLines, line)
+		}
+	}
+	err = yaml.Unmarshal([]byte(strings.Join(pLines, "\n")), &patch)
+	require.NoError(t, err)
+}
+
+func TestExportKustomize_HasKustomizationHeader(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatKustomize, nil)
+	require.NoError(t, err)
+
+	parts := strings.SplitN(output, "---\n", 2)
+	require.Len(t, parts, 2)
+
+	assert.Contains(t, parts[0], "apiVersion: kustomize.config.k8s.io/v1beta1")
+	assert.Contains(t, parts[0], "kind: Kustomization")
+}
+
+func TestExportKustomize_PatchesReference(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatKustomize, nil)
+	require.NoError(t, err)
+
+	// Patch filename should follow convention
+	expectedFilename := "deployment-payment-api-resources.yaml"
+	assert.Contains(t, output, expectedFilename)
+}
+
+func TestExportKustomize_PatchTarget(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatKustomize, nil)
+	require.NoError(t, err)
+
+	parts := strings.SplitN(output, "---\n", 2)
+	require.Len(t, parts, 2)
+
+	// Parse kustomization doc (strip comments)
+	var kLines []string
+	for _, line := range strings.Split(parts[0], "\n") {
+		if !strings.HasPrefix(line, "#") {
+			kLines = append(kLines, line)
+		}
+	}
+	var kustomization struct {
+		Patches []struct {
+			Path   string `yaml:"path"`
+			Target struct {
+				Kind      string `yaml:"kind"`
+				Name      string `yaml:"name"`
+				Namespace string `yaml:"namespace"`
+			} `yaml:"target"`
+		} `yaml:"patches"`
+	}
+	err = yaml.Unmarshal([]byte(strings.Join(kLines, "\n")), &kustomization)
+	require.NoError(t, err)
+
+	require.Len(t, kustomization.Patches, 1)
+	assert.Equal(t, "Deployment", kustomization.Patches[0].Target.Kind)
+	assert.Equal(t, "payment-api", kustomization.Patches[0].Target.Name)
+	assert.Equal(t, "default", kustomization.Patches[0].Target.Namespace)
+}
+
+func TestExportKustomize_PatchContent(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatKustomize, nil)
+	require.NoError(t, err)
+
+	parts := strings.SplitN(output, "---\n", 2)
+	require.Len(t, parts, 2)
+
+	// Patch section should contain recommended values
+	assert.Contains(t, parts[1], "cpu: 180m")
+	assert.Contains(t, parts[1], "memory: 290Mi")
+	assert.Contains(t, parts[1], "name: payment-api")
+}
+
+func TestExportKustomize_EvidenceComments(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatKustomize, nil)
+	require.NoError(t, err)
+
+	assert.Contains(t, output, "# kubenow alignment patch")
+	assert.Contains(t, output, "# Workload: default/deployment/payment-api")
+}
+
+func TestSplitKustomizeOutput(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatKustomize, nil)
+	require.NoError(t, err)
+
+	kustomization, patch, filename := SplitKustomizeOutput(output, rec.Workload)
+
+	assert.Contains(t, kustomization, "kustomize.config.k8s.io")
+	assert.Contains(t, patch, "cpu: 180m")
+	assert.Equal(t, "deployment-payment-api-resources.yaml", filename)
+}
+
+// --- Helm format ---
+
+func TestExportHelm_SingleContainer(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatHelm, nil)
+	require.NoError(t, err)
+
+	// Single container uses flat resources: block
+	assert.Contains(t, output, "resources:")
+	assert.NotContains(t, output, "containers:")
+}
+
+func TestExportHelm_MultiContainer(t *testing.T) {
+	rec := testRecommendation()
+	rec.Containers = append(rec.Containers, ContainerAlignment{
+		Name: "sidecar",
+		Recommended: ResourceValues{
+			CPURequest: 0.05, CPULimit: 0.2,
+			MemoryRequest: 64 * 1024 * 1024, MemoryLimit: 128 * 1024 * 1024,
+		},
+	})
+
+	output, err := Export(rec, FormatHelm, nil)
+	require.NoError(t, err)
+
+	// Multi-container uses containers: keyed by name
+	assert.Contains(t, output, "containers:")
+	assert.Contains(t, output, "payment-api:")
+	assert.Contains(t, output, "sidecar:")
+}
+
+func TestExportHelm_ValidYAML(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatHelm, nil)
+	require.NoError(t, err)
+
+	// Strip comments and parse
+	var lines []string
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "#") {
+			lines = append(lines, line)
+		}
+	}
+	var parsed map[string]interface{}
+	err = yaml.Unmarshal([]byte(strings.Join(lines, "\n")), &parsed)
+	require.NoError(t, err)
+	assert.Contains(t, parsed, "resources")
+}
+
+func TestExportHelm_ContainsRecommendedValues(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatHelm, nil)
+	require.NoError(t, err)
+
+	assert.Contains(t, output, "cpu: 180m")
+	assert.Contains(t, output, "memory: 290Mi")
+	assert.Contains(t, output, "memory: 1Gi")
+}
+
+func TestExportHelm_Comments(t *testing.T) {
+	rec := testRecommendation()
+	output, err := Export(rec, FormatHelm, nil)
+	require.NoError(t, err)
+
+	assert.Contains(t, output, "# kubenow helm values override")
+	assert.Contains(t, output, "# Workload: default/deployment/payment-api")
+	assert.Contains(t, output, "chart's values.yaml")
+}
+
+// --- Volatile field stripping ---
+
 func TestStripVolatileFields(t *testing.T) {
 	obj := map[string]interface{}{
 		"metadata": map[string]interface{}{
