@@ -99,12 +99,12 @@ func runCollect(_ *cobra.Command, args []string) error {
 	}
 
 	// Validate workload exists
-	if err = promonitor.ValidateWorkload(ctx, kubeClient, ref); err != nil {
+	if err = promonitor.ValidateWorkload(ctx, kubeClient, ref); err != nil { //nolint:gocritic // reuse outer err to avoid govet shadow
 		return err
 	}
 
 	// Check metrics-server
-	if err = promonitor.CheckMetricsServer(ctx, metricsClient, ref.Namespace); err != nil {
+	if err = promonitor.CheckMetricsServer(ctx, metricsClient, ref.Namespace); err != nil { //nolint:gocritic // reuse outer err to avoid govet shadow
 		return fmt.Errorf("metrics-server required for collect: %w", err)
 	}
 
