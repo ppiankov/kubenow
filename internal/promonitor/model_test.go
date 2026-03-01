@@ -36,7 +36,7 @@ func TestModel_Update_Quit(t *testing.T) {
 	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.True(t, model.quitting)
 	assert.NotNil(t, cmd) // tea.Quit
 }
@@ -46,7 +46,7 @@ func TestModel_Update_WindowSize(t *testing.T) {
 	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.Equal(t, 120, model.width)
 	assert.Equal(t, 40, model.height)
 }
@@ -108,7 +108,7 @@ func TestModel_Update_LatchDone(t *testing.T) {
 	m := NewModel(ref, nil, 15*time.Minute, ModeObserveOnly, "none", nil)
 
 	updated, cmd := m.Update(LatchDoneMsg{Err: nil})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.True(t, model.latchDone)
 	assert.True(t, model.computing)
 	assert.NotNil(t, cmd) // computeRecommendationCmd
@@ -124,7 +124,7 @@ func TestModel_Update_RecommendDone(t *testing.T) {
 		Confidence: ConfidenceLow,
 	}
 	updated, _ := m.Update(recommendDoneMsg{rec: rec})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.False(t, model.computing)
 	assert.NotNil(t, model.recommendation)
 	assert.Equal(t, SafetyRatingSafe, model.recommendation.Safety)
@@ -163,7 +163,7 @@ func TestModel_Update_EscFirstPress_ShowsWarning(t *testing.T) {
 	// latch is nil but latchDone is false — Esc requires latch != nil
 	// Simulate by checking that with nil latch, Esc is a no-op
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.False(t, model.earlyStopPending)
 }
 
@@ -174,7 +174,7 @@ func TestModel_Update_EscDismissedByOtherKey(t *testing.T) {
 
 	// Any non-esc/q/ctrl+c key should dismiss the warning
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.False(t, model.earlyStopPending)
 }
 
@@ -245,7 +245,7 @@ func TestModel_Update_ExportDone(t *testing.T) {
 	m := NewModel(ref, nil, 15*time.Minute, ModeExportOnly, "test", nil)
 
 	updated, _ := m.Update(exportDoneMsg{path: "/tmp/test.yaml", err: nil})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.True(t, model.exported)
 	assert.Equal(t, "/tmp/test.yaml", model.exportPath)
 	assert.Nil(t, model.exportError)
@@ -370,7 +370,7 @@ func TestModel_Update_TrafficDone(t *testing.T) {
 		Window: time.Hour,
 	}
 	updated, _ := m.Update(trafficDoneMsg{m: tm})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.False(t, model.trafficLoading)
 	assert.NotNil(t, model.trafficMap)
 	assert.Len(t, model.trafficMap.Inbound, 1)
@@ -382,7 +382,7 @@ func TestModel_Update_TrafficDone_Error(t *testing.T) {
 	m.trafficLoading = true
 
 	updated, _ := m.Update(trafficDoneMsg{err: fmt.Errorf("prometheus timeout")})
-	model := updated.(Model)
+	model := updated.(*Model)
 	assert.False(t, model.trafficLoading)
 	assert.Nil(t, model.trafficMap)
 	assert.NotNil(t, model.err)

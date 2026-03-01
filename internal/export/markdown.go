@@ -9,7 +9,7 @@ import (
 )
 
 // exportMarkdown exports the result as GitHub-flavored Markdown.
-func exportMarkdown(resultData interface{}, metadata ExportMetadata, w io.Writer) error {
+func exportMarkdown(resultData interface{}, metadata *ExportMetadata, w io.Writer) error {
 	var sb strings.Builder
 
 	// Header
@@ -64,18 +64,18 @@ func renderIncidentMarkdown(sb *strings.Builder, ir *result.IncidentResult) {
 	if len(ir.RootCauses) > 0 {
 		sb.WriteString("## Root Causes\n\n")
 		for _, cause := range ir.RootCauses {
-			sb.WriteString(fmt.Sprintf("- %s\n", cause))
+			fmt.Fprintf(sb, "- %s\n", cause)
 		}
 		sb.WriteString("\n")
 	}
 
 	sb.WriteString("## Top Issues\n\n")
 	for i, issue := range ir.TopIssues {
-		sb.WriteString(fmt.Sprintf("### %d. %s/%s - %s\n\n", i+1, issue.Namespace, issue.Name, strings.ToUpper(issue.Severity)))
-		sb.WriteString(fmt.Sprintf("**Type:** %s\n", issue.IssueType))
-		sb.WriteString(fmt.Sprintf("**Summary:** %s\n", issue.Summary))
+		fmt.Fprintf(sb, "### %d. %s/%s - %s\n\n", i+1, issue.Namespace, issue.Name, strings.ToUpper(issue.Severity))
+		fmt.Fprintf(sb, "**Type:** %s\n", issue.IssueType)
+		fmt.Fprintf(sb, "**Summary:** %s\n", issue.Summary)
 		if issue.Impact != "" {
-			sb.WriteString(fmt.Sprintf("**Impact:** %s\n", issue.Impact))
+			fmt.Fprintf(sb, "**Impact:** %s\n", issue.Impact)
 		}
 		sb.WriteString("\n")
 	}
@@ -83,7 +83,7 @@ func renderIncidentMarkdown(sb *strings.Builder, ir *result.IncidentResult) {
 	if len(ir.Actions) > 0 {
 		sb.WriteString("## Recommended Actions\n\n")
 		for _, action := range ir.Actions {
-			sb.WriteString(fmt.Sprintf("- %s\n", action))
+			fmt.Fprintf(sb, "- %s\n", action)
 			// Check for kubectl commands and format them
 			if strings.Contains(action, "kubectl") {
 				sb.WriteString("```bash\n")
@@ -97,7 +97,7 @@ func renderIncidentMarkdown(sb *strings.Builder, ir *result.IncidentResult) {
 	if len(ir.Notes) > 0 {
 		sb.WriteString("## Notes\n\n")
 		for _, note := range ir.Notes {
-			sb.WriteString(fmt.Sprintf("- %s\n", note))
+			fmt.Fprintf(sb, "- %s\n", note)
 		}
 		sb.WriteString("\n")
 	}
@@ -106,15 +106,16 @@ func renderIncidentMarkdown(sb *strings.Builder, ir *result.IncidentResult) {
 func renderPodMarkdown(sb *strings.Builder, pr *result.PodResult) {
 	sb.WriteString("## Problem Pods\n\n")
 
-	for i, pod := range pr.Pods {
-		sb.WriteString(fmt.Sprintf("### %d. %s/%s - %s\n\n", i+1, pod.Namespace, pod.Name, strings.ToUpper(pod.Severity)))
-		sb.WriteString(fmt.Sprintf("**Type:** %s\n", pod.IssueType))
+	for i := range pr.Pods {
+		pod := &pr.Pods[i]
+		fmt.Fprintf(sb, "### %d. %s/%s - %s\n\n", i+1, pod.Namespace, pod.Name, strings.ToUpper(pod.Severity))
+		fmt.Fprintf(sb, "**Type:** %s\n", pod.IssueType)
 		if pod.FailingContainer != "" {
-			sb.WriteString(fmt.Sprintf("**Failing Container:** %s\n", pod.FailingContainer))
+			fmt.Fprintf(sb, "**Failing Container:** %s\n", pod.FailingContainer)
 		}
-		sb.WriteString(fmt.Sprintf("**Summary:** %s\n", pod.Summary))
+		fmt.Fprintf(sb, "**Summary:** %s\n", pod.Summary)
 		if pod.RootCause != "" {
-			sb.WriteString(fmt.Sprintf("**Root Cause:** %s\n", pod.RootCause))
+			fmt.Fprintf(sb, "**Root Cause:** %s\n", pod.RootCause)
 		}
 		sb.WriteString("\n")
 
@@ -127,26 +128,26 @@ func renderPodMarkdown(sb *strings.Builder, pr *result.PodResult) {
 		}
 
 		if pod.Notes != "" {
-			sb.WriteString(fmt.Sprintf("**Notes:** %s\n\n", pod.Notes))
+			fmt.Fprintf(sb, "**Notes:** %s\n\n", pod.Notes)
 		}
 	}
 }
 
 func renderDefaultMarkdown(sb *strings.Builder, dr *result.DefaultResult) {
 	sb.WriteString("## Cluster Summary\n\n")
-	sb.WriteString(fmt.Sprintf("- **Problem Pods:** %d\n", dr.Summary.ProblemPodCount))
-	sb.WriteString(fmt.Sprintf("- **Node Readiness:** %s\n", dr.Summary.NodeReadiness))
-	sb.WriteString(fmt.Sprintf("- **Resource Pressure:** %s\n", dr.Summary.ResourcePressure))
+	fmt.Fprintf(sb, "- **Problem Pods:** %d\n", dr.Summary.ProblemPodCount)
+	fmt.Fprintf(sb, "- **Node Readiness:** %s\n", dr.Summary.NodeReadiness)
+	fmt.Fprintf(sb, "- **Resource Pressure:** %s\n", dr.Summary.ResourcePressure)
 
 	if len(dr.Summary.NamespacesWithIssues) > 0 {
-		sb.WriteString(fmt.Sprintf("- **Namespaces with Issues:** %s\n", strings.Join(dr.Summary.NamespacesWithIssues, ", ")))
+		fmt.Fprintf(sb, "- **Namespaces with Issues:** %s\n", strings.Join(dr.Summary.NamespacesWithIssues, ", "))
 	}
 	sb.WriteString("\n")
 
 	if len(dr.Issues) > 0 {
 		sb.WriteString("### Issues Detected\n\n")
 		for i, issue := range dr.Issues {
-			sb.WriteString(fmt.Sprintf("%d. **%s/%s** (%s) - %s: %s\n", i+1, issue.Namespace, issue.Name, issue.Severity, issue.IssueType, issue.ShortSummary))
+			fmt.Fprintf(sb, "%d. **%s/%s** (%s) - %s: %s\n", i+1, issue.Namespace, issue.Name, issue.Severity, issue.IssueType, issue.ShortSummary)
 		}
 		sb.WriteString("\n")
 	}
@@ -154,7 +155,7 @@ func renderDefaultMarkdown(sb *strings.Builder, dr *result.DefaultResult) {
 	if len(dr.Recommendations) > 0 {
 		sb.WriteString("### Recommendations\n\n")
 		for _, rec := range dr.Recommendations {
-			sb.WriteString(fmt.Sprintf("- %s\n", rec))
+			fmt.Fprintf(sb, "- %s\n", rec)
 		}
 		sb.WriteString("\n")
 	}
@@ -164,7 +165,7 @@ func renderTeamleadMarkdown(sb *strings.Builder, tr *result.TeamleadResult) {
 	if len(tr.BusinessRisk) > 0 {
 		sb.WriteString("## Business Risk\n\n")
 		for _, risk := range tr.BusinessRisk {
-			sb.WriteString(fmt.Sprintf("- %s\n", risk))
+			fmt.Fprintf(sb, "- %s\n", risk)
 		}
 		sb.WriteString("\n")
 	}
@@ -172,7 +173,7 @@ func renderTeamleadMarkdown(sb *strings.Builder, tr *result.TeamleadResult) {
 	if len(tr.OwnershipHints) > 0 {
 		sb.WriteString("### Ownership Hints\n\n")
 		for _, hint := range tr.OwnershipHints {
-			sb.WriteString(fmt.Sprintf("- %s\n", hint))
+			fmt.Fprintf(sb, "- %s\n", hint)
 		}
 		sb.WriteString("\n")
 	}
@@ -180,7 +181,7 @@ func renderTeamleadMarkdown(sb *strings.Builder, tr *result.TeamleadResult) {
 	if len(tr.TopActions) > 0 {
 		sb.WriteString("### Top Actions\n\n")
 		for i, action := range tr.TopActions {
-			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, action))
+			fmt.Fprintf(sb, "%d. %s\n", i+1, action)
 		}
 		sb.WriteString("\n")
 	}
@@ -188,7 +189,7 @@ func renderTeamleadMarkdown(sb *strings.Builder, tr *result.TeamleadResult) {
 	if len(tr.Escalation) > 0 {
 		sb.WriteString("### Escalation Path\n\n")
 		for _, esc := range tr.Escalation {
-			sb.WriteString(fmt.Sprintf("- %s\n", esc))
+			fmt.Fprintf(sb, "- %s\n", esc)
 		}
 		sb.WriteString("\n")
 	}
@@ -203,11 +204,11 @@ func renderComplianceMarkdown(sb *strings.Builder, cr *result.ComplianceResult) 
 	}
 
 	for i, issue := range cr.Issues {
-		sb.WriteString(fmt.Sprintf("### %d. %s/%s - %s\n\n", i+1, issue.Namespace, issue.Name, strings.ToUpper(issue.Severity)))
-		sb.WriteString(fmt.Sprintf("**Type:** %s\n", issue.Type))
-		sb.WriteString(fmt.Sprintf("**Description:** %s\n", issue.Description))
+		fmt.Fprintf(sb, "### %d. %s/%s - %s\n\n", i+1, issue.Namespace, issue.Name, strings.ToUpper(issue.Severity))
+		fmt.Fprintf(sb, "**Type:** %s\n", issue.Type)
+		fmt.Fprintf(sb, "**Description:** %s\n", issue.Description)
 		if issue.Recommendation != "" {
-			sb.WriteString(fmt.Sprintf("**Recommendation:** %s\n", issue.Recommendation))
+			fmt.Fprintf(sb, "**Recommendation:** %s\n", issue.Recommendation)
 		}
 		sb.WriteString("\n")
 	}
@@ -217,7 +218,7 @@ func renderChaosMarkdown(sb *strings.Builder, ch *result.ChaosResult) {
 	if len(ch.Vulnerabilities) > 0 {
 		sb.WriteString("## Identified Vulnerabilities\n\n")
 		for _, vuln := range ch.Vulnerabilities {
-			sb.WriteString(fmt.Sprintf("- %s\n", vuln))
+			fmt.Fprintf(sb, "- %s\n", vuln)
 		}
 		sb.WriteString("\n")
 	}
@@ -225,16 +226,16 @@ func renderChaosMarkdown(sb *strings.Builder, ch *result.ChaosResult) {
 	if len(ch.Experiments) > 0 {
 		sb.WriteString("## Recommended Chaos Experiments\n\n")
 		for i, exp := range ch.Experiments {
-			sb.WriteString(fmt.Sprintf("### Experiment %d: %s\n\n", i+1, exp.Name))
-			sb.WriteString(fmt.Sprintf("**Reason:** %s\n\n", exp.Reason))
-			sb.WriteString(fmt.Sprintf("**Description:**\n%s\n\n", exp.Description))
+			fmt.Fprintf(sb, "### Experiment %d: %s\n\n", i+1, exp.Name)
+			fmt.Fprintf(sb, "**Reason:** %s\n\n", exp.Reason)
+			fmt.Fprintf(sb, "**Description:**\n%s\n\n", exp.Description)
 		}
 	}
 
 	if len(ch.ImpactNotes) > 0 {
 		sb.WriteString("### Impact Notes\n\n")
 		for _, note := range ch.ImpactNotes {
-			sb.WriteString(fmt.Sprintf("- %s\n", note))
+			fmt.Fprintf(sb, "- %s\n", note)
 		}
 		sb.WriteString("\n")
 	}

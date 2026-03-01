@@ -87,7 +87,7 @@ func NewModel(watcher *Watcher) Model {
 }
 
 // Init initializes the model
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		tickCmd(),
@@ -96,7 +96,7 @@ func (m Model) Init() tea.Cmd {
 }
 
 // Update handles messages
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle search mode input first
@@ -112,7 +112,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filterProblems()
 				return m, nil
 			case "backspace":
-				if len(m.searchQuery) > 0 {
+				if m.searchQuery != "" {
 					m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
 					m.filterProblems()
 				}
@@ -161,7 +161,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j": // Scroll down
 			// Calculate how many problems we can show
 			problemsPerScreen := m.calculateProblemsPerScreen()
-			maxScroll := max(0, len(m.problems)-problemsPerScreen)
+			maxScroll := maxInt(0, len(m.problems)-problemsPerScreen)
 			if m.scrollOffset < maxScroll {
 				m.scrollOffset++
 			}
@@ -171,16 +171,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "end", "G": // Go to bottom
 			problemsPerScreen := m.calculateProblemsPerScreen()
-			m.scrollOffset = max(0, len(m.problems)-problemsPerScreen)
+			m.scrollOffset = maxInt(0, len(m.problems)-problemsPerScreen)
 			return m, nil
 		case "pageup": // Page up
 			problemsPerScreen := m.calculateProblemsPerScreen()
-			m.scrollOffset = max(0, m.scrollOffset-problemsPerScreen)
+			m.scrollOffset = maxInt(0, m.scrollOffset-problemsPerScreen)
 			return m, nil
 		case "pagedown": // Page down
 			problemsPerScreen := m.calculateProblemsPerScreen()
-			maxScroll := max(0, len(m.problems)-problemsPerScreen)
-			m.scrollOffset = min(maxScroll, m.scrollOffset+problemsPerScreen)
+			maxScroll := maxInt(0, len(m.problems)-problemsPerScreen)
+			m.scrollOffset = minInt(maxScroll, m.scrollOffset+problemsPerScreen)
 			return m, nil
 		case "e": // Export to file
 			m.exportRequested = true
@@ -231,16 +231,17 @@ func (m *Model) filterProblems() {
 	filtered := make([]Problem, 0)
 	query := strings.ToLower(m.searchQuery)
 
-	for _, p := range m.allProblems {
+	for i := range m.allProblems {
+		problem := &m.allProblems[i]
 		// Search in namespace, pod, container, problem type, severity, message, reason
-		if strings.Contains(strings.ToLower(p.Namespace), query) ||
-			strings.Contains(strings.ToLower(p.PodName), query) ||
-			strings.Contains(strings.ToLower(p.ContainerName), query) ||
-			strings.Contains(strings.ToLower(p.Type), query) ||
-			strings.Contains(strings.ToLower(string(p.Severity)), query) ||
-			strings.Contains(strings.ToLower(p.Message), query) ||
-			strings.Contains(strings.ToLower(p.Reason), query) {
-			filtered = append(filtered, p)
+		if strings.Contains(strings.ToLower(problem.Namespace), query) ||
+			strings.Contains(strings.ToLower(problem.PodName), query) ||
+			strings.Contains(strings.ToLower(problem.ContainerName), query) ||
+			strings.Contains(strings.ToLower(problem.Type), query) ||
+			strings.Contains(strings.ToLower(string(problem.Severity)), query) ||
+			strings.Contains(strings.ToLower(problem.Message), query) ||
+			strings.Contains(strings.ToLower(problem.Reason), query) {
+			filtered = append(filtered, *problem)
 		}
 	}
 
@@ -250,7 +251,7 @@ func (m *Model) filterProblems() {
 }
 
 // View renders the UI
-func (m Model) View() string {
+func (m *Model) View() string {
 	if m.quitting {
 		return "Monitoring stopped.\n"
 	}
@@ -260,11 +261,12 @@ func (m Model) View() string {
 	// Compact header
 	sortName := []string{"Severity", "Recency", "Count"}[m.sortMode]
 	var status string
-	if m.stats.Connection == ConnectionUnreachable {
+	switch {
+	case m.stats.Connection == ConnectionUnreachable:
 		status = "DISCONNECTED"
-	} else if m.paused {
+	case m.paused:
 		status = "[PAUSED]"
-	} else {
+	default:
 		status = "Live"
 	}
 
@@ -292,13 +294,14 @@ func (m Model) View() string {
 	}
 
 	// Active problems section
-	if m.stats.Connection == ConnectionUnreachable {
+	switch {
+	case m.stats.Connection == ConnectionUnreachable:
 		// Connection failure — never show false green
 		b.WriteString(m.renderDisconnected())
-	} else if len(m.problems) == 0 {
+	case len(m.problems) == 0:
 		// Healthy state (only when connection is verified)
 		b.WriteString(m.renderHealthyState())
-	} else {
+	default:
 		// Problems detected
 		b.WriteString(m.renderProblems())
 		events := m.renderRecentEvents()
@@ -314,7 +317,7 @@ func (m Model) View() string {
 }
 
 // renderHealthyState renders the healthy state
-func (m Model) renderHealthyState() string {
+func (m *Model) renderHealthyState() string {
 	var b strings.Builder
 
 	title := healthyStyle.Render("✓ No active problems")
@@ -337,7 +340,7 @@ func (m Model) renderHealthyState() string {
 }
 
 // renderDisconnected renders the connection failure state
-func (m Model) renderDisconnected() string {
+func (m *Model) renderDisconnected() string {
 	var b strings.Builder
 
 	b.WriteString(disconnectedStyle.Render("✗ Cluster unreachable"))
@@ -352,7 +355,7 @@ func (m Model) renderDisconnected() string {
 }
 
 // renderProblems renders active problems
-func (m Model) renderProblems() string {
+func (m *Model) renderProblems() string {
 	var b strings.Builder
 
 	// Sort problems based on sort mode
@@ -377,7 +380,7 @@ func (m Model) renderProblems() string {
 	// Calculate visible window
 	problemsPerScreen := m.calculateProblemsPerScreen()
 	startIdx := m.scrollOffset
-	endIdx := min(len(sorted), startIdx+problemsPerScreen)
+	endIdx := minInt(len(sorted), startIdx+problemsPerScreen)
 
 	// Compact header
 	b.WriteString(fatalStyle.Render(fmt.Sprintf("🔴 %d PROBLEMS", len(sorted))))
@@ -388,7 +391,7 @@ func (m Model) renderProblems() string {
 
 	// Show problems
 	for i := startIdx; i < endIdx; i++ {
-		b.WriteString(m.renderProblemCompact(sorted[i]))
+		b.WriteString(m.renderProblemCompact(&sorted[i]))
 	}
 
 	// Scroll hints
@@ -406,17 +409,17 @@ func (m Model) renderProblems() string {
 }
 
 // calculateProblemsPerScreen estimates how many problems fit on screen
-func (m Model) calculateProblemsPerScreen() int {
+func (m *Model) calculateProblemsPerScreen() int {
 	if m.height < 20 {
 		return 3
 	}
 	// Each problem takes ~3 lines, leave space for header, events, stats
 	availableLines := m.height - 12 // Header(2) + events(5) + stats(5)
-	return max(3, availableLines/3)
+	return maxInt(3, availableLines/3)
 }
 
 // renderProblemCompact renders a problem in compact format
-func (m Model) renderProblemCompact(p Problem) string {
+func (m *Model) renderProblemCompact(p *Problem) string {
 	var b strings.Builder
 
 	// Severity indicator (text for consistent width)
@@ -462,7 +465,7 @@ func (m Model) renderProblemCompact(p Problem) string {
 }
 
 // renderRecentEvents renders recent events (compact)
-func (m Model) renderRecentEvents() string {
+func (m *Model) renderRecentEvents() string {
 	var b strings.Builder
 
 	if len(m.events) == 0 {
@@ -474,7 +477,8 @@ func (m Model) renderRecentEvents() string {
 
 	// Show just the 3 most recent
 	count := 0
-	for i, event := range m.events {
+	for i := range m.events {
+		event := &m.events[i]
 		if count >= 3 {
 			break
 		}
@@ -495,7 +499,7 @@ func (m Model) renderRecentEvents() string {
 }
 
 // renderStats renders cluster statistics (compact)
-func (m Model) renderStats() string {
+func (m *Model) renderStats() string {
 	return dimStyle.Render(fmt.Sprintf("\n📈 Cluster: %d pods (%d running, %d problem) | %d nodes (%d ready)",
 		m.stats.TotalPods, m.stats.RunningPods, m.stats.ProblemPods,
 		m.stats.TotalNodes, m.stats.ReadyNodes))
@@ -517,14 +521,16 @@ func waitForUpdate(ch <-chan struct{}) tea.Cmd {
 }
 
 func formatDuration(d time.Duration) string {
-	if d < time.Minute {
+	switch {
+	case d < time.Minute:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
-	} else if d < time.Hour {
+	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
-	} else if d < 24*time.Hour {
+	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
 func truncate(s string, maxLen int) string {
@@ -547,14 +553,14 @@ func severityWeight(s Severity) int {
 	}
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
@@ -562,16 +568,16 @@ func min(a, b int) int {
 }
 
 // ExportRequested returns whether export was requested
-func (m Model) ExportRequested() bool {
+func (m *Model) ExportRequested() bool {
 	return m.exportRequested
 }
 
 // PrintRequested returns whether print mode was requested
-func (m Model) PrintRequested() bool {
+func (m *Model) PrintRequested() bool {
 	return m.printRequested
 }
 
 // GetState returns the current monitoring state (for export)
-func (m Model) GetState() ([]Problem, []RecentEvent, ClusterStats) {
+func (m *Model) GetState() ([]Problem, []RecentEvent, ClusterStats) {
 	return m.problems, m.events, m.stats
 }

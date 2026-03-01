@@ -1,3 +1,4 @@
+// Package cli defines the kubenow command-line interface.
 package cli
 
 import (

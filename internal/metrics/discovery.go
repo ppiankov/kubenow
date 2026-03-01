@@ -1,3 +1,4 @@
+// Package metrics queries Prometheus and Kubernetes metrics sources.
 package metrics
 
 import (
@@ -74,7 +75,7 @@ func (d *MetricDiscovery) DiscoverMetrics(ctx context.Context) (*AvailableMetric
 }
 
 // findMetrics finds all metrics matching any of the patterns
-func findMetrics(allMetrics []string, patterns []string) []string {
+func findMetrics(allMetrics, patterns []string) []string {
 	found := make(map[string]bool)
 	result := make([]string, 0)
 

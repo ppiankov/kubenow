@@ -209,20 +209,22 @@ func (qb *QueryBuilder) WorkloadMemoryUsage(namespace, workloadName, workloadTyp
 
 // formatDuration converts a Go duration to Prometheus duration format
 func formatDuration(d time.Duration) string {
-	if d < time.Minute {
+	switch {
+	case d < time.Minute:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
-	} else if d < time.Hour {
+	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
-	} else if d < 24*time.Hour {
+	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
-// ParseDuration parses a duration string (supports d, h, m, s)
 // maxDurationDays is the upper bound for parsed durations (1 year).
 const maxDurationDays = 365
 
+// ParseDuration parses Prometheus-style durations with d, h, m, or s suffixes.
 func ParseDuration(s string) (time.Duration, error) {
 	// Handle Prometheus-style durations like "30d", "7d", "24h"
 	if len(s) < 2 {

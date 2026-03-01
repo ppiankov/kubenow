@@ -12,9 +12,9 @@ type JSONExport struct {
 }
 
 // exportJSON exports the result as JSON with metadata.
-func exportJSON(result interface{}, metadata ExportMetadata, w io.Writer) error {
+func exportJSON(result interface{}, metadata *ExportMetadata, w io.Writer) error {
 	export := JSONExport{
-		Metadata: metadata,
+		Metadata: *metadata,
 		Result:   result,
 	}
 

@@ -5,6 +5,7 @@ import "time"
 // Severity levels for problems
 type Severity string
 
+// SeverityFatal, SeverityCritical, and SeverityWarning define problem severity levels.
 const (
 	SeverityFatal    Severity = "FATAL"
 	SeverityCritical Severity = "CRITICAL"
@@ -39,6 +40,7 @@ type RecentEvent struct {
 // ConnectionStatus represents the cluster connection state
 type ConnectionStatus int
 
+// ConnectionUnknown, ConnectionOK, and ConnectionUnreachable define cluster connection states.
 const (
 	ConnectionUnknown     ConnectionStatus = iota // Not yet attempted
 	ConnectionOK                                  // Successfully connected

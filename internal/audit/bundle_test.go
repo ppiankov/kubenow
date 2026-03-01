@@ -72,7 +72,7 @@ func TestCreateBundle_Success(t *testing.T) {
 		},
 	}
 
-	bundle, err := CreateBundle(cfg)
+	bundle, err := CreateBundle(&cfg)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 
@@ -110,7 +110,7 @@ func TestCreateBundle_NonWritablePath(t *testing.T) {
 		},
 	}
 
-	bundle, err := CreateBundle(cfg)
+	bundle, err := CreateBundle(&cfg)
 	assert.Error(t, err)
 	assert.Nil(t, bundle)
 }
@@ -149,7 +149,7 @@ func TestFinalizeBundle_Success(t *testing.T) {
 		Version:        "0.2.0",
 	}
 
-	bundle, err := CreateBundle(cfg)
+	bundle, err := CreateBundle(&cfg)
 	require.NoError(t, err)
 
 	// After object has different resources
@@ -216,7 +216,7 @@ func TestFinalizeBundle_Failed(t *testing.T) {
 		Version: "0.2.0",
 	}
 
-	bundle, err := CreateBundle(cfg)
+	bundle, err := CreateBundle(&cfg)
 	require.NoError(t, err)
 
 	afterObj := map[string]interface{}{
@@ -282,7 +282,7 @@ func TestBuildDecisionJSON_AllFields(t *testing.T) {
 		},
 	}
 
-	decision := buildDecisionJSON(cfg, "pending")
+	decision := buildDecisionJSON(&cfg, "pending")
 
 	assert.Equal(t, "0.2.0", decision.Version)
 	assert.Equal(t, "pending", decision.Status)

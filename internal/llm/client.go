@@ -1,3 +1,4 @@
+// Package llm provides the OpenAI-compatible client used by kubenow.
 package llm
 
 import (
@@ -97,7 +98,11 @@ func (c Client) Complete(ctx context.Context, prompt string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("http do: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			return
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

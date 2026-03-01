@@ -1,3 +1,4 @@
+// Package main provides the kubenow CLI entrypoint.
 package main
 
 import (

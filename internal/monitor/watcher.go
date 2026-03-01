@@ -217,7 +217,8 @@ func (w *Watcher) processEvent(event *corev1.Event) {
 
 // processPodStatus processes pod status for problems
 func (w *Watcher) processPodStatus(pod *corev1.Pod) {
-	for _, containerStatus := range pod.Status.ContainerStatuses {
+	for i := range pod.Status.ContainerStatuses {
+		containerStatus := &pod.Status.ContainerStatuses[i]
 		// Check for CrashLoopBackOff
 		if containerStatus.State.Waiting != nil && containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
 			w.addProblem(
@@ -396,7 +397,8 @@ func (w *Watcher) refreshStats() {
 
 	running := 0
 	problem := 0
-	for _, pod := range pods.Items {
+	for i := range pods.Items {
+		pod := &pods.Items[i]
 		switch pod.Status.Phase {
 		case corev1.PodRunning:
 			running++
@@ -424,8 +426,10 @@ func (w *Watcher) refreshStats() {
 	w.setConnectionOK()
 
 	ready := 0
-	for _, node := range nodes.Items {
-		for _, condition := range node.Status.Conditions {
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		for j := range node.Status.Conditions {
+			condition := &node.Status.Conditions[j]
 			if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
 				ready++
 				break

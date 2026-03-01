@@ -231,7 +231,8 @@ func (a *NodeFootprintAnalyzer) getWorkloadEnvelope(ctx context.Context) (*Workl
 
 	envelope.PodCount = len(pods.Items)
 
-	for _, pod := range pods.Items {
+	for i := range pods.Items {
+		pod := &pods.Items[i]
 		// Skip pods in kube-system
 		if pod.Namespace == kubeSystemNS {
 			continue
@@ -241,7 +242,8 @@ func (a *NodeFootprintAnalyzer) getWorkloadEnvelope(ctx context.Context) (*Workl
 		podCPU := 0.0
 		podMem := 0.0
 
-		for _, container := range pod.Spec.Containers {
+		for j := range pod.Spec.Containers {
+			container := &pod.Spec.Containers[j]
 			// Use requests as baseline (or limits if requests not set)
 			cpuReq := container.Resources.Requests.Cpu().AsApproximateFloat64()
 			memReq := container.Resources.Requests.Memory().AsApproximateFloat64()
@@ -297,7 +299,8 @@ func (a *NodeFootprintAnalyzer) checkWorkloadStability(ctx context.Context, pods
 	unstableWorkloads := make(map[string]bool)
 
 	// Check each pod's owner (deployment/statefulset) for stability
-	for _, pod := range pods {
+	for i := range pods {
+		pod := &pods[i]
 		if pod.Namespace == kubeSystemNS {
 			continue
 		}

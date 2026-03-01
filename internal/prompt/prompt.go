@@ -1,3 +1,4 @@
+// Package prompt stores prompt templates and prompt assembly helpers.
 package prompt
 
 import (
@@ -6,13 +7,16 @@ import (
 )
 
 // PromptEnhancements controls optional prompt enhancements.
+//
+//revive:disable-next-line:exported
 type PromptEnhancements struct {
 	Technical   bool // Add technical depth (stack traces, config diffs, deeper analysis)
 	Priority    bool // Add priority scoring (numerical scores, SLO impact, blast radius)
 	Remediation bool // Add detailed remediation (step-by-step fixes, rollback, prevention)
 }
 
-func LoadPrompt(mode string, snapshotJSON string, problemHint string, enhancements PromptEnhancements) (string, error) {
+// LoadPrompt loads the prompt template for the requested mode.
+func LoadPrompt(mode, snapshotJSON, problemHint string, enhancements PromptEnhancements) (string, error) {
 	var tmpl string
 
 	switch mode {
@@ -43,7 +47,7 @@ func LoadPrompt(mode string, snapshotJSON string, problemHint string, enhancemen
 	// Add problem hint if provided
 	if problemHint != "" {
 		hintSection := fmt.Sprintf("\n\nPROBLEM HINT: The user suspects this may be related to: %s\nPlease prioritize analysis in this direction while still identifying other issues.\n", problemHint)
-		out = out + hintSection
+		out += hintSection
 	}
 
 	return out, nil

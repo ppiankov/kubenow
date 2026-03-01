@@ -111,7 +111,8 @@ func exportPatch(rec *AlignmentRecommendation) (string, error) {
 	b.WriteString(evidenceComments(rec))
 
 	containers := make([]patchContainer, len(rec.Containers))
-	for i, c := range rec.Containers {
+	for i := range rec.Containers {
+		c := &rec.Containers[i]
 		containers[i] = patchContainer{
 			Name: c.Name,
 			Resources: patchResources{
@@ -145,7 +146,9 @@ func exportPatch(rec *AlignmentRecommendation) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal patch YAML: %w", err)
 	}
-	b.Write(data)
+	if _, err := b.Write(data); err != nil {
+		return "", fmt.Errorf("write patch YAML: %w", err)
+	}
 	return b.String(), nil
 }
 
@@ -170,7 +173,9 @@ func exportManifest(rec *AlignmentRecommendation, currentJSON []byte) (string, e
 
 	var b strings.Builder
 	b.WriteString(evidenceComments(rec))
-	b.Write(data)
+	if _, err := b.Write(data); err != nil {
+		return "", fmt.Errorf("write manifest YAML: %w", err)
+	}
 	return b.String(), nil
 }
 
@@ -203,13 +208,17 @@ func updateContainerResources(obj map[string]interface{}, containers []Container
 		return fmt.Errorf("missing spec.template.spec.containers")
 	}
 
-	for _, rec := range containers {
+	for i := range containers {
+		rec := &containers[i]
 		for _, item := range containerList {
 			container, ok := item.(map[string]interface{})
 			if !ok {
 				continue
 			}
-			name, _ := container["name"].(string)
+			name, ok := container["name"].(string)
+			if !ok {
+				continue
+			}
 			if name != rec.Name {
 				continue
 			}
@@ -237,7 +246,8 @@ func exportDiff(rec *AlignmentRecommendation) string {
 	b.WriteString(fmt.Sprintf("--- %s/%s (current)\n", strings.ToLower(rec.Workload.Kind), rec.Workload.Name))
 	b.WriteString(fmt.Sprintf("+++ %s/%s (recommended)\n", strings.ToLower(rec.Workload.Kind), rec.Workload.Name))
 
-	for _, c := range rec.Containers {
+	for i := range rec.Containers {
+		c := &rec.Containers[i]
 		b.WriteString(fmt.Sprintf("\n  Container: %s\n", c.Name))
 		b.WriteString("    requests:\n")
 		writeDiffLine(&b, "cpu", formatCPUResource(c.Current.CPURequest), formatCPUResource(c.Recommended.CPURequest))
@@ -257,10 +267,10 @@ func exportDiff(rec *AlignmentRecommendation) string {
 
 func writeDiffLine(b *strings.Builder, label, current, recommended string) {
 	if current == recommended {
-		b.WriteString(fmt.Sprintf("      %s: %s\n", label, current))
+		fmt.Fprintf(b, "      %s: %s\n", label, current)
 	} else {
-		b.WriteString(fmt.Sprintf("-     %s: %s\n", label, current))
-		b.WriteString(fmt.Sprintf("+     %s: %s\n", label, recommended))
+		fmt.Fprintf(b, "-     %s: %s\n", label, current)
+		fmt.Fprintf(b, "+     %s: %s\n", label, recommended)
 	}
 }
 

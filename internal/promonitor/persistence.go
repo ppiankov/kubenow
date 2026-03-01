@@ -32,7 +32,7 @@ func latchDir() (string, error) {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
 	dir := filepath.Join(home, ".kubenow", "latch")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("cannot create latch directory: %w", err)
 	}
 	return dir, nil

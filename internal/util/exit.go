@@ -1,3 +1,4 @@
+// Package util provides shared process and Kubernetes helpers.
 package util
 
 import (

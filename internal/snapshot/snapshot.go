@@ -1,5 +1,6 @@
 // This file gathers pods, logs, events, node conditions.
 
+// Package snapshot collects deterministic Kubernetes cluster snapshots.
 package snapshot
 
 import (
@@ -95,7 +96,7 @@ func BuildSnapshot(
 	maxPods int,
 	logLines int,
 	maxConcurrent int,
-	filters Filters,
+	filters *Filters,
 ) (*Snapshot, error) {
 	if maxPods <= 0 {
 		maxPods = 20
@@ -117,14 +118,16 @@ func BuildSnapshot(
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
 	}
-	for _, n := range nodes.Items {
-		ns := NodeSnapshot{Name: n.Name}
-		for _, c := range n.Status.Conditions {
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		ns := NodeSnapshot{Name: node.Name}
+		for j := range node.Status.Conditions {
+			condition := &node.Status.Conditions[j]
 			ns.Conditions = append(ns.Conditions, NodeConditionSnapshot{
-				Type:    string(c.Type),
-				Status:  string(c.Status),
-				Reason:  c.Reason,
-				Message: c.Message,
+				Type:    string(condition.Type),
+				Status:  string(condition.Status),
+				Reason:  condition.Reason,
+				Message: condition.Message,
 			})
 		}
 		snap.NodeConditions = append(snap.NodeConditions, ns)
@@ -142,29 +145,31 @@ func BuildSnapshot(
 		return nil, fmt.Errorf("list pods: %w", err)
 	}
 
-	for _, p := range podList.Items {
+	for i := range podList.Items {
+		pod := &podList.Items[i]
 		if len(snap.ProblemPods) >= maxPods {
 			break
 		}
 
 		// Apply namespace filters
-		if !matchesFilter(p.Namespace, filters.IncludeNamespaces, filters.ExcludeNamespaces) {
+		if !matchesFilter(pod.Namespace, filters.IncludeNamespaces, filters.ExcludeNamespaces) {
 			continue
 		}
 
 		// Apply pod name filters
-		if !matchesFilter(p.Name, filters.IncludePods, filters.ExcludePods) {
+		if !matchesFilter(pod.Name, filters.IncludePods, filters.ExcludePods) {
 			continue
 		}
 
-		status := p.Status
+		status := pod.Status
 		phase := string(status.Phase)
 
 		var restarts int32
 		allReady := true
-		for _, cs := range status.ContainerStatuses {
-			restarts += cs.RestartCount
-			if !cs.Ready {
+		for j := range status.ContainerStatuses {
+			containerStatus := &status.ContainerStatuses[j]
+			restarts += containerStatus.RestartCount
+			if !containerStatus.Ready {
 				allReady = false
 			}
 		}
@@ -175,17 +180,18 @@ func BuildSnapshot(
 		}
 
 		ps := PodSnapshot{
-			Namespace: p.Namespace,
-			Name:      p.Name,
+			Namespace: pod.Namespace,
+			Name:      pod.Name,
 			Phase:     phase,
-			NodeName:  p.Spec.NodeName,
+			NodeName:  pod.Spec.NodeName,
 			Ready:     allReady,
 			Restarts:  restarts,
 			Reason:    status.Reason,
 		}
 
 		// Containers
-		for _, cs := range status.ContainerStatuses {
+		for j := range status.ContainerStatuses {
+			cs := &status.ContainerStatuses[j]
 			cSnap := ContainerSnapshot{
 				Name:         cs.Name,
 				Image:        cs.Image,
@@ -193,20 +199,22 @@ func BuildSnapshot(
 				RestartCount: cs.RestartCount,
 			}
 
-			if cs.State.Waiting != nil {
+			switch {
+			case cs.State.Waiting != nil:
 				cSnap.State = "Waiting"
 				cSnap.StateReason = cs.State.Waiting.Reason
-			} else if cs.State.Running != nil {
+			case cs.State.Running != nil:
 				cSnap.State = "Running"
-			} else if cs.State.Terminated != nil {
+			case cs.State.Terminated != nil:
 				cSnap.State = "Terminated"
 				cSnap.StateReason = cs.State.Terminated.Reason
 			}
 
-			if cs.LastTerminationState.Terminated != nil {
+			switch {
+			case cs.LastTerminationState.Terminated != nil:
 				cSnap.LastState = "Terminated"
 				cSnap.LastStateReason = cs.LastTerminationState.Terminated.Reason
-			} else if cs.LastTerminationState.Waiting != nil {
+			case cs.LastTerminationState.Waiting != nil:
 				cSnap.LastState = "Waiting"
 				cSnap.LastStateReason = cs.LastTerminationState.Waiting.Reason
 			}
@@ -215,26 +223,27 @@ func BuildSnapshot(
 		}
 
 		// Events (Warning events for this pod)
-		evts, err := clientset.CoreV1().Events(p.Namespace).List(ctx, metav1.ListOptions{
-			FieldSelector: fmt.Sprintf("involvedObject.kind=Pod,involvedObject.name=%s", p.Name),
+		evts, err := clientset.CoreV1().Events(pod.Namespace).List(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("involvedObject.kind=Pod,involvedObject.name=%s", pod.Name),
 		})
 		if err == nil {
-			for _, e := range evts.Items {
+			for j := range evts.Items {
+				event := &evts.Items[j]
 				// Old API has Type; K8s may emit Normal/Warning etc.
-				if e.Type != "Warning" && e.Type != "" {
+				if event.Type != "Warning" && event.Type != "" {
 					continue
 				}
 				// Apply keyword filters to event messages
-				if !containsKeywords(e.Message, filters.IncludeKeywords, filters.ExcludeKeywords) {
+				if !containsKeywords(event.Message, filters.IncludeKeywords, filters.ExcludeKeywords) {
 					continue
 				}
 				ps.Events = append(ps.Events, EventSnapshot{
-					Type:      e.Type,
-					Reason:    e.Reason,
-					Message:   e.Message,
-					Count:     e.Count,
-					FirstTime: e.FirstTimestamp.Time,
-					LastTime:  e.LastTimestamp.Time,
+					Type:      event.Type,
+					Reason:    event.Reason,
+					Message:   event.Message,
+					Count:     event.Count,
+					FirstTime: event.FirstTimestamp.Time,
+					LastTime:  event.LastTimestamp.Time,
 				})
 			}
 		}
@@ -258,7 +267,7 @@ func BuildSnapshot(
 			defer func() { <-semaphore }() // Release semaphore
 
 			pod := &snap.ProblemPods[idx]
-			var tail int64 = int64(logLines)
+			tail := int64(logLines)
 			logReq := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
 				TailLines: &tail,
 			})

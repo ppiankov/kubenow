@@ -167,7 +167,7 @@ func runAnalyze(_ *cobra.Command, args []string) error {
 	model.SetHPAAcknowledged(pmAnalyzeConfig.acknowledgeHPA)
 
 	p := tea.NewProgram(
-		model,
+		&model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

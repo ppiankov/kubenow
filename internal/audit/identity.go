@@ -94,11 +94,12 @@ func resolveKubeconfig(kubeconfigPath string) (contextName, userName string) {
 }
 
 // resolveOSIdentity returns the current OS username and hostname.
-func resolveOSIdentity() (string, string) {
-	var osUser string
+func resolveOSIdentity() (osUser, machine string) {
 	if u, err := user.Current(); err == nil {
 		osUser = u.Username
 	}
-	machine, _ := os.Hostname()
+	if host, err := os.Hostname(); err == nil {
+		machine = host
+	}
 	return osUser, machine
 }

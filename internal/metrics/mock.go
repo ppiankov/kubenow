@@ -150,7 +150,7 @@ func (m *MockMetrics) GetClusterResourceUsage(_ context.Context, _ time.Duration
 }
 
 // HasNamespaceMetrics implements MetricsProvider
-func (m *MockMetrics) HasNamespaceMetrics(_ context.Context, namespace string) (bool, int, error) {
+func (m *MockMetrics) HasNamespaceMetrics(_ context.Context, namespace string) (hasMetrics bool, seriesCount int, err error) {
 	// If workload usages exist for this namespace, report true
 	for key := range m.WorkloadUsages {
 		if len(key) > len(namespace) && key[:len(namespace)+1] == namespace+"/" {

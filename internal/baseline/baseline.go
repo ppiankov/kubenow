@@ -1,3 +1,4 @@
+// Package baseline saves and compares analysis baselines.
 package baseline
 
 import (
@@ -53,7 +54,7 @@ type DriftSummary struct {
 }
 
 // SaveBaseline saves analysis results as a baseline
-func SaveBaseline(result *analyzer.RequestsSkewResult, filepath string, version string) error {
+func SaveBaseline(result *analyzer.RequestsSkewResult, filepath, version string) error {
 	baseline := Baseline{
 		Timestamp: time.Now(),
 		Version:   version,
@@ -66,7 +67,7 @@ func SaveBaseline(result *analyzer.RequestsSkewResult, filepath string, version 
 		return fmt.Errorf("failed to marshal baseline: %w", err)
 	}
 
-	if err := os.WriteFile(filepath, data, 0644); err != nil {
+	if err := os.WriteFile(filepath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write baseline file: %w", err)
 	}
 
@@ -102,19 +103,22 @@ func CompareToBaseline(baseline *Baseline, current *analyzer.RequestsSkewResult)
 
 	// Create maps for lookup
 	baselineMap := make(map[string]analyzer.WorkloadSkewAnalysis)
-	for _, w := range baseline.Results {
-		key := fmt.Sprintf("%s/%s", w.Namespace, w.Workload)
-		baselineMap[key] = w
+	for i := range baseline.Results {
+		workload := &baseline.Results[i]
+		key := fmt.Sprintf("%s/%s", workload.Namespace, workload.Workload)
+		baselineMap[key] = *workload
 	}
 
 	currentMap := make(map[string]analyzer.WorkloadSkewAnalysis)
-	for _, w := range current.Results {
-		key := fmt.Sprintf("%s/%s", w.Namespace, w.Workload)
-		currentMap[key] = w
+	for i := range current.Results {
+		workload := &current.Results[i]
+		key := fmt.Sprintf("%s/%s", workload.Namespace, workload.Workload)
+		currentMap[key] = *workload
 	}
 
 	// Find new and changed workloads
-	for key, curr := range currentMap {
+	for key := range currentMap {
+		curr := currentMap[key]
 		if base, exists := baselineMap[key]; exists {
 			// Workload exists in both - check for changes
 			drift := WorkloadDrift{
@@ -134,11 +138,12 @@ func CompareToBaseline(baseline *Baseline, current *analyzer.RequestsSkewResult)
 			}
 
 			// Categorize change
-			if isImproved(base, curr) {
+			switch {
+			case isImproved(&base, &curr):
 				report.Improved = append(report.Improved, drift)
-			} else if isDegraded(base, curr) {
+			case isDegraded(&base, &curr):
 				report.Degraded = append(report.Degraded, drift)
-			} else {
+			default:
 				report.Unchanged = append(report.Unchanged, drift)
 			}
 		} else {
@@ -157,7 +162,8 @@ func CompareToBaseline(baseline *Baseline, current *analyzer.RequestsSkewResult)
 	}
 
 	// Find removed workloads
-	for key, base := range baselineMap {
+	for key := range baselineMap {
+		base := baselineMap[key]
 		if _, exists := currentMap[key]; !exists {
 			drift := WorkloadDrift{
 				Namespace:    base.Namespace,
@@ -187,7 +193,7 @@ func CompareToBaseline(baseline *Baseline, current *analyzer.RequestsSkewResult)
 }
 
 // isImproved checks if workload has improved
-func isImproved(base, curr analyzer.WorkloadSkewAnalysis) bool {
+func isImproved(base, curr *analyzer.WorkloadSkewAnalysis) bool {
 	// Lower skew is better
 	if curr.SkewCPU < base.SkewCPU-0.5 {
 		return true
@@ -206,7 +212,7 @@ func isImproved(base, curr analyzer.WorkloadSkewAnalysis) bool {
 }
 
 // isDegraded checks if workload has degraded
-func isDegraded(base, curr analyzer.WorkloadSkewAnalysis) bool {
+func isDegraded(base, curr *analyzer.WorkloadSkewAnalysis) bool {
 	// Higher skew is worse
 	if curr.SkewCPU > base.SkewCPU+0.5 {
 		return true

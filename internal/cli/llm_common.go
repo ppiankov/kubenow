@@ -72,7 +72,7 @@ func RunLLMCommand(_ *cobra.Command, config *LLMCommandConfig) error {
 
 	// Build Kubernetes client
 	if IsVerbose() {
-		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")
+		stderrln("[kubenow] Building Kubernetes client...")
 	}
 
 	clientset, err := util.BuildKubeClientWithOpts(GetKubeOpts())
@@ -111,15 +111,15 @@ func RunLLMCommand(_ *cobra.Command, config *LLMCommandConfig) error {
 
 	// Check if watch mode is enabled
 	if config.WatchInterval != "" {
-		return runWatchMode(clientset, &llmClient, config, filters, enhancements)
+		return runWatchMode(clientset, &llmClient, config, &filters, enhancements)
 	}
 
 	// Single execution mode
-	return runSingleExecution(clientset, &llmClient, config, filters, enhancements, clusterName)
+	return runSingleExecution(clientset, &llmClient, config, &filters, enhancements, clusterName)
 }
 
 // runWatchMode executes the LLM command in watch mode
-func runWatchMode(clientset *kubernetes.Clientset, llmClient *llm.Client, config *LLMCommandConfig, filters snapshot.Filters, enhancements prompt.PromptEnhancements) error {
+func runWatchMode(clientset *kubernetes.Clientset, llmClient *llm.Client, config *LLMCommandConfig, filters *snapshot.Filters, enhancements prompt.PromptEnhancements) error {
 	interval, err := time.ParseDuration(config.WatchInterval)
 	if err != nil {
 		return fmt.Errorf("invalid watch-interval: %w", err)
@@ -132,12 +132,12 @@ func runWatchMode(clientset *kubernetes.Clientset, llmClient *llm.Client, config
 	setupSignalHandler(cancel)
 
 	if IsVerbose() {
-		fmt.Fprintf(os.Stderr, "[kubenow] Starting watch mode (interval: %s)\n", interval)
+		stderrf("[kubenow] Starting watch mode (interval: %s)\n", interval)
 		if config.WatchIterations > 0 {
-			fmt.Fprintf(os.Stderr, "[kubenow] Max iterations: %d\n", config.WatchIterations)
+			stderrf("[kubenow] Max iterations: %d\n", config.WatchIterations)
 		}
 		if config.WatchAlertNewOnly {
-			fmt.Fprintln(os.Stderr, "[kubenow] Alert mode: New issues only")
+			stderrln("[kubenow] Alert mode: New issues only")
 		}
 	}
 
@@ -149,14 +149,14 @@ func runWatchMode(clientset *kubernetes.Clientset, llmClient *llm.Client, config
 		MaxPods:       config.MaxPods,
 		LogLines:      config.LogLines,
 		MaxConcurrent: config.MaxConcurrent,
-		Filters:       filters,
+		Filters:       *filters,
 		Mode:          config.Mode,
 		ProblemHint:   config.ProblemHint,
 		Enhancements:  enhancements,
 		LLMClient:     llmClient,
 	}
 
-	if err := watch.Run(ctx, clientset, watchConfig); err != nil && err != context.Canceled {
+	if err := watch.Run(ctx, clientset, &watchConfig); err != nil && err != context.Canceled {
 		return fmt.Errorf("watch error: %w", err)
 	}
 
@@ -164,9 +164,9 @@ func runWatchMode(clientset *kubernetes.Clientset, llmClient *llm.Client, config
 }
 
 // runSingleExecution executes the LLM command once
-func runSingleExecution(clientset *kubernetes.Clientset, llmClient *llm.Client, config *LLMCommandConfig, filters snapshot.Filters, enhancements prompt.PromptEnhancements, clusterName string) error {
+func runSingleExecution(clientset *kubernetes.Clientset, llmClient *llm.Client, config *LLMCommandConfig, filters *snapshot.Filters, enhancements prompt.PromptEnhancements, clusterName string) error {
 	if IsVerbose() {
-		fmt.Fprintln(os.Stderr, "[kubenow] Collecting cluster snapshot...")
+		stderrln("[kubenow] Collecting cluster snapshot...")
 	}
 
 	snap, err := snapshot.BuildSnapshot(context.Background(), clientset, GetNamespace(), config.MaxPods, config.LogLines, config.MaxConcurrent, filters)
@@ -186,7 +186,7 @@ func runSingleExecution(clientset *kubernetes.Clientset, llmClient *llm.Client, 
 	}
 
 	if IsVerbose() {
-		fmt.Fprintf(os.Stderr, "[kubenow] Calling LLM endpoint: %s\n", config.LLMEndpoint)
+		stderrf("[kubenow] Calling LLM endpoint: %s\n", config.LLMEndpoint)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), llmClient.Timeout)
@@ -202,7 +202,7 @@ func runSingleExecution(clientset *kubernetes.Clientset, llmClient *llm.Client, 
 }
 
 // handleOutput processes the LLM output and writes to stdout or file
-func handleOutput(raw, mode, format, outputFile, clusterName string, filters snapshot.Filters) error {
+func handleOutput(raw, mode, format, outputFile, clusterName string, filters *snapshot.Filters) error {
 	// Strict JSON mode: keep old behavior for stdout
 	if format == "json" && outputFile == "" {
 		jsonStr, jerr := extractJSON(raw)
@@ -217,10 +217,10 @@ func handleOutput(raw, mode, format, outputFile, clusterName string, filters sna
 
 		out, err := result.PrettyJSON(tmp)
 		if err != nil {
-			fmt.Println(jsonStr)
+			printlnOut(jsonStr)
 			return nil
 		}
-		fmt.Print(out)
+		printOut(out)
 		return nil
 	}
 
@@ -229,79 +229,103 @@ func handleOutput(raw, mode, format, outputFile, clusterName string, filters sna
 	if jerr != nil {
 		// No JSON at all: just show raw model answer
 		if outputFile == "" {
-			fmt.Fprintln(os.Stderr, "[kubenow] No JSON detected in LLM output, showing raw response")
-			fmt.Println(raw)
+			stderrln("[kubenow] No JSON detected in LLM output, showing raw response")
+			printlnOut(raw)
 			return nil
 		}
 		return fmt.Errorf("no JSON detected in LLM output for file export")
 	}
 
-	// Parse according to mode
-	var parsedResult interface{}
-	var parseErr error
-
 	switch mode {
 	case "pod":
 		var pr result.PodResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &pr)
-		parsedResult = &pr
+		if err := json.Unmarshal([]byte(jsonStr), &pr); err != nil {
+			if outputFile == "" {
+				stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+				printlnOut(raw)
+				return nil
+			}
+			return fmt.Errorf("failed to parse %s JSON: %w", mode, err)
+		}
+		if outputFile != "" {
+			return exportToFile(&pr, mode, outputFile, clusterName, filters)
+		}
+		return result.RenderPodHuman(os.Stdout, &pr)
 	case "incident":
 		var ir result.IncidentResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &ir)
-		parsedResult = &ir
+		if err := json.Unmarshal([]byte(jsonStr), &ir); err != nil {
+			if outputFile == "" {
+				stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+				printlnOut(raw)
+				return nil
+			}
+			return fmt.Errorf("failed to parse %s JSON: %w", mode, err)
+		}
+		if outputFile != "" {
+			return exportToFile(&ir, mode, outputFile, clusterName, filters)
+		}
+		return result.RenderIncidentHuman(os.Stdout, &ir)
 	case "teamlead":
 		var tr result.TeamleadResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &tr)
-		parsedResult = &tr
+		if err := json.Unmarshal([]byte(jsonStr), &tr); err != nil {
+			if outputFile == "" {
+				stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+				printlnOut(raw)
+				return nil
+			}
+			return fmt.Errorf("failed to parse %s JSON: %w", mode, err)
+		}
+		if outputFile != "" {
+			return exportToFile(&tr, mode, outputFile, clusterName, filters)
+		}
+		return result.RenderTeamleadHuman(os.Stdout, &tr)
 	case "compliance":
 		var cr result.ComplianceResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &cr)
-		parsedResult = &cr
+		if err := json.Unmarshal([]byte(jsonStr), &cr); err != nil {
+			if outputFile == "" {
+				stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+				printlnOut(raw)
+				return nil
+			}
+			return fmt.Errorf("failed to parse %s JSON: %w", mode, err)
+		}
+		if outputFile != "" {
+			return exportToFile(&cr, mode, outputFile, clusterName, filters)
+		}
+		return result.RenderComplianceHuman(os.Stdout, &cr)
 	case "chaos":
 		var ch result.ChaosResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &ch)
-		parsedResult = &ch
-	default: // "default"
-		var dr result.DefaultResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &dr)
-		parsedResult = &dr
-	}
-
-	if parseErr != nil {
-		if outputFile == "" {
-			fmt.Fprintf(os.Stderr, "[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, parseErr)
-			fmt.Println(raw)
-			return nil
+		if err := json.Unmarshal([]byte(jsonStr), &ch); err != nil {
+			if outputFile == "" {
+				stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+				printlnOut(raw)
+				return nil
+			}
+			return fmt.Errorf("failed to parse %s JSON: %w", mode, err)
 		}
-		return fmt.Errorf("failed to parse %s JSON: %w", mode, parseErr)
-	}
-
-	// Handle file output
-	if outputFile != "" {
-		return exportToFile(parsedResult, mode, outputFile, clusterName, filters)
-	}
-
-	// Render to stdout (human format)
-	switch mode {
-	case "pod":
-		result.RenderPodHuman(os.Stdout, parsedResult.(*result.PodResult))
-	case "incident":
-		result.RenderIncidentHuman(os.Stdout, parsedResult.(*result.IncidentResult))
-	case "teamlead":
-		result.RenderTeamleadHuman(os.Stdout, parsedResult.(*result.TeamleadResult))
-	case "compliance":
-		result.RenderComplianceHuman(os.Stdout, parsedResult.(*result.ComplianceResult))
-	case "chaos":
-		result.RenderChaosHuman(os.Stdout, parsedResult.(*result.ChaosResult))
+		if outputFile != "" {
+			return exportToFile(&ch, mode, outputFile, clusterName, filters)
+		}
+		return result.RenderChaosHuman(os.Stdout, &ch)
 	default:
-		result.RenderDefaultHuman(os.Stdout, parsedResult.(*result.DefaultResult))
+		var dr result.DefaultResult
+		if err := json.Unmarshal([]byte(jsonStr), &dr); err != nil {
+			if outputFile == "" {
+				stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+				printlnOut(raw)
+				return nil
+			}
+			return fmt.Errorf("failed to parse %s JSON: %w", mode, err)
+		}
+		if outputFile != "" {
+			return exportToFile(&dr, mode, outputFile, clusterName, filters)
+		}
+		return result.RenderDefaultHuman(os.Stdout, &dr)
 	}
-
-	return nil
 }
 
 // exportToFile exports the result to a file in the specified format
-func exportToFile(parsedResult interface{}, mode, outputPath, clusterName string, filters snapshot.Filters) error {
+func exportToFile(parsedResult interface{}, mode, outputPath, clusterName string, filters *snapshot.Filters) error {
 	format := export.DetectFormat(outputPath)
 
 	exporter := export.Exporter{
@@ -311,7 +335,7 @@ func exportToFile(parsedResult interface{}, mode, outputPath, clusterName string
 			KubenowVersion: version, // from root.go
 			ClusterName:    clusterName,
 			Mode:           mode,
-			Filters:        filters,
+			Filters:        *filters,
 		},
 	}
 
@@ -319,13 +343,15 @@ func exportToFile(parsedResult interface{}, mode, outputPath, clusterName string
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		closeBestEffort(file)
+	}()
 
 	if err := exporter.Export(parsedResult, file); err != nil {
 		return fmt.Errorf("failed to export: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", outputPath)
+	stderrf("[kubenow] Report saved to: %s\n", outputPath)
 	return nil
 }
 
@@ -357,7 +383,7 @@ func extractClusterName(kubeconfigPath string) string {
 // extractJSON extracts a JSON object or array from noisy LLM output
 func extractJSON(s string) (string, error) {
 	s = strings.TrimSpace(s)
-	if len(s) == 0 {
+	if s == "" {
 		return "", fmt.Errorf("empty LLM output")
 	}
 
@@ -386,8 +412,8 @@ func addLLMFlags(cmd *cobra.Command, config *LLMCommandConfig) {
 	// Required flags
 	cmd.Flags().StringVar(&config.LLMEndpoint, "llm-endpoint", "", "OpenAI-compatible endpoint (e.g., http://localhost:11434/v1)")
 	cmd.Flags().StringVar(&config.Model, "model", "", "Model name (e.g., mixtral:8x22b, gpt-4.1-mini)")
-	cmd.MarkFlagRequired("llm-endpoint")
-	cmd.MarkFlagRequired("model")
+	mustMarkFlagRequired(cmd, "llm-endpoint")
+	mustMarkFlagRequired(cmd, "model")
 
 	// Optional flags
 	cmd.Flags().StringVar(&config.APIKey, "api-key", "", "LLM API key (optional for local models)")
@@ -416,4 +442,10 @@ func addLLMFlags(cmd *cobra.Command, config *LLMCommandConfig) {
 	cmd.Flags().StringVar(&config.WatchInterval, "watch-interval", "", "Enable watch mode with interval (e.g., '30s', '1m', '5m')")
 	cmd.Flags().IntVar(&config.WatchIterations, "watch-iterations", 0, "Max watch iterations (0 = infinite)")
 	cmd.Flags().BoolVar(&config.WatchAlertNewOnly, "watch-alert-new-only", false, "Only show new/changed issues in watch mode")
+}
+
+func mustMarkFlagRequired(cmd *cobra.Command, name string) {
+	if err := cmd.MarkFlagRequired(name); err != nil {
+		panic(err)
+	}
 }

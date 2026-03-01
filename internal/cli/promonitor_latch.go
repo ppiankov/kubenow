@@ -263,7 +263,7 @@ func runLatch(_ *cobra.Command, args []string) error {
 	defer latchCancel()
 
 	p := tea.NewProgram(
-		model,
+		&model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

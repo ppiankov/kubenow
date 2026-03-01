@@ -1,3 +1,4 @@
+// Package watch compares snapshots and streams change output.
 package watch
 
 import (
@@ -14,6 +15,24 @@ import (
 	"github.com/ppiankov/kubenow/internal/result"
 	"github.com/ppiankov/kubenow/internal/snapshot"
 )
+
+func stderrf(format string, args ...any) {
+	if _, err := fmt.Fprintf(os.Stderr, format, args...); err != nil {
+		return
+	}
+}
+
+func stderrln(args ...any) {
+	if _, err := fmt.Fprintln(os.Stderr, args...); err != nil {
+		return
+	}
+}
+
+func printlnOut(args ...any) {
+	if _, err := fmt.Println(args...); err != nil {
+		return
+	}
+}
 
 // Config holds watch mode configuration.
 type Config struct {
@@ -47,7 +66,7 @@ type IssueDiff struct {
 }
 
 // Run executes the watch loop.
-func Run(ctx context.Context, clientset *kubernetes.Clientset, config Config) error {
+func Run(ctx context.Context, clientset *kubernetes.Clientset, config *Config) error {
 	var prevSnapshot *snapshot.Snapshot
 	ticker := time.NewTicker(config.Interval)
 	defer ticker.Stop()
@@ -57,18 +76,18 @@ func Run(ctx context.Context, clientset *kubernetes.Clientset, config Config) er
 		iteration++
 		timestamp := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
-		fmt.Fprintf(os.Stderr, "\n[%s] Iteration %d", timestamp, iteration)
+		stderrf("\n[%s] Iteration %d", timestamp, iteration)
 		if config.MaxIterations > 0 {
-			fmt.Fprintf(os.Stderr, "/%d", config.MaxIterations)
+			stderrf("/%d", config.MaxIterations)
 		}
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "----------------------------------------")
+		stderrln()
+		stderrln("----------------------------------------")
 
 		// Build current snapshot
-		fmt.Fprintln(os.Stderr, "[kubenow] Collecting cluster snapshot...")
-		currSnapshot, err := snapshot.BuildSnapshot(ctx, clientset, config.Namespace, config.MaxPods, config.LogLines, config.MaxConcurrent, config.Filters)
+		stderrln("[kubenow] Collecting cluster snapshot...")
+		currSnapshot, err := snapshot.BuildSnapshot(ctx, clientset, config.Namespace, config.MaxPods, config.LogLines, config.MaxConcurrent, &config.Filters)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "snapshot error: %v\n", err)
+			stderrf("snapshot error: %v\n", err)
 			// Continue watching even if snapshot fails
 		} else {
 			// Compare with previous snapshot if it exists
@@ -76,7 +95,7 @@ func Run(ctx context.Context, clientset *kubernetes.Clientset, config Config) er
 				diff := compareSnapshots(prevSnapshot, currSnapshot)
 
 				if config.AlertNewOnly && len(diff.NewIssues) == 0 {
-					fmt.Fprintln(os.Stderr, "[kubenow] No new issues detected")
+					stderrln("[kubenow] No new issues detected")
 					prevSnapshot = currSnapshot
 				} else {
 					printDiff(diff, config.AlertNewOnly)
@@ -84,20 +103,20 @@ func Run(ctx context.Context, clientset *kubernetes.Clientset, config Config) er
 					// Call LLM for analysis
 					snapJSON, err := json.Marshal(currSnapshot)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "snapshot marshal error: %v\n", err)
+						stderrf("snapshot marshal error: %v\n", err)
 					} else {
 						finalPrompt, err := prompt.LoadPrompt(config.Mode, string(snapJSON), config.ProblemHint, config.Enhancements)
 						if err != nil {
-							fmt.Fprintf(os.Stderr, "prompt error: %v\n", err)
+							stderrf("prompt error: %v\n", err)
 						} else {
-							fmt.Fprintf(os.Stderr, "[kubenow] Calling LLM endpoint...\n")
+							stderrf("[kubenow] Calling LLM endpoint...\n")
 							raw, err := config.LLMClient.Complete(ctx, finalPrompt)
 							if err != nil {
-								fmt.Fprintf(os.Stderr, "llm error: %v\n", err)
+								stderrf("llm error: %v\n", err)
 							} else {
 								// Render output based on mode
 								if err := renderOutput(raw, config.Mode); err != nil {
-									fmt.Fprintf(os.Stderr, "render error: %v\n", err)
+									stderrf("render error: %v\n", err)
 								}
 							}
 						}
@@ -109,20 +128,20 @@ func Run(ctx context.Context, clientset *kubernetes.Clientset, config Config) er
 				// First iteration - call LLM
 				snapJSON, err := json.Marshal(currSnapshot)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "snapshot marshal error: %v\n", err)
+					stderrf("snapshot marshal error: %v\n", err)
 				} else {
 					finalPrompt, err := prompt.LoadPrompt(config.Mode, string(snapJSON), config.ProblemHint, config.Enhancements)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "prompt error: %v\n", err)
+						stderrf("prompt error: %v\n", err)
 					} else {
-						fmt.Fprintf(os.Stderr, "[kubenow] Calling LLM endpoint...\n")
+						stderrf("[kubenow] Calling LLM endpoint...\n")
 						raw, err := config.LLMClient.Complete(ctx, finalPrompt)
 						if err != nil {
-							fmt.Fprintf(os.Stderr, "llm error: %v\n", err)
+							stderrf("llm error: %v\n", err)
 						} else {
 							// Render output based on mode
 							if err := renderOutput(raw, config.Mode); err != nil {
-								fmt.Fprintf(os.Stderr, "render error: %v\n", err)
+								stderrf("render error: %v\n", err)
 							}
 						}
 					}
@@ -134,17 +153,17 @@ func Run(ctx context.Context, clientset *kubernetes.Clientset, config Config) er
 
 		// Check if we've reached max iterations
 		if config.MaxIterations > 0 && iteration >= config.MaxIterations {
-			fmt.Fprintln(os.Stderr, "\n[kubenow] Max iterations reached. Exiting watch mode.")
+			stderrln("\n[kubenow] Max iterations reached. Exiting watch mode.")
 			break
 		}
 
 		// Wait for next tick or context cancellation
-		fmt.Fprintf(os.Stderr, "\nNext check in %s... (Ctrl+C to stop)\n", config.Interval)
+		stderrf("\nNext check in %s... (Ctrl+C to stop)\n", config.Interval)
 		select {
 		case <-ticker.C:
 			continue
 		case <-ctx.Done():
-			fmt.Fprintln(os.Stderr, "\n[kubenow] Watch mode stopped.")
+			stderrln("\n[kubenow] Watch mode stopped.")
 			return ctx.Err()
 		}
 	}
@@ -187,7 +206,8 @@ func compareSnapshots(prev, curr *snapshot.Snapshot) IssueDiff {
 func extractIssues(snap *snapshot.Snapshot) []IssueIdentity {
 	var issues []IssueIdentity
 
-	for _, pod := range snap.ProblemPods {
+	for i := range snap.ProblemPods {
+		pod := &snap.ProblemPods[i]
 		// Determine pod-level issue type from Phase and Reason
 		podIssueType := pod.Phase
 		if pod.Reason != "" {
@@ -241,39 +261,39 @@ func containsIssue(issues []IssueIdentity, target IssueIdentity) bool {
 // printDiff prints the diff between snapshots.
 func printDiff(diff IssueDiff, newOnly bool) {
 	if len(diff.NewIssues) > 0 {
-		fmt.Fprintf(os.Stderr, "\n\033[1;31mNEW ISSUES DETECTED: %d\033[0m\n", len(diff.NewIssues))
+		stderrf("\n\033[1;31mNEW ISSUES DETECTED: %d\033[0m\n", len(diff.NewIssues))
 		for _, issue := range diff.NewIssues {
 			if issue.ContainerName != "" {
-				fmt.Fprintf(os.Stderr, "  [NEW] %s/%s (container: %s) - %s\n", issue.Namespace, issue.PodName, issue.ContainerName, issue.IssueType)
+				stderrf("  [NEW] %s/%s (container: %s) - %s\n", issue.Namespace, issue.PodName, issue.ContainerName, issue.IssueType)
 			} else {
-				fmt.Fprintf(os.Stderr, "  [NEW] %s/%s - %s\n", issue.Namespace, issue.PodName, issue.IssueType)
+				stderrf("  [NEW] %s/%s - %s\n", issue.Namespace, issue.PodName, issue.IssueType)
 			}
 		}
 	}
 
 	if len(diff.ResolvedIssues) > 0 {
-		fmt.Fprintf(os.Stderr, "\n\033[1;32mRESOLVED ISSUES: %d\033[0m\n", len(diff.ResolvedIssues))
+		stderrf("\n\033[1;32mRESOLVED ISSUES: %d\033[0m\n", len(diff.ResolvedIssues))
 		for _, issue := range diff.ResolvedIssues {
 			if issue.ContainerName != "" {
-				fmt.Fprintf(os.Stderr, "  [RESOLVED] %s/%s (container: %s) - %s\n", issue.Namespace, issue.PodName, issue.ContainerName, issue.IssueType)
+				stderrf("  [RESOLVED] %s/%s (container: %s) - %s\n", issue.Namespace, issue.PodName, issue.ContainerName, issue.IssueType)
 			} else {
-				fmt.Fprintf(os.Stderr, "  [RESOLVED] %s/%s - %s\n", issue.Namespace, issue.PodName, issue.IssueType)
+				stderrf("  [RESOLVED] %s/%s - %s\n", issue.Namespace, issue.PodName, issue.IssueType)
 			}
 		}
 	}
 
 	if !newOnly && len(diff.OngoingIssues) > 0 {
-		fmt.Fprintf(os.Stderr, "\n\033[1;33mONGOING ISSUES: %d\033[0m\n", len(diff.OngoingIssues))
+		stderrf("\n\033[1;33mONGOING ISSUES: %d\033[0m\n", len(diff.OngoingIssues))
 		for _, issue := range diff.OngoingIssues {
 			if issue.ContainerName != "" {
-				fmt.Fprintf(os.Stderr, "  [ONGOING] %s/%s (container: %s) - %s\n", issue.Namespace, issue.PodName, issue.ContainerName, issue.IssueType)
+				stderrf("  [ONGOING] %s/%s (container: %s) - %s\n", issue.Namespace, issue.PodName, issue.ContainerName, issue.IssueType)
 			} else {
-				fmt.Fprintf(os.Stderr, "  [ONGOING] %s/%s - %s\n", issue.Namespace, issue.PodName, issue.IssueType)
+				stderrf("  [ONGOING] %s/%s - %s\n", issue.Namespace, issue.PodName, issue.IssueType)
 			}
 		}
 	}
 
-	fmt.Fprintln(os.Stderr)
+	stderrln()
 }
 
 // renderOutput renders the LLM output to stdout.
@@ -282,70 +302,66 @@ func renderOutput(raw, mode string) error {
 	jsonStr, jerr := extractJSON(raw)
 	if jerr != nil {
 		// No JSON: show raw response
-		fmt.Fprintln(os.Stderr, "[kubenow] No JSON detected in LLM output, showing raw response")
-		fmt.Println(raw)
+		stderrln("[kubenow] No JSON detected in LLM output, showing raw response")
+		printlnOut(raw)
 		return nil
 	}
-
-	// Parse according to mode
-	var parsedResult interface{}
-	var parseErr error
 
 	switch mode {
 	case "pod":
 		var pr result.PodResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &pr)
-		parsedResult = &pr
+		if err := json.Unmarshal([]byte(jsonStr), &pr); err != nil {
+			stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+			printlnOut(raw)
+			return nil
+		}
+		return result.RenderPodHuman(os.Stdout, &pr)
 	case "incident":
 		var ir result.IncidentResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &ir)
-		parsedResult = &ir
+		if err := json.Unmarshal([]byte(jsonStr), &ir); err != nil {
+			stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+			printlnOut(raw)
+			return nil
+		}
+		return result.RenderIncidentHuman(os.Stdout, &ir)
 	case "teamlead":
 		var tr result.TeamleadResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &tr)
-		parsedResult = &tr
+		if err := json.Unmarshal([]byte(jsonStr), &tr); err != nil {
+			stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+			printlnOut(raw)
+			return nil
+		}
+		return result.RenderTeamleadHuman(os.Stdout, &tr)
 	case "compliance":
 		var cr result.ComplianceResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &cr)
-		parsedResult = &cr
+		if err := json.Unmarshal([]byte(jsonStr), &cr); err != nil {
+			stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+			printlnOut(raw)
+			return nil
+		}
+		return result.RenderComplianceHuman(os.Stdout, &cr)
 	case "chaos":
 		var ch result.ChaosResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &ch)
-		parsedResult = &ch
-	default: // "default"
-		var dr result.DefaultResult
-		parseErr = json.Unmarshal([]byte(jsonStr), &dr)
-		parsedResult = &dr
-	}
-
-	if parseErr != nil {
-		fmt.Fprintf(os.Stderr, "[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, parseErr)
-		fmt.Println(raw)
-		return nil
-	}
-
-	// Render to stdout (human format)
-	switch mode {
-	case "pod":
-		result.RenderPodHuman(os.Stdout, parsedResult.(*result.PodResult))
-	case "incident":
-		result.RenderIncidentHuman(os.Stdout, parsedResult.(*result.IncidentResult))
-	case "teamlead":
-		result.RenderTeamleadHuman(os.Stdout, parsedResult.(*result.TeamleadResult))
-	case "compliance":
-		result.RenderComplianceHuman(os.Stdout, parsedResult.(*result.ComplianceResult))
-	case "chaos":
-		result.RenderChaosHuman(os.Stdout, parsedResult.(*result.ChaosResult))
+		if err := json.Unmarshal([]byte(jsonStr), &ch); err != nil {
+			stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+			printlnOut(raw)
+			return nil
+		}
+		return result.RenderChaosHuman(os.Stdout, &ch)
 	default:
-		result.RenderDefaultHuman(os.Stdout, parsedResult.(*result.DefaultResult))
+		var dr result.DefaultResult
+		if err := json.Unmarshal([]byte(jsonStr), &dr); err != nil {
+			stderrf("[kubenow] Failed to parse %s JSON, showing raw response\nError: %v\n", mode, err)
+			printlnOut(raw)
+			return nil
+		}
+		return result.RenderDefaultHuman(os.Stdout, &dr)
 	}
-
-	return nil
 }
 
 // extractJSON is a helper copied from main.go to avoid circular dependency.
 func extractJSON(s string) (string, error) {
-	if len(s) == 0 {
+	if s == "" {
 		return "", fmt.Errorf("empty LLM output")
 	}
 

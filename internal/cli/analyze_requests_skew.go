@@ -163,7 +163,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 	var portForward *util.PortForward
 	if requestsSkewConfig.k8sService != "" {
 		if IsVerbose() {
-			fmt.Fprintf(os.Stderr, "[kubenow] Setting up native port-forward to %s/%s...\n",
+			stderrf("[kubenow] Setting up native port-forward to %s/%s...\n",
 				requestsSkewConfig.k8sNamespace, requestsSkewConfig.k8sService)
 		}
 
@@ -190,7 +190,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 		// Stop port-forward on exit
 		defer func() {
 			if err := portForward.Stop(); err != nil {
-				fmt.Fprintf(os.Stderr, "[kubenow] Warning: failed to stop port-forward: %v\n", err)
+				stderrf("[kubenow] Warning: failed to stop port-forward: %v\n", err)
 			}
 		}()
 
@@ -198,7 +198,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 		if requestsSkewConfig.prometheusURL == "" {
 			requestsSkewConfig.prometheusURL = fmt.Sprintf("http://localhost:%s", requestsSkewConfig.k8sLocalPort)
 			if IsVerbose() {
-				fmt.Fprintf(os.Stderr, "[kubenow] Using port-forward URL: %s\n", requestsSkewConfig.prometheusURL)
+				stderrf("[kubenow] Using port-forward URL: %s\n", requestsSkewConfig.prometheusURL)
 			}
 		}
 	}
@@ -230,7 +230,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 
 	// Build Kubernetes client
 	if IsVerbose() {
-		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")
+		stderrln("[kubenow] Building Kubernetes client...")
 	}
 
 	kubeClient, err := util.BuildKubeClientWithOpts(GetKubeOpts())
@@ -240,7 +240,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 
 	// Create Prometheus client
 	if IsVerbose() {
-		fmt.Fprintf(os.Stderr, "[kubenow] Connecting to Prometheus: %s\n", requestsSkewConfig.prometheusURL)
+		stderrf("[kubenow] Connecting to Prometheus: %s\n", requestsSkewConfig.prometheusURL)
 	}
 
 	promConfig := metrics.Config{
@@ -262,7 +262,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 
 	// Discover available metrics
 	if !requestsSkewConfig.silent {
-		fmt.Fprintln(os.Stderr, "[kubenow] Discovering available Prometheus metrics...")
+		stderrln("[kubenow] Discovering available Prometheus metrics...")
 	}
 
 	discovery := metrics.NewMetricDiscovery(metricsProvider.GetAPI())
@@ -273,35 +273,35 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 
 	// Validate that required metrics exist
 	if err = availableMetrics.ValidateMetrics(); err != nil {
-		fmt.Fprintf(os.Stderr, "\n⚠️  Metric Discovery Failed:\n")
-		fmt.Fprintf(os.Stderr, "════════════════════════\n\n")
-		fmt.Fprintf(os.Stderr, "%s\n\n", err.Error())
-		fmt.Fprintf(os.Stderr, "Available metrics in Prometheus:\n")
+		stderrf("\n⚠️  Metric Discovery Failed:\n")
+		stderrf("════════════════════════\n\n")
+		stderrf("%s\n\n", err.Error())
+		stderrf("Available metrics in Prometheus:\n")
 		if len(availableMetrics.AllCPU) > 0 {
-			fmt.Fprintf(os.Stderr, "  CPU-related: %v\n", availableMetrics.AllCPU)
+			stderrf("  CPU-related: %v\n", availableMetrics.AllCPU)
 		} else {
-			fmt.Fprintf(os.Stderr, "  CPU-related: (none found)\n")
+			stderrf("  CPU-related: (none found)\n")
 		}
 		if len(availableMetrics.AllMemory) > 0 {
-			fmt.Fprintf(os.Stderr, "  Memory-related: %v\n", availableMetrics.AllMemory)
+			stderrf("  Memory-related: %v\n", availableMetrics.AllMemory)
 		} else {
-			fmt.Fprintf(os.Stderr, "  Memory-related: (none found)\n")
+			stderrf("  Memory-related: (none found)\n")
 		}
-		fmt.Fprintf(os.Stderr, "\nPossible causes:\n")
-		fmt.Fprintf(os.Stderr, "  • cAdvisor metrics not being scraped\n")
-		fmt.Fprintf(os.Stderr, "  • ServiceMonitor/PodMonitor not configured\n")
-		fmt.Fprintf(os.Stderr, "  • Prometheus scrape config missing container metrics\n")
-		fmt.Fprintf(os.Stderr, "\nSee README troubleshooting section for details.\n")
+		stderrf("\nPossible causes:\n")
+		stderrf("  • cAdvisor metrics not being scraped\n")
+		stderrf("  • ServiceMonitor/PodMonitor not configured\n")
+		stderrf("  • Prometheus scrape config missing container metrics\n")
+		stderrf("\nSee README troubleshooting section for details.\n")
 		return fmt.Errorf("required metrics not available in Prometheus")
 	}
 
 	if !requestsSkewConfig.silent {
-		fmt.Fprintf(os.Stderr, "[kubenow] Using metrics: CPU=%s, Memory=%s\n",
+		stderrf("[kubenow] Using metrics: CPU=%s, Memory=%s\n",
 			availableMetrics.CPUMetric, availableMetrics.MemoryMetric)
 	}
 
 	if IsVerbose() {
-		fmt.Fprintln(os.Stderr, "[kubenow] Analyzing resource requests vs usage...")
+		stderrln("[kubenow] Analyzing resource requests vs usage...")
 	}
 
 	// Validate sort-by option
@@ -325,7 +325,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 		Silent:           requestsSkewConfig.silent,
 	}
 
-	skewAnalyzer := analyzer.NewRequestsSkewAnalyzer(kubeClient, metricsProvider, analyzerConfig)
+	skewAnalyzer := analyzer.NewRequestsSkewAnalyzer(kubeClient, metricsProvider, &analyzerConfig)
 
 	// Run analysis
 	result, err := skewAnalyzer.Analyze(ctx)
@@ -338,7 +338,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 	if requestsSkewConfig.watchForSpikes {
 		spikeData, err = runSpikeMonitoring(ctx, kubeClient)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[kubenow] Warning: Spike monitoring failed: %v\n", err)
+			stderrf("[kubenow] Warning: Spike monitoring failed: %v\n", err)
 			// Continue with analysis results even if spike monitoring fails
 		}
 
@@ -372,7 +372,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 		if err := baseline.SaveBaseline(result, requestsSkewConfig.saveBaseline, version); err != nil {
 			return fmt.Errorf("failed to save baseline: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "[kubenow] Baseline saved to: %s\n", requestsSkewConfig.saveBaseline)
+		stderrf("[kubenow] Baseline saved to: %s\n", requestsSkewConfig.saveBaseline)
 	}
 
 	// Compare to baseline if requested
@@ -410,17 +410,18 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 		for _, data := range spikeData {
 			if data.OOMKills > 0 {
 				shouldFail = true
-				fmt.Fprintf(os.Stderr, "\n❌ Found OOMKills in spike monitoring data (--fail-on active)\n")
+				stderrf("\n❌ Found OOMKills in spike monitoring data (--fail-on active)\n")
 				break
 			}
 		}
 
 		// Check for UNSAFE safety ratings
 		if requestsSkewConfig.failOn == "unsafe" || requestsSkewConfig.failOn == "critical" || requestsSkewConfig.failOn == "warning" {
-			for _, w := range result.Results {
-				if w.Safety != nil && w.Safety.Rating == "UNSAFE" {
+			for i := range result.Results {
+				workload := &result.Results[i]
+				if workload.Safety != nil && workload.Safety.Rating == "UNSAFE" {
 					shouldFail = true
-					fmt.Fprintf(os.Stderr, "\n❌ Found UNSAFE workloads (--fail-on active)\n")
+					stderrf("\n❌ Found UNSAFE workloads (--fail-on active)\n")
 					break
 				}
 			}
@@ -484,9 +485,9 @@ func runSpikeMonitoring(ctx context.Context, kubeClient *kubernetes.Clientset) (
 		return nil, fmt.Errorf("invalid spike-interval: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "\n[kubenow] Starting real-time spike monitoring...\n")
-	fmt.Fprintf(os.Stderr, "[kubenow] Duration: %s | Interval: %s\n", duration, interval)
-	fmt.Fprintf(os.Stderr, "[kubenow] This will sample Kubernetes Metrics API at high frequency to catch sub-scrape-interval spikes.\n\n")
+	stderrf("\n[kubenow] Starting real-time spike monitoring...\n")
+	stderrf("[kubenow] Duration: %s | Interval: %s\n", duration, interval)
+	stderrf("[kubenow] This will sample Kubernetes Metrics API at high frequency to catch sub-scrape-interval spikes.\n\n")
 
 	// Create latch monitor
 	latchConfig := metrics.LatchConfig{
@@ -508,7 +509,7 @@ func runSpikeMonitoring(ctx context.Context, kubeClient *kubernetes.Clientset) (
 	// Get collected data
 	spikeData := monitor.GetSpikeData()
 
-	fmt.Fprintf(os.Stderr, "\n[kubenow] Spike monitoring complete. Captured %d workloads.\n\n", len(spikeData))
+	stderrf("\n[kubenow] Spike monitoring complete. Captured %d workloads.\n\n", len(spikeData))
 
 	return spikeData, nil
 }
@@ -524,7 +525,7 @@ func outputRequestsSkewJSON(result *analyzer.RequestsSkewResult, exportFile stri
 		if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", exportFile)
+		stderrf("[kubenow] Report saved to: %s\n", exportFile)
 		return nil
 	}
 
@@ -544,8 +545,8 @@ func outputRequestsSkewSARIF(result *analyzer.RequestsSkewResult, exportFile str
 		if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "[kubenow] SARIF report saved to: %s\n", exportFile)
-		fmt.Fprintf(os.Stderr, "[kubenow] Upload to GitHub: gh api repos/{owner}/{repo}/code-scanning/sarifs -F sarif=@%s\n", exportFile)
+		stderrf("[kubenow] SARIF report saved to: %s\n", exportFile)
+		stderrf("[kubenow] Upload to GitHub: gh api repos/{owner}/{repo}/code-scanning/sarifs -F sarif=@%s\n", exportFile)
 		return nil
 	}
 
@@ -554,7 +555,7 @@ func outputRequestsSkewSARIF(result *analyzer.RequestsSkewResult, exportFile str
 	return nil
 }
 
-func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile string, exportFormat string) error {
+func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[string]*metrics.SpikeData, exportFile, exportFormat string) error {
 	// If export file is specified, save to file in requested format
 	if exportFile != "" {
 		switch exportFormat {
@@ -566,13 +567,13 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 			if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 				return fmt.Errorf("failed to write export file: %w", err)
 			}
-			fmt.Fprintf(os.Stderr, "[kubenow] Full results exported to: %s (JSON format)\n", exportFile)
+			stderrf("[kubenow] Full results exported to: %s (JSON format)\n", exportFile)
 		case "table":
 			// Defer the table export until after we render it
 			// We'll capture the table output and save it
 			defer func() {
 				if err := exportTableToFile(result, spikeData, exportFile); err != nil {
-					fmt.Fprintf(os.Stderr, "[kubenow] Warning: failed to export table: %v\n", err)
+					stderrf("[kubenow] Warning: failed to export table: %v\n", err)
 				}
 			}()
 		}
@@ -587,7 +588,8 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 	}
 	table.Header(header)
 
-	for _, w := range result.Results {
+	for i := range result.Results {
+		w := &result.Results[i]
 		safetyLabel := "?"
 		if w.Safety != nil {
 			safetyLabel = string(w.Safety.Rating)
@@ -630,7 +632,9 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 		} else if hasCost {
 			row = append(row, "-")
 		}
-		table.Append(row)
+		if err := table.Append(row); err != nil {
+			return fmt.Errorf("failed to append requests-skew row: %w", err)
+		}
 	}
 
 	// Print summary
@@ -639,8 +643,8 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 	if len(result.WorkloadsWithoutMetrics) > 0 {
 		// Count namespaces without any Prometheus data
 		nsWithout := 0
-		for _, ns := range result.NamespaceMetrics {
-			if !ns.HasMetrics {
+		for i := range result.NamespaceMetrics {
+			if !result.NamespaceMetrics[i].HasMetrics {
 				nsWithout++
 			}
 		}
@@ -667,7 +671,9 @@ func outputRequestsSkewTable(result *analyzer.RequestsSkewResult, spikeData map[
 	}
 
 	// Render table
-	table.Render()
+	if err := table.Render(); err != nil {
+		return fmt.Errorf("failed to render requests-skew table: %w", err)
+	}
 
 	// Print summary stats
 	fmt.Printf("\nSummary:\n")
@@ -709,7 +715,8 @@ func printSafetyWarnings(result *analyzer.RequestsSkewResult) {
 	// Collect workloads with safety issues
 	var unsafe, risky, caution []string
 
-	for _, w := range result.Results {
+	for i := range result.Results {
+		w := &result.Results[i]
 		if w.Safety == nil {
 			continue
 		}
@@ -734,7 +741,8 @@ func printSafetyWarnings(result *analyzer.RequestsSkewResult) {
 			fmt.Printf("✗ UNSAFE (%d workloads) - DO NOT REDUCE RESOURCES:\n", len(unsafe))
 			for _, w := range unsafe {
 				// Find the workload details
-				for _, wr := range result.Results {
+				for i := range result.Results {
+					wr := &result.Results[i]
 					if fmt.Sprintf("%s/%s", wr.Namespace, wr.Workload) == w && wr.Safety != nil {
 						fmt.Printf("  • %s\n", w)
 						for _, reason := range wr.Safety.Warnings {
@@ -750,7 +758,8 @@ func printSafetyWarnings(result *analyzer.RequestsSkewResult) {
 		if len(risky) > 0 {
 			fmt.Printf("⚠ RISKY (%d workloads) - Review carefully before reducing:\n", len(risky))
 			for _, w := range risky {
-				for _, wr := range result.Results {
+				for i := range result.Results {
+					wr := &result.Results[i]
 					if fmt.Sprintf("%s/%s", wr.Namespace, wr.Workload) == w && wr.Safety != nil {
 						fmt.Printf("  • %s (safety margin: %.1fx)\n", w, wr.Safety.SafeMargin)
 						for _, reason := range wr.Safety.Warnings {
@@ -946,13 +955,14 @@ func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
 			safetyFactor := requestsSkewConfig.safetyFactor
 			if safetyFactor == 0.0 {
 				// Auto-select based on spike ratio
-				if sw.spikeRatio >= 20.0 {
+				switch {
+				case sw.spikeRatio >= 20.0:
 					safetyFactor = 2.5
-				} else if sw.spikeRatio >= 10.0 {
+				case sw.spikeRatio >= 10.0:
 					safetyFactor = 2.0
-				} else if sw.spikeRatio >= 5.0 {
+				case sw.spikeRatio >= 5.0:
 					safetyFactor = 1.5
-				} else {
+				default:
 					safetyFactor = 1.2
 				}
 			}
@@ -960,7 +970,7 @@ func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
 			// Calculate recommended CPU
 			recommendedCPU := sw.data.MaxCPU * safetyFactor
 
-			table.Append([]string{
+			appendTableRowBestEffort(table, []string{
 				sw.key,
 				fmt.Sprintf("%.3f", sw.data.AvgCPU),
 				fmt.Sprintf("%.3f", sw.data.MaxCPU),
@@ -969,7 +979,7 @@ func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
 				fmt.Sprintf("%.1fx", safetyFactor),
 			})
 		} else {
-			table.Append([]string{
+			appendTableRowBestEffort(table, []string{
 				sw.key,
 				fmt.Sprintf("%.3f", sw.data.AvgCPU),
 				fmt.Sprintf("%.3f", sw.data.MaxCPU),
@@ -980,7 +990,7 @@ func printSpikeMonitoringResults(spikeData map[string]*metrics.SpikeData) {
 		}
 	}
 
-	table.Render()
+	renderTableBestEffort(table)
 
 	// Print critical signals detected during monitoring
 	printCriticalSignals(workloadsWithSpikes)
@@ -1018,7 +1028,8 @@ func printQuotaInformation(result *analyzer.RequestsSkewResult) {
 	fmt.Printf("\n📊 Namespace ResourceQuota & LimitRange Analysis:\n")
 	fmt.Printf("═══════════════════════════════════════════════════\n\n")
 
-	for _, quota := range result.NamespaceQuotas {
+	for i := range result.NamespaceQuotas {
+		quota := &result.NamespaceQuotas[i]
 		fmt.Printf("Namespace: %s\n", quota.Namespace)
 
 		if quota.HasResourceQuota {
@@ -1121,11 +1132,12 @@ func printCriticalSignals(workloads []spikeWorkload) {
 			for reason, count := range sw.data.TerminationReasons {
 				// Mark normal completions vs problematic terminations
 				icon := "⚠️ " // Default to warning for unknown reasons
-				if reason == "OOMKilled" {
+				switch reason {
+				case "OOMKilled":
 					icon = "🔴"
-				} else if reason == "Error" || reason == "CrashLoopBackOff" || reason == "Unknown" || reason == "ContainerCannotRun" {
+				case "Error", "CrashLoopBackOff", "Unknown", "ContainerCannotRun":
 					icon = "⚠️ "
-				} else if reason == "Completed" {
+				case "Completed":
 					icon = "✓ "
 				}
 				fmt.Printf("    %s %s: %d times\n", icon, reason, count)
@@ -1139,11 +1151,12 @@ func printCriticalSignals(workloads []spikeWorkload) {
 				meaning := getExitCodeMeaning(code)
 				// Mark normal exits vs problematic ones
 				var icon string
-				if code == 137 {
+				switch {
+				case code == 137:
 					icon = "🔴"
-				} else if code != 0 {
+				case code != 0:
 					icon = "⚠️ "
-				} else {
+				default:
 					icon = "✓ "
 				}
 				fmt.Printf("    %s %d (%s): %d times\n", icon, code, meaning, count)
@@ -1226,7 +1239,8 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 	table := tablewriter.NewWriter(&buf)
 	table.Header([]string{"Namespace", "Workload", "Req CPU", "Lim CPU", "P99 CPU", "Skew", "Lim Skew", "Safety", "Impact"})
 
-	for _, w := range result.Results {
+	for i := range result.Results {
+		w := &result.Results[i]
 		safetyLabel := "?"
 		if w.Safety != nil {
 			safetyLabel = string(w.Safety.Rating)
@@ -1253,7 +1267,7 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 			limSkew = fmt.Sprintf("%.1fx", w.LimitSkewCPU)
 		}
 
-		table.Append([]string{
+		appendTableRowBestEffort(table, []string{
 			w.Namespace,
 			w.Workload,
 			fmt.Sprintf("%.2f", w.RequestedCPU),
@@ -1266,7 +1280,7 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 		})
 	}
 
-	table.Render()
+	renderTableBestEffort(table)
 
 	// Add spike data if available
 	if len(spikeData) > 0 {
@@ -1320,11 +1334,12 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 				buf.WriteString("  Termination Reasons:\n")
 				for reason, count := range sw.data.TerminationReasons {
 					icon := "⚠️ "
-					if reason == "OOMKilled" {
+					switch reason {
+					case "OOMKilled":
 						icon = "🔴"
-					} else if reason == "Error" || reason == "CrashLoopBackOff" || reason == "Unknown" || reason == "ContainerCannotRun" {
+					case "Error", "CrashLoopBackOff", "Unknown", "ContainerCannotRun":
 						icon = "⚠️ "
-					} else if reason == "Completed" {
+					case "Completed":
 						icon = "✓ "
 					}
 					buf.WriteString(fmt.Sprintf("    %s %s: %d times\n", icon, reason, count))
@@ -1337,11 +1352,12 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 				for code, count := range sw.data.ExitCodes {
 					meaning := getExitCodeMeaning(code)
 					var icon string
-					if code == 137 {
+					switch {
+					case code == 137:
 						icon = "🔴"
-					} else if code != 0 {
+					case code != 0:
 						icon = "⚠️ "
-					} else {
+					default:
 						icon = "✓ "
 					}
 					buf.WriteString(fmt.Sprintf("    %s %d (%s): %d times\n", icon, code, meaning, count))
@@ -1369,7 +1385,7 @@ func exportTableToFile(result *analyzer.RequestsSkewResult, spikeData map[string
 		return fmt.Errorf("failed to write export file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "[kubenow] Table results exported to: %s\n", exportFile)
+	stderrf("[kubenow] Table results exported to: %s\n", exportFile)
 	return nil
 }
 

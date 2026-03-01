@@ -1,3 +1,4 @@
+// Package export renders kubenow output in multiple formats.
 package export
 
 import (
@@ -13,6 +14,7 @@ import (
 // Format represents the export format type.
 type Format string
 
+// FormatJSON, FormatHTML, FormatMarkdown, and FormatText define supported export formats.
 const (
 	FormatJSON     Format = "json"
 	FormatHTML     Format = "html"
@@ -21,6 +23,8 @@ const (
 )
 
 // ExportMetadata contains metadata about the export.
+//
+//revive:disable-next-line:exported
 type ExportMetadata struct {
 	GeneratedAt    time.Time        `json:"generatedAt"`
 	KubenowVersion string           `json:"kubenowVersion"`
@@ -79,17 +83,17 @@ func (e *Exporter) exportText(result interface{}, w io.Writer) error {
 
 // exportHTML exports in HTML format (placeholder for now, will implement in html.go).
 func (e *Exporter) exportHTML(result interface{}, w io.Writer) error {
-	return exportHTML(result, e.Metadata, w)
+	return exportHTML(result, &e.Metadata, w)
 }
 
 // exportJSON exports with metadata wrapper.
 func (e *Exporter) exportJSON(result interface{}, w io.Writer) error {
-	return exportJSON(result, e.Metadata, w)
+	return exportJSON(result, &e.Metadata, w)
 }
 
 // exportMarkdown exports in Markdown format.
 func (e *Exporter) exportMarkdown(result interface{}, w io.Writer) error {
-	return exportMarkdown(result, e.Metadata, w)
+	return exportMarkdown(result, &e.Metadata, w)
 }
 
 // WithTimestamp adds a timestamp suffix to the filename for watch mode.

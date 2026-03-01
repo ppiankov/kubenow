@@ -431,7 +431,7 @@ func (p *PrometheusClient) Health(ctx context.Context) error {
 
 // HasNamespaceMetrics checks if Prometheus has any container CPU metrics for a namespace.
 // Returns (hasMetrics, seriesCount, error).
-func (p *PrometheusClient) HasNamespaceMetrics(ctx context.Context, namespace string) (bool, int, error) {
+func (p *PrometheusClient) HasNamespaceMetrics(ctx context.Context, namespace string) (hasMetrics bool, seriesCount int, err error) {
 	query := `count(container_cpu_usage_seconds_total{namespace=` + escapeLabel(namespace) + `,container!="",container!="POD"})`
 	result, err := p.QueryInstant(ctx, query, time.Now())
 	if err != nil {
@@ -487,14 +487,14 @@ func calculateMax(values []model.SamplePair) float64 {
 		return 0
 	}
 
-	max := float64(values[0].Value)
+	maxValue := float64(values[0].Value)
 	for _, v := range values {
-		if float64(v.Value) > max {
-			max = float64(v.Value)
+		if float64(v.Value) > maxValue {
+			maxValue = float64(v.Value)
 		}
 	}
 
-	return max
+	return maxValue
 }
 
 // GetWorkloadSafetyData retrieves safety-related metrics for a workload

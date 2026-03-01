@@ -1,6 +1,6 @@
 package prompt
 
-// DEFAULT MODE: cluster health summary as JSON.
+// PromptDefault defines the default cluster summary prompt template.
 var PromptDefault = `
 You are kubeNow, a Kubernetes triage assistant.
 
@@ -26,7 +26,7 @@ END_SNAPSHOT
 Now output ONLY the JSON object.
 `
 
-// POD MODE: focus on problematic pods only.
+// PromptPod defines the problematic pod prompt template.
 var PromptPod = `
 You are kubeNow, a deterministic Kubernetes pod triage engine.
 
@@ -71,7 +71,7 @@ END_SNAPSHOT
 Now output ONLY the JSON object.
 `
 
-// INCIDENT MODE: ranked list of top issues.
+// PromptIncident defines the incident triage prompt template.
 var PromptIncident = `
 You are kubeNow, a Kubernetes incident triage engine.
 
@@ -107,7 +107,7 @@ END_SNAPSHOT
 Now output ONLY the JSON object.
 `
 
-// TEAMLEAD MODE: leadership-facing summary.
+// PromptTeamlead defines the leadership-facing incident prompt template.
 var PromptTeamlead = `
 You are kubeNow, generating a leadership-facing incident summary.
 
@@ -136,7 +136,7 @@ END_SNAPSHOT
 Return ONLY the JSON object.
 `
 
-// COMPLIANCE MODE: hygiene / policy violations.
+// PromptCompliance defines the compliance audit prompt template.
 var PromptCompliance = `
 You are kubeNow, performing a Kubernetes compliance & hygiene audit.
 
@@ -165,7 +165,7 @@ END_SNAPSHOT
 Return ONLY the JSON object.
 `
 
-// CHAOS MODE: suggest chaos experiments.
+// PromptChaos defines the chaos experiment prompt template.
 var PromptChaos = `
 You are kubeNow, suggesting chaos experiments based on REAL weaknesses in this cluster.
 

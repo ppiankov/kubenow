@@ -156,6 +156,9 @@ func TestBuildLatchResult_ValidWithPercentiles(t *testing.T) {
 }
 
 func TestLatchResult_PlannedDuration_Serialization(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
 	ref := WorkloadRef{Kind: "Deployment", Name: "api", Namespace: "prod"}
 	result := BuildLatchResult(ref, nil, 93*time.Minute, 5*time.Second)
 	result.PlannedDuration = 2 * time.Hour

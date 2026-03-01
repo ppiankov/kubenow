@@ -122,7 +122,7 @@ func runNodeFootprint(_ *cobra.Command, _ []string) error {
 
 	// Build Kubernetes client
 	if IsVerbose() {
-		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")
+		stderrln("[kubenow] Building Kubernetes client...")
 	}
 
 	kubeClient, err := util.BuildKubeClientWithOpts(GetKubeOpts())
@@ -132,7 +132,7 @@ func runNodeFootprint(_ *cobra.Command, _ []string) error {
 
 	// Create Prometheus client
 	if IsVerbose() {
-		fmt.Fprintf(os.Stderr, "[kubenow] Connecting to Prometheus: %s\n", nodeFootprintConfig.prometheusURL)
+		stderrf("[kubenow] Connecting to Prometheus: %s\n", nodeFootprintConfig.prometheusURL)
 	}
 
 	promConfig := metrics.Config{
@@ -153,7 +153,7 @@ func runNodeFootprint(_ *cobra.Command, _ []string) error {
 	}
 
 	if IsVerbose() {
-		fmt.Fprintln(os.Stderr, "[kubenow] Analyzing cluster node footprint...")
+		stderrln("[kubenow] Analyzing cluster node footprint...")
 	}
 
 	// Create analyzer
@@ -191,7 +191,7 @@ func outputNodeFootprintJSON(result *analyzer.NodeFootprintResult, exportFile st
 		if err := os.WriteFile(exportFile, data, 0o600); err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "[kubenow] Report saved to: %s\n", exportFile)
+		stderrf("[kubenow] Report saved to: %s\n", exportFile)
 		return nil
 	}
 
@@ -205,11 +205,13 @@ func outputNodeFootprintTable(result *analyzer.NodeFootprintResult, _ string) er
 	table := tablewriter.NewWriter(os.Stdout)
 	table.Header([]string{"Scenario", "Nodes", "Avg CPU%", "Avg Mem%", "Headroom", "Feasibility", "Notes"})
 
-	for _, scenario := range result.Scenarios {
+	for i := range result.Scenarios {
+		scenario := &result.Scenarios[i]
 		feasibility := "YES"
-		if !scenario.Feasible {
+		switch {
+		case !scenario.Feasible:
 			feasibility = "NO"
-		} else if scenario.Headroom == "very low" {
+		case scenario.Headroom == "very low":
 			feasibility = "YES (tight)"
 		}
 
@@ -218,7 +220,7 @@ func outputNodeFootprintTable(result *analyzer.NodeFootprintResult, _ string) er
 			notes = fmt.Sprintf("%s\n%s", scenario.EstimatedSavings, notes)
 		}
 
-		table.Append([]string{
+		if err := table.Append([]string{
 			scenario.Name,
 			fmt.Sprintf("%d", scenario.NodeCount),
 			fmt.Sprintf("%.0f%%", scenario.AvgCPUUtilization),
@@ -226,7 +228,9 @@ func outputNodeFootprintTable(result *analyzer.NodeFootprintResult, _ string) er
 			scenario.Headroom,
 			feasibility,
 			notes,
-		})
+		}); err != nil {
+			return fmt.Errorf("failed to append node footprint row: %w", err)
+		}
 	}
 
 	// Print summary
@@ -251,13 +255,16 @@ func outputNodeFootprintTable(result *analyzer.NodeFootprintResult, _ string) er
 
 	fmt.Println("Scenarios:")
 	// Render table
-	table.Render()
+	if err := table.Render(); err != nil {
+		return fmt.Errorf("failed to render node footprint table: %w", err)
+	}
 
 	// Print safety warnings if any scenarios have unstable workloads
 	hasUnstableWorkloads := false
 	unstableCount := 0
 
-	for _, scenario := range result.Scenarios {
+	for i := range result.Scenarios {
+		scenario := &result.Scenarios[i]
 		if scenario.UnstableWorkloads > 0 {
 			hasUnstableWorkloads = true
 			unstableCount = scenario.UnstableWorkloads

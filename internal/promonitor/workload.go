@@ -125,7 +125,8 @@ func DetectHPA(ctx context.Context, client *kubernetes.Clientset, ref *WorkloadR
 		return nil // HPA API may not be available; not a fatal error
 	}
 
-	for _, hpa := range hpas.Items {
+	for i := range hpas.Items {
+		hpa := &hpas.Items[i]
 		if matchesHPATarget(hpa, ref) {
 			info := &HPAInfo{
 				Name:       hpa.Name,
@@ -140,7 +141,7 @@ func DetectHPA(ctx context.Context, client *kubernetes.Clientset, ref *WorkloadR
 	return nil
 }
 
-func matchesHPATarget(hpa autoscalingv2.HorizontalPodAutoscaler, ref *WorkloadRef) bool {
+func matchesHPATarget(hpa *autoscalingv2.HorizontalPodAutoscaler, ref *WorkloadRef) bool {
 	target := hpa.Spec.ScaleTargetRef
 	return target.Name == ref.Name && target.Kind == ref.Kind
 }
@@ -180,7 +181,8 @@ func FetchContainerResources(ctx context.Context, client *kubernetes.Clientset, 
 
 func extractContainerResources(containers []corev1.Container) []ContainerResources {
 	result := make([]ContainerResources, len(containers))
-	for i, c := range containers {
+	for i := range containers {
+		c := &containers[i]
 		result[i] = ContainerResources{
 			Name:          c.Name,
 			CPURequest:    c.Resources.Requests.Cpu().AsApproximateFloat64(),

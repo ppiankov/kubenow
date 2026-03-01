@@ -40,7 +40,7 @@ users:
 `
 	tmpDir := t.TempDir()
 	kubeconfigPath := filepath.Join(tmpDir, "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(content), 0644))
+	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(content), 0o644))
 
 	ctxName, userName := resolveKubeconfig(kubeconfigPath)
 	assert.Equal(t, "test-context", ctxName)
@@ -81,7 +81,7 @@ users:
 `
 	tmpDir := t.TempDir()
 	kubeconfigPath := filepath.Join(tmpDir, "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(content), 0644))
+	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(content), 0o644))
 
 	id := ResolveIdentity(context.Background(), client, kubeconfigPath)
 

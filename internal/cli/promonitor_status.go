@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -59,34 +58,34 @@ func runStatus(_ *cobra.Command, args []string) error {
 
 func printLatchStatus(r *promonitor.LatchResult) {
 	w := r.Workload
-	fmt.Fprintf(os.Stdout, "Latch: %s/%s (%s)\n", strings.ToLower(w.Kind), w.Name, w.Namespace)
+	stdoutf("Latch: %s/%s (%s)\n", strings.ToLower(w.Kind), w.Name, w.Namespace)
 
 	ago := time.Since(r.Timestamp)
-	fmt.Fprintf(os.Stdout, "  Recorded: %s (%s ago)\n", r.Timestamp.Format(time.RFC3339), formatLatchAge(ago))
-	fmt.Fprintf(os.Stdout, "  Duration: %s  Samples: %d  Gaps: %d\n",
+	stdoutf("  Recorded: %s (%s ago)\n", r.Timestamp.Format(time.RFC3339), formatLatchAge(ago))
+	stdoutf("  Duration: %s  Samples: %d  Gaps: %d\n",
 		r.Duration.String(), sampleCount(r), r.Gaps)
 
 	if r.CPU != nil {
-		fmt.Fprintf(os.Stdout, "  CPU:  avg=%s  p50=%s  p95=%s  p99=%s  max=%s\n",
+		stdoutf("  CPU:  avg=%s  p50=%s  p95=%s  p99=%s  max=%s\n",
 			formatCPU(r.CPU.Avg), formatCPU(r.CPU.P50), formatCPU(r.CPU.P95),
 			formatCPU(r.CPU.P99), formatCPU(r.CPU.Max))
 	}
 
 	if r.Memory != nil {
-		fmt.Fprintf(os.Stdout, "  MEM:  avg=%s  p50=%s  p95=%s  p99=%s  max=%s\n",
+		stdoutf("  MEM:  avg=%s  p50=%s  p95=%s  p99=%s  max=%s\n",
 			formatMem(r.Memory.Avg), formatMem(r.Memory.P50), formatMem(r.Memory.P95),
 			formatMem(r.Memory.P99), formatMem(r.Memory.Max))
 	}
 
 	if r.Data != nil {
-		fmt.Fprintf(os.Stdout, "  Signals: %d OOMKills, %d restarts, %d evictions\n",
+		stdoutf("  Signals: %d OOMKills, %d restarts, %d evictions\n",
 			r.Data.OOMKills, r.Data.Restarts, r.Data.Evictions)
 	}
 
 	if r.Valid {
-		fmt.Fprintf(os.Stdout, "  Status: VALID (fresh, no excessive gaps)\n")
+		stdoutf("  Status: VALID (fresh, no excessive gaps)\n")
 	} else {
-		fmt.Fprintf(os.Stdout, "  Status: INVALID (%s)\n", r.Reason)
+		stdoutf("  Status: INVALID (%s)\n", r.Reason)
 	}
 }
 
@@ -116,12 +115,14 @@ func formatMem(bytes float64) string {
 }
 
 func formatLatchAge(d time.Duration) string {
-	if d < time.Minute {
+	switch {
+	case d < time.Minute:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
-	} else if d < time.Hour {
+	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
-	} else if d < 24*time.Hour {
+	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }

@@ -1,3 +1,4 @@
+// Package audit writes deterministic apply audit bundles and records.
 package audit
 
 import (
@@ -117,6 +118,8 @@ type DecisionLatch struct {
 }
 
 // AuditBundle tracks paths for a created audit bundle.
+//
+//revive:disable-next-line:exported
 type AuditBundle struct {
 	Dir          string
 	DecisionPath string
@@ -124,11 +127,11 @@ type AuditBundle struct {
 
 // CreateBundle creates the audit bundle directory and writes before.yaml and
 // a pending decision.json. If this function fails, the apply MUST be aborted.
-func CreateBundle(cfg BundleConfig) (*AuditBundle, error) {
+func CreateBundle(cfg *BundleConfig) (*AuditBundle, error) {
 	dirName := bundleDirName(cfg.Timestamp, cfg.Workload)
 	bundleDir := filepath.Join(cfg.AuditPath, dirName)
 
-	if err := os.MkdirAll(bundleDir, 0755); err != nil {
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create bundle dir: %w", err)
 	}
 
@@ -244,7 +247,7 @@ func bundleDirName(ts time.Time, workload BundleWorkload) string {
 }
 
 // buildDecisionJSON constructs the full decision record.
-func buildDecisionJSON(cfg BundleConfig, status string) *DecisionJSON {
+func buildDecisionJSON(cfg *BundleConfig, status string) *DecisionJSON {
 	return &DecisionJSON{
 		Version:   cfg.Version,
 		Timestamp: cfg.Timestamp.UTC().Format(time.RFC3339),

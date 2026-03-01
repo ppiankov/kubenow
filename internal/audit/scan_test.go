@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func writeDecision(t *testing.T, dir string, decision DecisionJSON) {
+func writeDecision(t *testing.T, dir string, decision *DecisionJSON) {
 	t.Helper()
 	data, err := json.MarshalIndent(decision, "", "  ")
 	if err != nil {
@@ -87,7 +87,7 @@ func TestScanBundles_MixedStatuses(t *testing.T) {
 	if err := os.MkdirAll(appliedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeDecision(t, appliedDir, DecisionJSON{
+	writeDecision(t, appliedDir, &DecisionJSON{
 		Status:   "applied",
 		Workload: BundleWorkload{Kind: "Deployment", Name: "cart-svc", Namespace: "prod"},
 	})
@@ -97,7 +97,7 @@ func TestScanBundles_MixedStatuses(t *testing.T) {
 	if err := os.MkdirAll(deniedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeDecision(t, deniedDir, DecisionJSON{
+	writeDecision(t, deniedDir, &DecisionJSON{
 		Status:   "denied",
 		Workload: BundleWorkload{Kind: "Deployment", Name: "denied-svc", Namespace: "prod"},
 	})
@@ -133,7 +133,7 @@ func TestScanBundles_SinceFilter(t *testing.T) {
 	if err := os.MkdirAll(oldDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeDecision(t, oldDir, DecisionJSON{
+	writeDecision(t, oldDir, &DecisionJSON{
 		Status:   "applied",
 		Workload: BundleWorkload{Kind: "Deployment", Name: "old-svc", Namespace: "default"},
 	})
@@ -143,7 +143,7 @@ func TestScanBundles_SinceFilter(t *testing.T) {
 	if err := os.MkdirAll(recentDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeDecision(t, recentDir, DecisionJSON{
+	writeDecision(t, recentDir, &DecisionJSON{
 		Status:   "applied",
 		Workload: BundleWorkload{Kind: "Deployment", Name: "recent-svc", Namespace: "default"},
 	})
@@ -183,7 +183,7 @@ func TestScanBundles_SortOrder(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		writeDecision(t, dir, DecisionJSON{
+		writeDecision(t, dir, &DecisionJSON{
 			Status:   "applied",
 			Workload: BundleWorkload{Kind: "Deployment", Name: d.name, Namespace: "default"},
 		})
@@ -214,7 +214,7 @@ func TestScanBundles_MalformedSkipped(t *testing.T) {
 	if err := os.MkdirAll(validDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeDecision(t, validDir, DecisionJSON{
+	writeDecision(t, validDir, &DecisionJSON{
 		Status:   "applied",
 		Workload: BundleWorkload{Kind: "Deployment", Name: "valid", Namespace: "default"},
 	})

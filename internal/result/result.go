@@ -1,3 +1,4 @@
+// Package result defines prompt result schemas and human renderers.
 package result
 
 import (
@@ -9,6 +10,7 @@ import (
 
 // ---------- Shared JSON helpers ----------
 
+// PrettyJSON marshals v as indented JSON.
 func PrettyJSON(v any) (string, error) {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -19,7 +21,7 @@ func PrettyJSON(v any) (string, error) {
 
 // ---------- Types matching prompt schemas ----------
 
-// Pod mode
+// PodResult represents the prompt result for pod mode.
 type PodResult struct {
 	Pods []struct {
 		Namespace        string   `json:"namespace"`
@@ -34,7 +36,7 @@ type PodResult struct {
 	} `json:"pods"`
 }
 
-// Incident mode
+// IncidentResult represents the prompt result for incident mode.
 type IncidentResult struct {
 	TopIssues []struct {
 		Namespace string `json:"namespace"`
@@ -49,7 +51,7 @@ type IncidentResult struct {
 	Notes      []string `json:"notes"`
 }
 
-// Teamlead mode
+// TeamleadResult represents the prompt result for teamlead mode.
 type TeamleadResult struct {
 	BusinessRisk   []string `json:"business_risk"`
 	OwnershipHints []string `json:"ownership_hints"`
@@ -57,7 +59,7 @@ type TeamleadResult struct {
 	Escalation     []string `json:"escalation"`
 }
 
-// Compliance mode
+// ComplianceResult represents the prompt result for compliance mode.
 type ComplianceResult struct {
 	Issues []struct {
 		Namespace      string `json:"namespace"`
@@ -69,7 +71,7 @@ type ComplianceResult struct {
 	} `json:"issues"`
 }
 
-// Chaos mode
+// ChaosResult represents the prompt result for chaos mode.
 type ChaosResult struct {
 	Vulnerabilities []string `json:"vulnerabilities"`
 	Experiments     []struct {
@@ -80,7 +82,7 @@ type ChaosResult struct {
 	ImpactNotes []string `json:"impact_notes"`
 }
 
-// Default mode
+// DefaultResult represents the prompt result for default mode.
 type DefaultResult struct {
 	Summary struct {
 		ProblemPodCount      int      `json:"problem_pod_count"`
@@ -98,194 +100,238 @@ type DefaultResult struct {
 	Recommendations []string `json:"recommendations"`
 }
 
-// ---------- Human renderers ----------
+type errWriter struct {
+	w   io.Writer
+	err error
+}
 
-// Pod triage
-func RenderPodHuman(w io.Writer, r *PodResult) {
-	if len(r.Pods) == 0 {
-		fmt.Fprintln(w, "No problematic pods detected.")
+func (ew *errWriter) fprintf(format string, args ...any) {
+	if ew.err != nil {
 		return
 	}
+	_, ew.err = fmt.Fprintf(ew.w, format, args...)
+}
 
-	for _, p := range r.Pods {
-		fmt.Fprintln(w, "────────────────────────────────────────")
-		fmt.Fprintf(w, "Namespace:   %s\n", p.Namespace)
-		fmt.Fprintf(w, "Pod:         %s\n", p.Name)
-		fmt.Fprintf(w, "Severity:    %s\n", strings.ToUpper(p.Severity))
-		fmt.Fprintf(w, "Issue:       %s\n", p.IssueType)
-		fmt.Fprintf(w, "Container:   %s\n\n", p.FailingContainer)
+func (ew *errWriter) fprintln(args ...any) {
+	if ew.err != nil {
+		return
+	}
+	_, ew.err = fmt.Fprintln(ew.w, args...)
+}
 
-		fmt.Fprintf(w, "Summary:\n  %s\n\n", p.Summary)
-		fmt.Fprintf(w, "Likely root cause:\n  %s\n\n", p.RootCause)
+// ---------- Human renderers ----------
+
+// RenderPodHuman renders pod-mode results in a human-readable format.
+func RenderPodHuman(w io.Writer, r *PodResult) error {
+	ew := errWriter{w: w}
+
+	if len(r.Pods) == 0 {
+		ew.fprintln("No problematic pods detected.")
+		return ew.err
+	}
+
+	for i := range r.Pods {
+		p := &r.Pods[i]
+		ew.fprintln("────────────────────────────────────────")
+		ew.fprintf("Namespace:   %s\n", p.Namespace)
+		ew.fprintf("Pod:         %s\n", p.Name)
+		ew.fprintf("Severity:    %s\n", strings.ToUpper(p.Severity))
+		ew.fprintf("Issue:       %s\n", p.IssueType)
+		ew.fprintf("Container:   %s\n\n", p.FailingContainer)
+
+		ew.fprintf("Summary:\n  %s\n\n", p.Summary)
+		ew.fprintf("Likely root cause:\n  %s\n\n", p.RootCause)
 
 		if len(p.FixCommands) > 0 {
-			fmt.Fprintln(w, "Suggested commands:")
+			ew.fprintln("Suggested commands:")
 			for _, c := range p.FixCommands {
-				fmt.Fprintf(w, "  $ %s\n", c)
+				ew.fprintf("  $ %s\n", c)
 			}
-			fmt.Fprintln(w)
+			ew.fprintln()
 		}
 
 		if p.Notes != "" {
-			fmt.Fprintf(w, "Notes:\n  %s\n", p.Notes)
+			ew.fprintf("Notes:\n  %s\n", p.Notes)
 		}
 	}
-	fmt.Fprintln(w, "────────────────────────────────────────")
+	ew.fprintln("────────────────────────────────────────")
+
+	return ew.err
 }
 
-// Incident view
-func RenderIncidentHuman(w io.Writer, r *IncidentResult) {
-	fmt.Fprintln(w, "===== INCIDENT VIEW =====")
+// RenderIncidentHuman renders incident-mode results in a human-readable format.
+func RenderIncidentHuman(w io.Writer, r *IncidentResult) error {
+	ew := errWriter{w: w}
+
+	ew.fprintln("===== INCIDENT VIEW =====")
 
 	if len(r.TopIssues) == 0 {
-		fmt.Fprintln(w, "No significant incident-level issues detected.")
-		return
+		ew.fprintln("No significant incident-level issues detected.")
+		return ew.err
 	}
 
-	fmt.Fprintln(w, "Top issues:")
+	ew.fprintln("Top issues:")
 	for _, i := range r.TopIssues {
-		fmt.Fprintln(w, "─────────────────────────")
-		fmt.Fprintf(w, "Namespace: %s\n", i.Namespace)
-		fmt.Fprintf(w, "Name:      %s\n", i.Name)
-		fmt.Fprintf(w, "Severity:  %s\n", strings.ToUpper(i.Severity))
-		fmt.Fprintf(w, "Type:      %s\n\n", i.IssueType)
-		fmt.Fprintf(w, "Summary:   %s\n", i.Summary)
-		fmt.Fprintf(w, "Impact:    %s\n", i.Impact)
+		ew.fprintln("─────────────────────────")
+		ew.fprintf("Namespace: %s\n", i.Namespace)
+		ew.fprintf("Name:      %s\n", i.Name)
+		ew.fprintf("Severity:  %s\n", strings.ToUpper(i.Severity))
+		ew.fprintf("Type:      %s\n\n", i.IssueType)
+		ew.fprintf("Summary:   %s\n", i.Summary)
+		ew.fprintf("Impact:    %s\n", i.Impact)
 	}
 
 	if len(r.RootCauses) > 0 {
-		fmt.Fprintln(w, "\nRoot causes:")
+		ew.fprintln("\nRoot causes:")
 		for _, rc := range r.RootCauses {
-			fmt.Fprintf(w, "  - %s\n", rc)
+			ew.fprintf("  - %s\n", rc)
 		}
 	}
 
 	if len(r.Actions) > 0 {
-		fmt.Fprintln(w, "\nActions:")
+		ew.fprintln("\nActions:")
 		for _, a := range r.Actions {
-			fmt.Fprintf(w, "  $ %s\n", a)
+			ew.fprintf("  $ %s\n", a)
 		}
 	}
 
 	if len(r.Notes) > 0 {
-		fmt.Fprintln(w, "\nNotes:")
+		ew.fprintln("\nNotes:")
 		for _, n := range r.Notes {
-			fmt.Fprintf(w, "  - %s\n", n)
+			ew.fprintf("  - %s\n", n)
 		}
 	}
+
+	return ew.err
 }
 
-// Teamlead view
-func RenderTeamleadHuman(w io.Writer, r *TeamleadResult) {
-	fmt.Fprintln(w, "===== TEAMLEAD VIEW =====")
+// RenderTeamleadHuman renders teamlead-mode results in a human-readable format.
+func RenderTeamleadHuman(w io.Writer, r *TeamleadResult) error {
+	ew := errWriter{w: w}
+
+	ew.fprintln("===== TEAMLEAD VIEW =====")
 
 	if len(r.BusinessRisk) > 0 {
-		fmt.Fprintln(w, "Business risk:")
+		ew.fprintln("Business risk:")
 		for _, s := range r.BusinessRisk {
-			fmt.Fprintf(w, "  - %s\n", s)
+			ew.fprintf("  - %s\n", s)
 		}
 	}
 
 	if len(r.OwnershipHints) > 0 {
-		fmt.Fprintln(w, "\nOwnership hints:")
+		ew.fprintln("\nOwnership hints:")
 		for _, s := range r.OwnershipHints {
-			fmt.Fprintf(w, "  - %s\n", s)
+			ew.fprintf("  - %s\n", s)
 		}
 	}
 
 	if len(r.TopActions) > 0 {
-		fmt.Fprintln(w, "\nTop actions:")
+		ew.fprintln("\nTop actions:")
 		for _, s := range r.TopActions {
-			fmt.Fprintf(w, "  - %s\n", s)
+			ew.fprintf("  - %s\n", s)
 		}
 	}
 
 	if len(r.Escalation) > 0 {
-		fmt.Fprintln(w, "\nEscalation conditions:")
+		ew.fprintln("\nEscalation conditions:")
 		for _, s := range r.Escalation {
-			fmt.Fprintf(w, "  - %s\n", s)
+			ew.fprintf("  - %s\n", s)
 		}
 	}
+
+	return ew.err
 }
 
-// Compliance view
-func RenderComplianceHuman(w io.Writer, r *ComplianceResult) {
+// RenderComplianceHuman renders compliance-mode results in a human-readable format.
+func RenderComplianceHuman(w io.Writer, r *ComplianceResult) error {
+	ew := errWriter{w: w}
+
 	if len(r.Issues) == 0 {
-		fmt.Fprintln(w, "Compliance: no issues detected.")
-		return
+		ew.fprintln("Compliance: no issues detected.")
+		return ew.err
 	}
 
-	fmt.Fprintln(w, "===== COMPLIANCE ISSUES =====")
+	ew.fprintln("===== COMPLIANCE ISSUES =====")
 	for _, i := range r.Issues {
-		fmt.Fprintln(w, "──────────────────────────────")
-		fmt.Fprintf(w, "Namespace:    %s\n", i.Namespace)
-		fmt.Fprintf(w, "Name:         %s\n", i.Name)
-		fmt.Fprintf(w, "Type:         %s\n", i.Type)
-		fmt.Fprintf(w, "Severity:     %s\n\n", i.Severity)
-		fmt.Fprintf(w, "Issue:        %s\n", i.Description)
-		fmt.Fprintf(w, "Recommendation:\n  %s\n", i.Recommendation)
+		ew.fprintln("──────────────────────────────")
+		ew.fprintf("Namespace:    %s\n", i.Namespace)
+		ew.fprintf("Name:         %s\n", i.Name)
+		ew.fprintf("Type:         %s\n", i.Type)
+		ew.fprintf("Severity:     %s\n\n", i.Severity)
+		ew.fprintf("Issue:        %s\n", i.Description)
+		ew.fprintf("Recommendation:\n  %s\n", i.Recommendation)
 	}
+
+	return ew.err
 }
 
-// Chaos view
-func RenderChaosHuman(w io.Writer, r *ChaosResult) {
-	fmt.Fprintln(w, "===== CHAOS EXPERIMENTS =====")
+// RenderChaosHuman renders chaos-mode results in a human-readable format.
+func RenderChaosHuman(w io.Writer, r *ChaosResult) error {
+	ew := errWriter{w: w}
+
+	ew.fprintln("===== CHAOS EXPERIMENTS =====")
 
 	if len(r.Vulnerabilities) > 0 {
-		fmt.Fprintln(w, "Vulnerabilities:")
+		ew.fprintln("Vulnerabilities:")
 		for _, v := range r.Vulnerabilities {
-			fmt.Fprintf(w, "  - %s\n", v)
+			ew.fprintf("  - %s\n", v)
 		}
 	}
 
 	if len(r.Experiments) > 0 {
-		fmt.Fprintln(w, "\nSuggested experiments:")
+		ew.fprintln("\nSuggested experiments:")
 		for _, e := range r.Experiments {
-			fmt.Fprintln(w, "────────────────────────")
-			fmt.Fprintf(w, "Name:   %s\n", e.Name)
-			fmt.Fprintf(w, "Reason: %s\n", e.Reason)
-			fmt.Fprintf(w, "What to do:\n  %s\n", e.Description)
+			ew.fprintln("────────────────────────")
+			ew.fprintf("Name:   %s\n", e.Name)
+			ew.fprintf("Reason: %s\n", e.Reason)
+			ew.fprintf("What to do:\n  %s\n", e.Description)
 		}
 	}
 
 	if len(r.ImpactNotes) > 0 {
-		fmt.Fprintln(w, "\nImpact notes:")
+		ew.fprintln("\nImpact notes:")
 		for _, n := range r.ImpactNotes {
-			fmt.Fprintf(w, "  - %s\n", n)
+			ew.fprintf("  - %s\n", n)
 		}
 	}
+
+	return ew.err
 }
 
-// Default cluster summary
-func RenderDefaultHuman(w io.Writer, r *DefaultResult) {
-	fmt.Fprintln(w, "===== CLUSTER SUMMARY =====")
-	fmt.Fprintf(w, "Problem pods:          %d\n", r.Summary.ProblemPodCount)
-	fmt.Fprintf(w, "Node readiness:        %s\n", r.Summary.NodeReadiness)
-	fmt.Fprintf(w, "Resource pressure:     %s\n", r.Summary.ResourcePressure)
+// RenderDefaultHuman renders default-mode results in a human-readable format.
+func RenderDefaultHuman(w io.Writer, r *DefaultResult) error {
+	ew := errWriter{w: w}
+
+	ew.fprintln("===== CLUSTER SUMMARY =====")
+	ew.fprintf("Problem pods:          %d\n", r.Summary.ProblemPodCount)
+	ew.fprintf("Node readiness:        %s\n", r.Summary.NodeReadiness)
+	ew.fprintf("Resource pressure:     %s\n", r.Summary.ResourcePressure)
 
 	if len(r.Summary.NamespacesWithIssues) > 0 {
-		fmt.Fprintln(w, "Namespaces with issues:")
+		ew.fprintln("Namespaces with issues:")
 		for _, ns := range r.Summary.NamespacesWithIssues {
-			fmt.Fprintf(w, "  - %s\n", ns)
+			ew.fprintf("  - %s\n", ns)
 		}
 	}
 
 	if len(r.Issues) > 0 {
-		fmt.Fprintln(w, "\nIssues:")
+		ew.fprintln("\nIssues:")
 		for _, i := range r.Issues {
-			fmt.Fprintln(w, "────────────────────────")
-			fmt.Fprintf(w, "Namespace: %s\n", i.Namespace)
-			fmt.Fprintf(w, "Name:      %s\n", i.Name)
-			fmt.Fprintf(w, "Type:      %s\n", i.IssueType)
-			fmt.Fprintf(w, "Severity:  %s\n", i.Severity)
-			fmt.Fprintf(w, "Summary:   %s\n", i.ShortSummary)
+			ew.fprintln("────────────────────────")
+			ew.fprintf("Namespace: %s\n", i.Namespace)
+			ew.fprintf("Name:      %s\n", i.Name)
+			ew.fprintf("Type:      %s\n", i.IssueType)
+			ew.fprintf("Severity:  %s\n", i.Severity)
+			ew.fprintf("Summary:   %s\n", i.ShortSummary)
 		}
 	}
 
 	if len(r.Recommendations) > 0 {
-		fmt.Fprintln(w, "\nRecommendations:")
+		ew.fprintln("\nRecommendations:")
 		for _, rec := range r.Recommendations {
-			fmt.Fprintf(w, "  - %s\n", rec)
+			ew.fprintf("  - %s\n", rec)
 		}
 	}
+
+	return ew.err
 }

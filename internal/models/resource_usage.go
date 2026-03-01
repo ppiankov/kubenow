@@ -1,3 +1,4 @@
+// Package models defines shared data models for kubenow analysis.
 package models
 
 import (
@@ -261,7 +262,7 @@ func (sa *SafetyAnalysis) DetectUltraSpikes(_, cpuP95, cpuP99, cpuMax float64) {
 
 // DetectAIWorkloadPattern checks container specs for AI/inference patterns
 // These workloads typically have sub-second bursts (RAG, embeddings, inference)
-func (sa *SafetyAnalysis) DetectAIWorkloadPattern(containerCommand []string, labels map[string]string, annotations map[string]string) {
+func (sa *SafetyAnalysis) DetectAIWorkloadPattern(containerCommand []string, labels, annotations map[string]string) {
 	// AI/ML workload indicators
 	aiPatterns := []string{
 		"llm", "inference", "rag", "embedding", "transformer",
@@ -273,8 +274,8 @@ func (sa *SafetyAnalysis) DetectAIWorkloadPattern(containerCommand []string, lab
 	detectedTags := []string{}
 
 	// Check container command/args
-	commandStr := fmt.Sprintf("%v", containerCommand)
-	commandLower := fmt.Sprintf("%s", commandStr)
+	commandStr := fmt.Sprint(containerCommand)
+	commandLower := commandStr
 	for _, pattern := range aiPatterns {
 		if contains(commandLower, pattern) {
 			detectedTags = append(detectedTags, pattern)
@@ -284,8 +285,8 @@ func (sa *SafetyAnalysis) DetectAIWorkloadPattern(containerCommand []string, lab
 
 	// Check labels
 	for key, value := range labels {
-		keyValue := fmt.Sprintf("%s=%s", key, value)
-		keyValueLower := fmt.Sprintf("%s", keyValue)
+		keyValue := fmt.Sprint(key, "=", value)
+		keyValueLower := keyValue
 		for _, pattern := range aiPatterns {
 			if contains(keyValueLower, pattern) {
 				if !containsString(detectedTags, pattern) {
@@ -298,8 +299,8 @@ func (sa *SafetyAnalysis) DetectAIWorkloadPattern(containerCommand []string, lab
 
 	// Check annotations
 	for key, value := range annotations {
-		keyValue := fmt.Sprintf("%s=%s", key, value)
-		keyValueLower := fmt.Sprintf("%s", keyValue)
+		keyValue := fmt.Sprint(key, "=", value)
+		keyValueLower := keyValue
 		for _, pattern := range aiPatterns {
 			if contains(keyValueLower, pattern) {
 				if !containsString(detectedTags, pattern) {
@@ -354,14 +355,16 @@ func FormatMemoryBytes(bytes float64) string {
 		Gi = 1024 * Mi
 	)
 
-	if bytes >= Gi {
+	switch {
+	case bytes >= Gi:
 		return fmt.Sprintf("%.2fGi", bytes/Gi)
-	} else if bytes >= Mi {
+	case bytes >= Mi:
 		return fmt.Sprintf("%.2fMi", bytes/Mi)
-	} else if bytes >= Ki {
+	case bytes >= Ki:
 		return fmt.Sprintf("%.2fKi", bytes/Ki)
+	default:
+		return fmt.Sprintf("%.0fB", bytes)
 	}
-	return fmt.Sprintf("%.0fB", bytes)
 }
 
 // ParseMemoryString converts human-readable memory to bytes

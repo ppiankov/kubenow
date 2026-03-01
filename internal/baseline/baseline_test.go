@@ -60,7 +60,7 @@ func TestLoadBaseline_MissingFile(t *testing.T) {
 func TestLoadBaseline_CorruptedJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.json")
-	err := os.WriteFile(path, []byte("{invalid"), 0644)
+	err := os.WriteFile(path, []byte("{invalid"), 0o644)
 	require.NoError(t, err)
 
 	_, err = LoadBaseline(path)

@@ -21,6 +21,7 @@ import (
 // PortForwardStatus represents the current state of port-forward
 type PortForwardStatus int
 
+// StatusStopped, StatusStarting, StatusRunning, and StatusFailed define port-forward states.
 const (
 	StatusStopped PortForwardStatus = iota
 	StatusStarting
@@ -28,6 +29,7 @@ const (
 	StatusFailed
 )
 
+// String returns the string form of the port-forward status.
 func (s PortForwardStatus) String() string {
 	switch s {
 	case StatusStopped:

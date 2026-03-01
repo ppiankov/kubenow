@@ -356,7 +356,7 @@ func TestFormatTrackJSON(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && containsStr(s, substr)
+	return s != "" && substr != "" && containsStr(s, substr)
 }
 
 func containsStr(s, substr string) bool {

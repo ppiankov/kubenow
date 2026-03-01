@@ -20,6 +20,7 @@ import (
 // Mode describes what operations the policy allows.
 type Mode int
 
+// ModeObserveOnly, ModeExportOnly, and ModeApplyReady define pro-monitor operating modes.
 const (
 	ModeObserveOnly Mode = iota // No policy or global.enabled=false
 	ModeExportOnly              // Policy present, apply.enabled=false
@@ -176,7 +177,7 @@ func NewAnalyzeModel(ref WorkloadRef, mode Mode, policyMsg string, hpa *HPAInfo,
 }
 
 // Init starts the bubbletea program.
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		tickCmd(),
@@ -184,7 +185,7 @@ func (m Model) Init() tea.Cmd {
 }
 
 // Update handles messages.
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// When confirming, route input to the textinput first
 	if m.confirming {
 		return m.updateConfirming(msg)
@@ -286,7 +287,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Enter confirmation mode
 				ti := textinput.New()
 				ti.Placeholder = `type "apply" to confirm`
-				ti.Focus()
+				_ = ti.Focus()
 				ti.CharLimit = 10
 				m.confirmInput = ti
 				m.confirming = true
@@ -335,7 +336,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sampleCount = total
 		}
 		m.computing = true
-		return m, m.computeRecommendationCmd()
+		cmd := m.computeRecommendationCmd()
+		return m, cmd
 
 	case recommendDoneMsg:
 		m.computing = false
@@ -384,15 +386,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateConfirming handles input while the confirmation prompt is active.
-func (m Model) updateConfirming(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
+func (m *Model) updateConfirming(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if ok {
+		switch keyMsg.Type {
 		case tea.KeyEnter:
 			if m.confirmInput.Value() == "apply" {
 				m.confirming = false
 				m.applying = true
-				return m, m.executeApplyCmd()
+				cmd := m.executeApplyCmd()
+				return m, cmd
 			}
 			// Wrong input — cancel
 			m.confirming = false
@@ -413,7 +416,7 @@ func (m Model) updateConfirming(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // buildApplyInput assembles the ApplyInput from model state.
-func (m Model) buildApplyInput() *ApplyInput {
+func (m *Model) buildApplyInput() *ApplyInput {
 	input := &ApplyInput{
 		Recommendation:  m.recommendation,
 		Workload:        m.workload,
@@ -428,21 +431,24 @@ func (m Model) buildApplyInput() *ApplyInput {
 	// Resolve audit/identity/rate-limit flags for pre-flight checks.
 	// Without this, CheckActionable always denies (flags default to false).
 	if m.auditPath != "" && m.fullPolicy != nil {
-		input.AuditWritable = os.MkdirAll(m.auditPath, 0755) == nil
+		input.AuditWritable = os.MkdirAll(m.auditPath, 0o755) == nil
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		identity := audit.ResolveIdentity(ctx, m.kubeClient, m.kubeconfigPath)
 		input.IdentityRecorded = identity.IdentitySource != statusUnknown
 
-		peekResult, _ := audit.Peek(audit.RateLimitConfig{
+		peekResult, err := audit.Peek(audit.RateLimitConfig{
 			MaxGlobal: m.fullPolicy.RateLimits.MaxAppliesPerHour,
 			Window:    m.fullPolicy.RateWindowParsed(),
 			AuditPath: m.auditPath,
 		})
-		if peekResult != nil {
+		switch {
+		case err != nil:
+			input.RateLimitOK = true
+		case peekResult != nil:
 			input.RateLimitOK = peekResult.Allowed
-		} else {
+		default:
 			input.RateLimitOK = true
 		}
 	} else {
@@ -456,7 +462,7 @@ func (m Model) buildApplyInput() *ApplyInput {
 }
 
 // executeApplyCmd returns a Cmd that runs the SSA apply in a goroutine.
-func (m Model) executeApplyCmd() tea.Cmd {
+func (m *Model) executeApplyCmd() tea.Cmd {
 	client := m.kubeApplier
 	input := m.buildApplyInput()
 	auditPath := m.auditPath
@@ -491,7 +497,7 @@ func (m Model) executeApplyCmd() tea.Cmd {
 }
 
 // View renders the TUI — delegated to ui.go.
-func (m Model) View() string {
+func (m *Model) View() string {
 	return renderView(m)
 }
 
@@ -563,7 +569,7 @@ func tickCmd() tea.Cmd {
 
 // computeRecommendationCmd returns a Cmd that builds the latch result,
 // persists it, and runs the recommendation algorithm.
-func (m Model) computeRecommendationCmd() tea.Cmd {
+func (m *Model) computeRecommendationCmd() tea.Cmd {
 	latch := m.latch
 	workload := m.workload
 	plannedDuration := m.latchDuration
@@ -590,7 +596,7 @@ func (m Model) computeRecommendationCmd() tea.Cmd {
 		if actualDuration > 0 {
 			latchResult.PlannedDuration = plannedDuration
 		}
-		_ = SaveLatch(latchResult) // best-effort persistence
+		saveErr := SaveLatch(latchResult)
 
 		// Run recommendation engine
 		rec := Recommend(&RecommendInput{
@@ -607,6 +613,10 @@ func (m Model) computeRecommendationCmd() tea.Cmd {
 				formatDuration(actualDuration), plannedDuration.String(),
 				float64(actualDuration)/float64(plannedDuration)*100,
 			))
+		}
+
+		if saveErr != nil {
+			return recommendDoneMsg{rec: rec}
 		}
 
 		return recommendDoneMsg{rec: rec}

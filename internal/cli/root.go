@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/ppiankov/kubenow/internal/util"
@@ -59,10 +59,10 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
 
 	// Bind flags to viper
-	viper.BindPFlag("kubeconfig", rootCmd.PersistentFlags().Lookup("kubeconfig"))
-	viper.BindPFlag("context", rootCmd.PersistentFlags().Lookup("context"))
-	viper.BindPFlag("namespace", rootCmd.PersistentFlags().Lookup("namespace"))
-	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
+	mustBindPFlag("kubeconfig", rootCmd.PersistentFlags().Lookup("kubeconfig"))
+	mustBindPFlag("context", rootCmd.PersistentFlags().Lookup("context"))
+	mustBindPFlag("namespace", rootCmd.PersistentFlags().Lookup("namespace"))
+	mustBindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 }
 
 // initConfig reads in config file and ENV variables if set
@@ -74,7 +74,7 @@ func initConfig() {
 		// Find home directory
 		home, err := os.UserHomeDir()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error finding home directory: %v\n", err)
+			stderrf("Error finding home directory: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -88,7 +88,13 @@ func initConfig() {
 
 	// If a config file is found, read it in
 	if err := viper.ReadInConfig(); err == nil && verbose {
-		fmt.Fprintf(os.Stderr, "Using config file: %s\n", viper.ConfigFileUsed())
+		stderrf("Using config file: %s\n", viper.ConfigFileUsed())
+	}
+}
+
+func mustBindPFlag(key string, flag *pflag.Flag) {
+	if err := viper.BindPFlag(key, flag); err != nil {
+		panic(err)
 	}
 }
 

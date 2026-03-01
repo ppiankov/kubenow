@@ -7,6 +7,8 @@ import "time"
 // ExposureMap is the result of querying Kubernetes APIs for all
 // possible traffic paths to a workload. It is structural — it
 // shows what COULD send traffic, not what IS sending traffic.
+//
+//revive:disable-next-line:exported
 type ExposureMap struct {
 	Namespace    string
 	WorkloadName string

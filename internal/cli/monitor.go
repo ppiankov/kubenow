@@ -80,7 +80,7 @@ func init() {
 func runMonitor(_ *cobra.Command, _ []string) error {
 	// Build Kubernetes client
 	if IsVerbose() {
-		fmt.Fprintln(os.Stderr, "[kubenow] Building Kubernetes client...")
+		stderrln("[kubenow] Building Kubernetes client...")
 	}
 
 	kubeClient, err := util.BuildKubeClientWithOpts(GetKubeOpts())
@@ -126,7 +126,7 @@ func runMonitor(_ *cobra.Command, _ []string) error {
 	for {
 		model := monitor.NewModel(watcher)
 		p := tea.NewProgram(
-			model,
+			&model,
 			tea.WithAltScreen(),       // Use alternate screen buffer
 			tea.WithMouseCellMotion(), // Enable mouse support
 		)
@@ -137,16 +137,16 @@ func runMonitor(_ *cobra.Command, _ []string) error {
 		}
 
 		// Check what action was requested
-		if m, ok := finalModel.(monitor.Model); ok {
+		if m, ok := finalModel.(*monitor.Model); ok {
 			if m.ExportRequested() {
 				return exportProblems(m)
 			}
 			if m.PrintRequested() {
 				// Print to terminal (copyable), wait for input, then loop back
 				printProblemsToTerminal(m)
-				fmt.Println("\nPress Enter to return to monitor...")
-				fmt.Scanln() // Wait for user
-				continue     // Restart monitor loop
+				printlnOut("\nPress Enter to return to monitor...")
+				waitForEnter()
+				continue // Restart monitor loop
 			}
 		}
 
@@ -157,85 +157,87 @@ func runMonitor(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printProblemsToTerminal(m monitor.Model) {
+func printProblemsToTerminal(m *monitor.Model) {
 	problems, events, stats := m.GetState()
 
-	fmt.Println("\n═══════════════════════════════════════════════════════════════")
-	fmt.Println("kubenow monitor - Current State (COPYABLE)")
-	fmt.Println("═══════════════════════════════════════════════════════════════")
+	printlnOut("\n═══════════════════════════════════════════════════════════════")
+	printlnOut("kubenow monitor - Current State (COPYABLE)")
+	printlnOut("═══════════════════════════════════════════════════════════════")
 
 	if len(problems) == 0 {
-		fmt.Println("✓ No active problems")
+		printlnOut("✓ No active problems")
 	} else {
-		fmt.Printf("🔴 ACTIVE PROBLEMS (%d)\n\n", len(problems))
+		printfOut("🔴 ACTIVE PROBLEMS (%d)\n\n", len(problems))
 
-		for i, problem := range problems {
-			fmt.Printf("[%d] %s - %s\n", i+1, problem.Severity, problem.Type)
-			fmt.Printf("    Namespace: %s\n", problem.Namespace)
-			fmt.Printf("    Pod: %s\n", problem.PodName)
+		for i := range problems {
+			problem := &problems[i]
+			printfOut("[%d] %s - %s\n", i+1, problem.Severity, problem.Type)
+			printfOut("    Namespace: %s\n", problem.Namespace)
+			printfOut("    Pod: %s\n", problem.PodName)
 			if problem.ContainerName != "" {
-				fmt.Printf("    Container: %s\n", problem.ContainerName)
+				printfOut("    Container: %s\n", problem.ContainerName)
 			}
-			fmt.Printf("    Message: %s\n", problem.Message)
+			printfOut("    Message: %s\n", problem.Message)
 			if problem.Count > 1 {
-				fmt.Printf("    Count: %d occurrences\n", problem.Count)
+				printfOut("    Count: %d occurrences\n", problem.Count)
 			}
-			fmt.Println()
-			fmt.Println("    Quick commands:")
-			fmt.Printf("      kubectl -n %s describe pod %s\n", problem.Namespace, problem.PodName)
-			fmt.Printf("      kubectl -n %s logs %s", problem.Namespace, problem.PodName)
+			printlnOut()
+			printlnOut("    Quick commands:")
+			printfOut("      kubectl -n %s describe pod %s\n", problem.Namespace, problem.PodName)
+			printfOut("      kubectl -n %s logs %s", problem.Namespace, problem.PodName)
 			if problem.ContainerName != "" {
-				fmt.Printf(" -c %s", problem.ContainerName)
+				printfOut(" -c %s", problem.ContainerName)
 			}
-			fmt.Println()
-			fmt.Printf("      kubectl -n %s get events --field-selector involvedObject.name=%s\n", problem.Namespace, problem.PodName)
-			fmt.Println()
+			printlnOut()
+			printfOut("      kubectl -n %s get events --field-selector involvedObject.name=%s\n", problem.Namespace, problem.PodName)
+			printlnOut()
 			if i < len(problems)-1 {
-				fmt.Println("───────────────────────────────────────────────────────────────")
+				printlnOut("───────────────────────────────────────────────────────────────")
 			}
 		}
 	}
 
 	// Print recent events (last 10)
 	if len(events) > 0 {
-		fmt.Println("\n📊 RECENT EVENTS (last 5m)")
+		printlnOut("\n📊 RECENT EVENTS (last 5m)")
 		count := 0
-		for _, event := range events {
+		for i := range events {
+			event := &events[i]
 			if count >= 10 {
 				break
 			}
 			if time.Since(event.Timestamp) > 5*time.Minute {
 				break
 			}
-			fmt.Printf("  [%s] %s: %s/%s\n",
+			printfOut("  [%s] %s: %s/%s\n",
 				event.Timestamp.Format("15:04:05"),
 				event.Type,
 				event.Namespace,
 				event.Resource)
-			fmt.Printf("      %s\n", event.Message)
+			printfOut("      %s\n", event.Message)
 			count++
 		}
-		fmt.Println()
+		printlnOut()
 	}
 
 	// Print cluster stats (only if populated)
 	if stats.TotalPods > 0 || stats.TotalNodes > 0 {
-		fmt.Println("📈 CLUSTER STATUS")
-		fmt.Printf("  Pods:  %d total  |  %d running  |  %d problem\n", stats.TotalPods, stats.RunningPods, stats.ProblemPods)
-		fmt.Printf("  Nodes: %d total  |  %d ready    |  %d NotReady\n", stats.TotalNodes, stats.ReadyNodes, stats.NotReadyNodes)
-		fmt.Println()
+		printlnOut("📈 CLUSTER STATUS")
+		printfOut("  Pods:  %d total  |  %d running  |  %d problem\n", stats.TotalPods, stats.RunningPods, stats.ProblemPods)
+		printfOut("  Nodes: %d total  |  %d ready    |  %d NotReady\n", stats.TotalNodes, stats.ReadyNodes, stats.NotReadyNodes)
+		printlnOut()
 	}
 
-	fmt.Println("═══════════════════════════════════════════════════════════════")
-	fmt.Println("TIP: Scroll up in your terminal to copy pod names and commands")
-	fmt.Println("═══════════════════════════════════════════════════════════════")
+	printlnOut("═══════════════════════════════════════════════════════════════")
+	printlnOut("TIP: Scroll up in your terminal to copy pod names and commands")
+	printlnOut("═══════════════════════════════════════════════════════════════")
 }
 
-func exportProblems(m monitor.Model) error {
+func exportProblems(m *monitor.Model) error {
 	problems, _, stats := m.GetState()
 
 	if len(problems) == 0 {
-		fmt.Println("\n✓ No problems to export")
+		printlnOut("\n✓ No problems to export")
 		return nil
 	}
 
@@ -247,63 +249,80 @@ func exportProblems(m monitor.Model) error {
 	if err != nil {
 		return fmt.Errorf("failed to create export file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		closeBestEffort(f)
+	}()
+
+	var writeErr error
+	writef := func(format string, args ...any) {
+		if writeErr != nil {
+			return
+		}
+		_, writeErr = fmt.Fprintf(f, format, args...)
+	}
 
 	// Write header
-	fmt.Fprintf(f, "kubenow monitor - Problem Export\n")
-	fmt.Fprintf(f, "Generated: %s\n", time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(f, "Cluster: %d namespaces, %d pods, %d nodes\n", countNamespaces(problems), stats.TotalPods, stats.TotalNodes)
-	fmt.Fprintf(f, "═══════════════════════════════════════════════════════════════\n\n")
+	writef("kubenow monitor - Problem Export\n")
+	writef("Generated: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	writef("Cluster: %d namespaces, %d pods, %d nodes\n", countNamespaces(problems), stats.TotalPods, stats.TotalNodes)
+	writef("═══════════════════════════════════════════════════════════════\n\n")
 
 	// Write problems
-	for i, problem := range problems {
-		fmt.Fprintf(f, "[%d/%d] %s - %s\n", i+1, len(problems), problem.Severity, problem.Type)
-		fmt.Fprintf(f, "  Namespace: %s\n", problem.Namespace)
-		fmt.Fprintf(f, "  Pod: %s\n", problem.PodName)
+	for i := range problems {
+		problem := &problems[i]
+		writef("[%d/%d] %s - %s\n", i+1, len(problems), problem.Severity, problem.Type)
+		writef("  Namespace: %s\n", problem.Namespace)
+		writef("  Pod: %s\n", problem.PodName)
 		if problem.ContainerName != "" {
-			fmt.Fprintf(f, "  Container: %s\n", problem.ContainerName)
+			writef("  Container: %s\n", problem.ContainerName)
 		}
-		fmt.Fprintf(f, "  Message: %s\n", problem.Message)
-		fmt.Fprintf(f, "  First seen: %s ago\n", formatDuration(time.Since(problem.FirstSeen)))
-		fmt.Fprintf(f, "  Last seen: %s ago\n", formatDuration(time.Since(problem.LastSeen)))
+		writef("  Message: %s\n", problem.Message)
+		writef("  First seen: %s ago\n", formatDuration(time.Since(problem.FirstSeen)))
+		writef("  Last seen: %s ago\n", formatDuration(time.Since(problem.LastSeen)))
 		if problem.Count > 1 {
-			fmt.Fprintf(f, "  Occurrences: %d\n", problem.Count)
+			writef("  Occurrences: %d\n", problem.Count)
 		}
-		fmt.Fprintf(f, "\n")
-		fmt.Fprintf(f, "  kubectl commands:\n")
-		fmt.Fprintf(f, "    kubectl -n %s describe pod %s\n", problem.Namespace, problem.PodName)
-		fmt.Fprintf(f, "    kubectl -n %s logs %s", problem.Namespace, problem.PodName)
+		writef("\n")
+		writef("  kubectl commands:\n")
+		writef("    kubectl -n %s describe pod %s\n", problem.Namespace, problem.PodName)
+		writef("    kubectl -n %s logs %s", problem.Namespace, problem.PodName)
 		if problem.ContainerName != "" {
-			fmt.Fprintf(f, " -c %s", problem.ContainerName)
+			writef(" -c %s", problem.ContainerName)
 		}
-		fmt.Fprintf(f, "\n")
-		fmt.Fprintf(f, "    kubectl -n %s get events --field-selector involvedObject.name=%s\n", problem.Namespace, problem.PodName)
-		fmt.Fprintf(f, "\n")
+		writef("\n")
+		writef("    kubectl -n %s get events --field-selector involvedObject.name=%s\n", problem.Namespace, problem.PodName)
+		writef("\n")
 		if i < len(problems)-1 {
-			fmt.Fprintf(f, "───────────────────────────────────────────────────────────────\n\n")
+			writef("───────────────────────────────────────────────────────────────\n\n")
 		}
 	}
 
-	fmt.Printf("\n✓ Exported %d problems to: %s\n", len(problems), filename)
-	fmt.Println("  You can now copy pod names and commands from this file.")
+	if writeErr != nil {
+		return fmt.Errorf("failed to write export file: %w", writeErr)
+	}
+
+	printfOut("\n✓ Exported %d problems to: %s\n", len(problems), filename)
+	printlnOut("  You can now copy pod names and commands from this file.")
 	return nil
 }
 
 func countNamespaces(problems []monitor.Problem) int {
 	namespaces := make(map[string]bool)
-	for _, p := range problems {
-		namespaces[p.Namespace] = true
+	for i := range problems {
+		namespaces[problems[i].Namespace] = true
 	}
 	return len(namespaces)
 }
 
 func formatDuration(d time.Duration) string {
-	if d < time.Minute {
+	switch {
+	case d < time.Minute:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
-	} else if d < time.Hour {
+	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
-	} else if d < 24*time.Hour {
+	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }

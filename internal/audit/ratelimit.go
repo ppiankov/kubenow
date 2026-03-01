@@ -41,7 +41,7 @@ type RateLimitResult struct {
 // If both pass, it increments the counters and persists state.
 func CheckAndIncrement(cfg RateLimitConfig, workloadUID, workloadRef, user string) (*RateLimitResult, error) {
 	rateLimitDir := filepath.Join(cfg.AuditPath, ".ratelimit")
-	if err := os.MkdirAll(rateLimitDir, 0755); err != nil {
+	if err := os.MkdirAll(rateLimitDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create ratelimit dir: %w", err)
 	}
 

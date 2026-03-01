@@ -1,3 +1,4 @@
+// Package policy loads and validates pro-monitor policy files.
 package policy
 
 import (
@@ -11,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultPolicyPath, EnvPolicyPath, CurrentAPIVersion, and CurrentKind define policy defaults.
 const (
 	DefaultPolicyPath = "/etc/kubenow/policy.yaml"
 	EnvPolicyPath     = "KUBENOW_POLICY"
@@ -89,6 +91,7 @@ type ValidationError struct {
 	Message string
 }
 
+// String returns the validation error in field: message form.
 func (e ValidationError) String() string {
 	return fmt.Sprintf("%s: %s", e.Field, e.Message)
 }
@@ -224,7 +227,9 @@ func CheckAuditPath(path string) error {
 	if err := os.WriteFile(testFile, []byte("test"), 0o600); err != nil {
 		return fmt.Errorf("audit path is not writable: %v", err)
 	}
-	_ = os.Remove(testFile) // best-effort cleanup
+	if err := os.Remove(testFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to clean up audit path probe: %v", err)
+	}
 
 	return nil
 }

@@ -26,7 +26,9 @@ type RequestsSkewAnalyzer struct {
 // logProgress prints progress messages unless silent mode is enabled
 func (a *RequestsSkewAnalyzer) logProgress(format string, args ...interface{}) {
 	if !a.config.Silent {
-		fmt.Fprintf(os.Stderr, format, args...)
+		if _, err := fmt.Fprintf(os.Stderr, format, args...); err != nil {
+			return
+		}
 	}
 }
 
@@ -174,7 +176,11 @@ type WorkloadSkewAnalysis struct {
 }
 
 // NewRequestsSkewAnalyzer creates a new requests-skew analyzer
-func NewRequestsSkewAnalyzer(kubeClient kubernetes.Interface, metricsProvider metrics.MetricsProvider, config RequestsSkewConfig) *RequestsSkewAnalyzer {
+func NewRequestsSkewAnalyzer(kubeClient kubernetes.Interface, metricsProvider metrics.MetricsProvider, config *RequestsSkewConfig) *RequestsSkewAnalyzer {
+	if config == nil {
+		config = &RequestsSkewConfig{}
+	}
+
 	// Set defaults
 	if config.Window == 0 {
 		config.Window = 30 * 24 * time.Hour // 30 days default
@@ -189,7 +195,7 @@ func NewRequestsSkewAnalyzer(kubeClient kubernetes.Interface, metricsProvider me
 	return &RequestsSkewAnalyzer{
 		kubeClient:      kubeClient,
 		metricsProvider: metricsProvider,
-		config:          config,
+		config:          *config,
 	}
 }
 
@@ -355,7 +361,8 @@ func (a *RequestsSkewAnalyzer) getFilteredNamespaces(ctx context.Context) ([]str
 		excludePatterns = parseCommaSeparated(a.config.NamespaceExclude)
 	}
 
-	for _, ns := range nsList.Items {
+	for i := range nsList.Items {
+		ns := &nsList.Items[i]
 		nsName := ns.Name
 
 		// Skip kube-system unless explicitly included
@@ -405,7 +412,10 @@ func matchesAnyPattern(s string, patterns []string) bool {
 		// Simple wildcard matching: convert "*" to ".*" for regex
 		regexPattern := "^" + regexp.QuoteMeta(pattern) + "$"
 		regexPattern = regexp.MustCompile(`\\\*`).ReplaceAllString(regexPattern, ".*")
-		matched, _ := regexp.MatchString(regexPattern, s)
+		matched, err := regexp.MatchString(regexPattern, s)
+		if err != nil {
+			continue
+		}
 		if matched {
 			return true
 		}
@@ -473,32 +483,34 @@ func (a *RequestsSkewAnalyzer) getNamespaceQuotaInfo(ctx context.Context, namesp
 
 		// Extract defaults from first LimitRange (most namespaces have only one)
 		lr := limitRanges.Items[0]
-		for _, limit := range lr.Spec.Limits {
-			if limit.Type == "Container" {
-				if defaultCPU, ok := limit.Default["cpu"]; ok {
-					info.LimitRangeDefaults.DefaultCPU = defaultCPU.String()
-				}
-				if defaultMem, ok := limit.Default["memory"]; ok {
-					info.LimitRangeDefaults.DefaultMemory = defaultMem.String()
-				}
-				if defaultReqCPU, ok := limit.DefaultRequest["cpu"]; ok {
-					info.LimitRangeDefaults.DefaultRequestCPU = defaultReqCPU.String()
-				}
-				if defaultReqMem, ok := limit.DefaultRequest["memory"]; ok {
-					info.LimitRangeDefaults.DefaultRequestMemory = defaultReqMem.String()
-				}
-				if minCPU, ok := limit.Min["cpu"]; ok {
-					info.LimitRangeDefaults.MinCPU = minCPU.String()
-				}
-				if minMem, ok := limit.Min["memory"]; ok {
-					info.LimitRangeDefaults.MinMemory = minMem.String()
-				}
-				if maxCPU, ok := limit.Max["cpu"]; ok {
-					info.LimitRangeDefaults.MaxCPU = maxCPU.String()
-				}
-				if maxMem, ok := limit.Max["memory"]; ok {
-					info.LimitRangeDefaults.MaxMemory = maxMem.String()
-				}
+		for i := range lr.Spec.Limits {
+			limit := &lr.Spec.Limits[i]
+			if limit.Type != "Container" {
+				continue
+			}
+			if defaultCPU, ok := limit.Default["cpu"]; ok {
+				info.LimitRangeDefaults.DefaultCPU = defaultCPU.String()
+			}
+			if defaultMem, ok := limit.Default["memory"]; ok {
+				info.LimitRangeDefaults.DefaultMemory = defaultMem.String()
+			}
+			if defaultReqCPU, ok := limit.DefaultRequest["cpu"]; ok {
+				info.LimitRangeDefaults.DefaultRequestCPU = defaultReqCPU.String()
+			}
+			if defaultReqMem, ok := limit.DefaultRequest["memory"]; ok {
+				info.LimitRangeDefaults.DefaultRequestMemory = defaultReqMem.String()
+			}
+			if minCPU, ok := limit.Min["cpu"]; ok {
+				info.LimitRangeDefaults.MinCPU = minCPU.String()
+			}
+			if minMem, ok := limit.Min["memory"]; ok {
+				info.LimitRangeDefaults.MinMemory = minMem.String()
+			}
+			if maxCPU, ok := limit.Max["cpu"]; ok {
+				info.LimitRangeDefaults.MaxCPU = maxCPU.String()
+			}
+			if maxMem, ok := limit.Max["memory"]; ok {
+				info.LimitRangeDefaults.MaxMemory = maxMem.String()
 			}
 		}
 	}
@@ -537,8 +549,9 @@ func (a *RequestsSkewAnalyzer) enrichWorkloadWithQuotaContext(workload *Workload
 func (a *RequestsSkewAnalyzer) calculateQuotaSavings(result *RequestsSkewResult) {
 	// Group workloads by namespace
 	workloadsByNs := make(map[string][]WorkloadSkewAnalysis)
-	for _, w := range result.Results {
-		workloadsByNs[w.Namespace] = append(workloadsByNs[w.Namespace], w)
+	for i := range result.Results {
+		workload := &result.Results[i]
+		workloadsByNs[workload.Namespace] = append(workloadsByNs[workload.Namespace], *workload)
 	}
 
 	// Calculate savings for each namespace with quotas
@@ -554,7 +567,8 @@ func (a *RequestsSkewAnalyzer) calculateQuotaSavings(result *RequestsSkewResult)
 		}
 
 		var cpuSavings, memorySavings float64
-		for _, w := range workloads {
+		for j := range workloads {
+			w := &workloads[j]
 			// Potential savings = requested - p95 (conservative estimate)
 			if w.RequestedCPU > w.P95UsedCPU {
 				cpuSavings += (w.RequestedCPU - w.P95UsedCPU)
@@ -609,11 +623,12 @@ func (a *RequestsSkewAnalyzer) diagnoseWorkloadsWithoutMetrics(ctx context.Conte
 			})
 		}
 
-		if err != nil {
+		switch {
+		case err != nil:
 			w.Diagnosis = fmt.Sprintf("unable to query pods: %v", err)
-		} else if len(pods.Items) == 0 {
+		case len(pods.Items) == 0:
 			w.Diagnosis = "no pods found"
-		} else {
+		default:
 			pod := pods.Items[0]
 			if pod.Status.Phase != "Running" {
 				w.Diagnosis = fmt.Sprintf("pod not running (phase: %s)", pod.Status.Phase)
@@ -644,7 +659,8 @@ func (a *RequestsSkewAnalyzer) listNamespaceWorkloads(ctx context.Context, names
 	if err != nil {
 		return nil, fmt.Errorf("failed to list deployments: %w", err)
 	}
-	for _, d := range deployments.Items {
+	for i := range deployments.Items {
+		d := &deployments.Items[i]
 		result = append(result, WorkloadWithoutMetrics{
 			Namespace: namespace, Workload: d.Name, Type: "Deployment", Diagnosis: diagnosis,
 		})
@@ -654,7 +670,8 @@ func (a *RequestsSkewAnalyzer) listNamespaceWorkloads(ctx context.Context, names
 	if err != nil {
 		return nil, fmt.Errorf("failed to list statefulsets: %w", err)
 	}
-	for _, s := range statefulsets.Items {
+	for i := range statefulsets.Items {
+		s := &statefulsets.Items[i]
 		result = append(result, WorkloadWithoutMetrics{
 			Namespace: namespace, Workload: s.Name, Type: "StatefulSet", Diagnosis: diagnosis,
 		})
@@ -664,7 +681,8 @@ func (a *RequestsSkewAnalyzer) listNamespaceWorkloads(ctx context.Context, names
 	if err != nil {
 		return nil, fmt.Errorf("failed to list daemonsets: %w", err)
 	}
-	for _, d := range daemonsets.Items {
+	for i := range daemonsets.Items {
+		d := &daemonsets.Items[i]
 		result = append(result, WorkloadWithoutMetrics{
 			Namespace: namespace, Workload: d.Name, Type: "DaemonSet", Diagnosis: diagnosis,
 		})
@@ -699,7 +717,8 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 		return nil, nil, fmt.Errorf("failed to list deployments: %w", err)
 	}
 
-	for _, deploy := range deployments.Items {
+	for i := range deployments.Items {
+		deploy := &deployments.Items[i]
 		var analysis *WorkloadSkewAnalysis
 		var hasMetrics bool
 		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, deploy.Name, "Deployment", deploy.CreationTimestamp.Time)
@@ -724,7 +743,8 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 		return nil, nil, fmt.Errorf("failed to list statefulsets: %w", err)
 	}
 
-	for _, sts := range statefulsets.Items {
+	for i := range statefulsets.Items {
+		sts := &statefulsets.Items[i]
 		var analysis *WorkloadSkewAnalysis
 		var hasMetrics bool
 		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, sts.Name, "StatefulSet", sts.CreationTimestamp.Time)
@@ -748,7 +768,8 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 		return nil, nil, fmt.Errorf("failed to list daemonsets: %w", err)
 	}
 
-	for _, ds := range daemonsets.Items {
+	for i := range daemonsets.Items {
+		ds := &daemonsets.Items[i]
 		var analysis *WorkloadSkewAnalysis
 		var hasMetrics bool
 		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, ds.Name, "DaemonSet", ds.CreationTimestamp.Time)
@@ -768,11 +789,11 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 
 	// Discover CRD-managed workloads (CNPG, Strimzi, RabbitMQ, etc.)
 	knownWorkloads := make(map[string]bool)
-	for _, w := range workloads {
-		knownWorkloads[w.Workload] = true
+	for i := range workloads {
+		knownWorkloads[workloads[i].Workload] = true
 	}
-	for _, w := range noMetrics {
-		knownWorkloads[w.Workload] = true
+	for i := range noMetrics {
+		knownWorkloads[noMetrics[i].Workload] = true
 	}
 
 	crdGroups, err := a.discoverCRDWorkloads(ctx, namespace, knownWorkloads)
@@ -958,7 +979,8 @@ func (a *RequestsSkewAnalyzer) detectWorkloadPattern(ctx context.Context, namesp
 
 	// Extract container commands
 	var commands []string
-	for _, container := range pod.Spec.Containers {
+	for i := range pod.Spec.Containers {
+		container := &pod.Spec.Containers[i]
 		commands = append(commands, container.Command...)
 		commands = append(commands, container.Args...)
 		commands = append(commands, container.Image) // Check image name too
@@ -984,7 +1006,8 @@ func (a *RequestsSkewAnalyzer) calculateSummary(result *RequestsSkewResult) {
 	totalWastedLimitCPU := 0.0
 	totalWastedLimitMem := 0.0
 
-	for _, w := range result.Results {
+	for i := range result.Results {
+		w := &result.Results[i]
 		totalCPUSkew += w.SkewCPU
 		totalMemSkew += w.SkewMemory
 

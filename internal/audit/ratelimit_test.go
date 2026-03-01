@@ -82,7 +82,7 @@ func TestCheckAndIncrement_WindowExpired(t *testing.T) {
 	state.WindowStart = time.Now().Add(-2 * time.Hour) // expired
 	updatedData, err := json.Marshal(state)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(globalPath, updatedData, 0644))
+	require.NoError(t, os.WriteFile(globalPath, updatedData, 0o644))
 
 	// Should succeed now (window reset)
 	result, err = CheckAndIncrement(cfg, "uid-123", "default/deployment/api", "admin")
@@ -181,7 +181,7 @@ func TestPeek_ExpiredWindow(t *testing.T) {
 	state.WindowStart = time.Now().Add(-2 * time.Hour)
 	updatedData, err := json.Marshal(state)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(globalPath, updatedData, 0644))
+	require.NoError(t, os.WriteFile(globalPath, updatedData, 0o644))
 
 	// Peek should show allowed (window expired)
 	result, err := Peek(cfg)

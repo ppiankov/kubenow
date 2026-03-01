@@ -49,7 +49,7 @@ var (
 			Bold(true)
 )
 
-func renderView(m Model) string {
+func renderView(m *Model) string {
 	if m.quitting {
 		return "Pro-monitor stopped.\n"
 	}
@@ -129,14 +129,15 @@ func renderView(m Model) string {
 	}
 
 	// Apply status
-	if m.confirming {
+	switch {
+	case m.confirming:
 		b.WriteString(renderConfirmationPrompt(m))
 		b.WriteString("\n")
-	} else if m.applying {
+	case m.applying:
 		b.WriteString(m.spinner.View())
 		b.WriteString(dimStyle.Render(" Applying via Server-Side Apply..."))
 		b.WriteString("\n")
-	} else if m.applyResult != nil {
+	case m.applyResult != nil:
 		b.WriteString(renderApplyResult(m.applyResult))
 		b.WriteString("\n")
 	}
@@ -198,7 +199,7 @@ func renderModeTag(mode Mode) string {
 	}
 }
 
-func renderWorkloadInfo(m Model) string {
+func renderWorkloadInfo(m *Model) string {
 	var b strings.Builder
 	b.WriteString(labelStyle.Render("Workload:  "))
 	workloadStr := fmt.Sprintf("%s/%s", strings.ToLower(m.workload.Kind), m.workload.Name)
@@ -219,7 +220,7 @@ func renderHPAWarning(hpa *HPAInfo) string {
 	))
 }
 
-func renderLatchProgress(m Model) string {
+func renderLatchProgress(m *Model) string {
 	var b strings.Builder
 
 	b.WriteString(labelStyle.Render("Latch:     "))
@@ -263,7 +264,7 @@ func renderLatchProgress(m Model) string {
 	return b.String()
 }
 
-func renderPolicyStatus(m Model) string {
+func renderPolicyStatus(m *Model) string {
 	var b strings.Builder
 	b.WriteString(labelStyle.Render("Policy:    "))
 	b.WriteString(valueStyle.Render(m.policyMsg))
@@ -305,7 +306,8 @@ func renderRecommendation(rec *AlignmentRecommendation) string {
 		b.WriteString("\n")
 	}
 
-	for _, c := range rec.Containers {
+	for i := range rec.Containers {
+		c := &rec.Containers[i]
 		b.WriteString("\n")
 		b.WriteString(headerStyle.Render(fmt.Sprintf("  Container: %s", c.Name)))
 		if c.Capped {
@@ -339,7 +341,7 @@ func renderRecommendation(rec *AlignmentRecommendation) string {
 	return b.String()
 }
 
-func renderConfirmationPrompt(m Model) string {
+func renderConfirmationPrompt(m *Model) string {
 	var b strings.Builder
 
 	b.WriteString(warnStyle.Render("--- Apply Confirmation ---"))
@@ -349,7 +351,8 @@ func renderConfirmationPrompt(m Model) string {
 	b.WriteString("\n")
 
 	if m.recommendation != nil {
-		for _, c := range m.recommendation.Containers {
+		for i := range m.recommendation.Containers {
+			c := &m.recommendation.Containers[i]
 			b.WriteString(fmt.Sprintf("  %s: cpu %s→%s  mem %s→%s\n",
 				c.Name,
 				fmtCPU(c.Current.CPURequest), fmtCPU(c.Recommended.CPURequest),

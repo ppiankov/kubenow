@@ -28,6 +28,8 @@ func escapePromLabel(s string) string {
 }
 
 // ExposureCollector queries Kubernetes APIs to build an ExposureMap.
+//
+//revive:disable-next-line:exported
 type ExposureCollector struct {
 	kubeClient    kubernetes.Interface
 	metricsClient metricsclientset.Interface

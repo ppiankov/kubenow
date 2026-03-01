@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -44,9 +43,9 @@ func runValidatePolicy(_ *cobra.Command, _ []string) error {
 	result := policy.Load(policyPath)
 
 	if result.Absent {
-		fmt.Fprintf(os.Stderr, "No policy file found at %s\n", result.Path)
-		fmt.Fprintf(os.Stderr, "Pro-monitor will operate in observe-only mode (no apply).\n")
-		fmt.Fprintf(os.Stderr, "\nTo create a policy file, see: examples/policy.yaml\n")
+		stderrf("No policy file found at %s\n", result.Path)
+		stderrf("Pro-monitor will operate in observe-only mode (no apply).\n")
+		stderrf("\nTo create a policy file, see: examples/policy.yaml\n")
 		return nil
 	}
 
@@ -54,38 +53,38 @@ func runValidatePolicy(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("policy file %s: %s", result.Path, result.ErrorMsg)
 	}
 
-	fmt.Fprintf(os.Stdout, "Policy file: %s\n", result.Path)
+	stdoutf("Policy file: %s\n", result.Path)
 
 	vr := policy.Validate(result.Policy)
 	if !vr.Valid {
-		fmt.Fprintf(os.Stdout, "Validation: FAILED\n\n")
+		stdoutf("Validation: FAILED\n\n")
 		for _, e := range vr.Errors {
-			fmt.Fprintf(os.Stdout, "  ✗ %s\n", e.String())
+			stdoutf("  ✗ %s\n", e.String())
 		}
 		return fmt.Errorf("policy validation failed with %d error(s)", len(vr.Errors))
 	}
 
-	fmt.Fprintf(os.Stdout, "Validation: OK\n")
+	stdoutf("Validation: OK\n")
 
 	// Summary
 	p := result.Policy
-	fmt.Fprintf(os.Stdout, "\nPolicy summary:\n")
-	fmt.Fprintf(os.Stdout, "  Global enabled:      %v\n", p.Global.Enabled)
-	fmt.Fprintf(os.Stdout, "  Apply enabled:       %v\n", p.Apply.Enabled)
-	fmt.Fprintf(os.Stdout, "  Audit backend:       %s\n", p.Audit.Backend)
-	fmt.Fprintf(os.Stdout, "  Denied namespaces:   %v\n", p.Namespaces.Deny)
-	fmt.Fprintf(os.Stdout, "  Max request delta:   %d%%\n", p.Apply.MaxRequestDeltaPct)
-	fmt.Fprintf(os.Stdout, "  Max limit delta:     %d%%\n", p.Apply.MaxLimitDeltaPct)
-	fmt.Fprintf(os.Stdout, "  Min safety rating:   %s\n", p.Apply.MinSafetyRating)
-	fmt.Fprintf(os.Stdout, "  Rate limit:          %d applies/hour\n", p.RateLimits.MaxAppliesPerHour)
+	stdoutf("\nPolicy summary:\n")
+	stdoutf("  Global enabled:      %v\n", p.Global.Enabled)
+	stdoutf("  Apply enabled:       %v\n", p.Apply.Enabled)
+	stdoutf("  Audit backend:       %s\n", p.Audit.Backend)
+	stdoutf("  Denied namespaces:   %v\n", p.Namespaces.Deny)
+	stdoutf("  Max request delta:   %d%%\n", p.Apply.MaxRequestDeltaPct)
+	stdoutf("  Max limit delta:     %d%%\n", p.Apply.MaxLimitDeltaPct)
+	stdoutf("  Min safety rating:   %s\n", p.Apply.MinSafetyRating)
+	stdoutf("  Rate limit:          %d applies/hour\n", p.RateLimits.MaxAppliesPerHour)
 
 	if checkPaths && p.Audit.Path != "" {
-		fmt.Fprintf(os.Stdout, "\nPath checks:\n")
+		stdoutf("\nPath checks:\n")
 		if err := policy.CheckAuditPath(p.Audit.Path); err != nil {
-			fmt.Fprintf(os.Stdout, "  ✗ audit.path: %v\n", err)
+			stdoutf("  ✗ audit.path: %v\n", err)
 			return fmt.Errorf("path check failed")
 		}
-		fmt.Fprintf(os.Stdout, "  ✓ audit.path: %s (writable)\n", p.Audit.Path)
+		stdoutf("  ✓ audit.path: %s (writable)\n", p.Audit.Path)
 	}
 
 	return nil

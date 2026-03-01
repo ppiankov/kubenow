@@ -10,6 +10,7 @@ import (
 // throttling, and spike patterns.
 type SafetyRating string
 
+// SafetyRatingSafe, SafetyRatingCaution, SafetyRatingRisky, and SafetyRatingUnsafe define safety levels.
 const (
 	SafetyRatingSafe    SafetyRating = "SAFE"
 	SafetyRatingCaution SafetyRating = "CAUTION"
@@ -52,6 +53,7 @@ func ParseSafetyRating(s string) SafetyRating {
 // Confidence reflects the quality and breadth of evidence behind a recommendation.
 type Confidence string
 
+// ConfidenceHigh, ConfidenceMedium, and ConfidenceLow define confidence levels.
 const (
 	ConfidenceHigh   Confidence = "HIGH"
 	ConfidenceMedium Confidence = "MEDIUM"

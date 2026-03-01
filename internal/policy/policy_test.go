@@ -44,7 +44,7 @@ rate_limits:
   max_applies_per_workload: 3
   rate_window: 24h
 `
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0644))
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
 
 	result := Load(path)
 	assert.Empty(t, result.ErrorMsg)
@@ -86,7 +86,7 @@ func TestLoad_FileNotFound(t *testing.T) {
 func TestLoad_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "policy.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("{{invalid yaml"), 0644))
+	require.NoError(t, os.WriteFile(path, []byte("{{invalid yaml"), 0o644))
 
 	result := Load(path)
 	assert.False(t, result.Absent)
@@ -103,7 +103,7 @@ kind: Policy
 global:
   enabled: false
 `
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0644))
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
 
 	t.Setenv(EnvPolicyPath, path)
 	result := Load("")
@@ -488,7 +488,7 @@ global:
   enabled: true
 unknown_field: should_fail
 `
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0644))
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
 
 	result := Load(path)
 	assert.Contains(t, result.ErrorMsg, "invalid YAML")
@@ -540,7 +540,7 @@ func TestCheckAuditPath(t *testing.T) {
 	t.Run("path is a file not directory", func(t *testing.T) {
 		dir := t.TempDir()
 		f := filepath.Join(dir, "file.txt")
-		require.NoError(t, os.WriteFile(f, []byte("x"), 0644))
+		require.NoError(t, os.WriteFile(f, []byte("x"), 0o644))
 
 		err := CheckAuditPath(f)
 		assert.Error(t, err)

@@ -280,7 +280,8 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 
 	now := time.Now()
 
-	for _, podMetrics := range podMetricsList.Items {
+	for i := range podMetricsList.Items {
+		podMetrics := &podMetricsList.Items[i]
 		// Skip kube-system
 		if podMetrics.Namespace == "kube-system" {
 			continue
@@ -307,7 +308,8 @@ func (m *LatchMonitor) sample(ctx context.Context) error {
 
 		// Calculate total CPU and memory for pod
 		var totalCPU, totalMemory float64
-		for _, container := range podMetrics.Containers {
+		for j := range podMetrics.Containers {
+			container := &podMetrics.Containers[j]
 			cpuQuantity := container.Usage.Cpu()
 			memQuantity := container.Usage.Memory()
 
@@ -436,7 +438,8 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 		}
 
 		// Check each pod for critical signals
-		for _, pod := range pods.Items {
+		for i := range pods.Items {
+			pod := &pods.Items[i]
 			workloadName := pod.Name
 			if !m.config.PodLevel {
 				workloadName, _ = ResolveWorkloadIdentity(pod.Name, pod.Labels)
@@ -453,7 +456,8 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 			}
 
 			// Check container statuses for ALL termination reasons and exit codes
-			for _, containerStatus := range pod.Status.ContainerStatuses {
+			for j := range pod.Status.ContainerStatuses {
+				containerStatus := &pod.Status.ContainerStatuses[j]
 				// Track ALL termination reasons (not just OOMKilled)
 				if containerStatus.LastTerminationState.Terminated != nil {
 					terminated := containerStatus.LastTerminationState.Terminated
@@ -528,11 +532,6 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 					}
 				}
 
-				// Check for CPU throttling in current state
-				if containerStatus.State.Running != nil {
-					// Note: actual throttling detection would require cgroup metrics
-					// This is a placeholder for future enhancement
-				}
 			}
 
 			// Check for pod eviction
@@ -550,7 +549,8 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 		}
 
 		thirtyMinutesAgo := time.Now().Add(-30 * time.Minute)
-		for _, event := range events.Items {
+		for i := range events.Items {
+			event := &events.Items[i]
 			if event.LastTimestamp.Time.Before(thirtyMinutesAgo) {
 				continue
 			}
@@ -601,7 +601,7 @@ type Percentiles struct {
 
 // ComputePercentiles computes p50, p95, p99, max, and avg from the CPU and memory samples.
 // Returns nil if there are no samples.
-func (d *SpikeData) ComputePercentiles() (cpu *Percentiles, mem *Percentiles) {
+func (d *SpikeData) ComputePercentiles() (cpu, mem *Percentiles) {
 	if len(d.CPUSamples) == 0 {
 		return nil, nil
 	}

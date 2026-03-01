@@ -1,3 +1,4 @@
+// Package output serializes kubenow findings into external formats.
 package output
 
 import (
@@ -34,7 +35,7 @@ type Tool struct {
 type Driver struct {
 	Name            string `json:"name"`
 	Version         string `json:"version"`
-	InformationUri  string `json:"informationUri"`
+	InformationURI  string `json:"informationUri"`
 	SemanticVersion string `json:"semanticVersion"`
 	Rules           []Rule `json:"rules"`
 }
@@ -96,7 +97,7 @@ func GenerateSARIFFromRequestsSkew(result *analyzer.RequestsSkewResult, version 
 					Driver: Driver{
 						Name:            "kubenow",
 						Version:         version,
-						InformationUri:  "https://github.com/ppiankov/kubenow",
+						InformationURI:  "https://github.com/ppiankov/kubenow",
 						SemanticVersion: version,
 						Rules:           generateRequestsSkewRules(),
 					},
@@ -120,7 +121,7 @@ func GenerateSARIFFromMonitor(problems []monitor.Problem, version string) ([]byt
 					Driver: Driver{
 						Name:            "kubenow",
 						Version:         version,
-						InformationUri:  "https://github.com/ppiankov/kubenow",
+						InformationURI:  "https://github.com/ppiankov/kubenow",
 						SemanticVersion: version,
 						Rules:           generateMonitorRules(),
 					},
@@ -230,7 +231,8 @@ func generateMonitorRules() []Rule {
 func convertRequestsSkewToResults(result *analyzer.RequestsSkewResult) []Result {
 	results := make([]Result, 0)
 
-	for _, w := range result.Results {
+	for i := range result.Results {
+		w := &result.Results[i]
 		// Skip if no significant over-provisioning
 		if w.SkewCPU < 2.0 {
 			continue
@@ -294,7 +296,8 @@ func convertRequestsSkewToResults(result *analyzer.RequestsSkewResult) []Result 
 func convertMonitorToResults(problems []monitor.Problem) []Result {
 	results := make([]Result, 0)
 
-	for _, p := range problems {
+	for i := range problems {
+		p := &problems[i]
 		ruleID := getRuleIDForProblemType(p.Type)
 		level := getSARIFLevelForSeverity(p.Severity)
 

@@ -6,7 +6,7 @@ import (
 )
 
 // exportHTML exports the result as HTML (Phase 2 - placeholder for now).
-func exportHTML(result interface{}, metadata ExportMetadata, w io.Writer) error {
+func exportHTML(result interface{}, metadata *ExportMetadata, w io.Writer) error {
 	// TODO: Implement beautiful HTML export in Phase 2
 	// For now, return a simple HTML wrapper with JSON
 	html := fmt.Sprintf(`<!DOCTYPE html>

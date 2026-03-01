@@ -8,6 +8,8 @@ import (
 )
 
 // MetricsProvider defines the interface for querying metrics
+//
+//revive:disable-next-line:exported
 type MetricsProvider interface {
 	// QueryRange executes a range query over a time window
 	QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) (model.Matrix, error)

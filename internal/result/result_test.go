@@ -3,6 +3,7 @@ package result
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,7 +48,7 @@ func TestRenderPodHuman(t *testing.T) {
 			},
 		},
 	}
-	RenderPodHuman(&buf, r)
+	require.NoError(t, RenderPodHuman(&buf, r))
 	out := buf.String()
 	assert.Contains(t, out, "default")
 	assert.Contains(t, out, "api-123")
@@ -79,7 +80,7 @@ func TestRenderIncidentHuman(t *testing.T) {
 		Actions:    []string{"scale up"},
 		Notes:      []string{"watch for restarts"},
 	}
-	RenderIncidentHuman(&buf, r)
+	require.NoError(t, RenderIncidentHuman(&buf, r))
 	out := buf.String()
 	assert.Contains(t, out, "INCIDENT VIEW")
 	assert.Contains(t, out, "api")
@@ -95,7 +96,7 @@ func TestRenderTeamleadHuman(t *testing.T) {
 		TopActions:     []string{"scale deployment"},
 		Escalation:     []string{"page on-call"},
 	}
-	RenderTeamleadHuman(&buf, r)
+	require.NoError(t, RenderTeamleadHuman(&buf, r))
 	out := buf.String()
 	assert.Contains(t, out, "TEAMLEAD VIEW")
 	assert.Contains(t, out, "revenue impact")
@@ -123,7 +124,7 @@ func TestRenderComplianceHuman(t *testing.T) {
 			},
 		},
 	}
-	RenderComplianceHuman(&buf, r)
+	require.NoError(t, RenderComplianceHuman(&buf, r))
 	out := buf.String()
 	assert.Contains(t, out, "COMPLIANCE ISSUES")
 	assert.Contains(t, out, "missing label")
@@ -147,7 +148,7 @@ func TestRenderChaosHuman(t *testing.T) {
 		},
 		ImpactNotes: []string{"expect brief blip"},
 	}
-	RenderChaosHuman(&buf, r)
+	require.NoError(t, RenderChaosHuman(&buf, r))
 	out := buf.String()
 	assert.Contains(t, out, "CHAOS EXPERIMENTS")
 	assert.Contains(t, out, "kill pod")
@@ -178,10 +179,27 @@ func TestRenderDefaultHuman(t *testing.T) {
 	}
 	r.Recommendations = []string{"increase memory"}
 
-	RenderDefaultHuman(&buf, r)
+	require.NoError(t, RenderDefaultHuman(&buf, r))
 	out := buf.String()
 	assert.Contains(t, out, "CLUSTER SUMMARY")
 	assert.Contains(t, out, "Problem pods")
 	assert.Contains(t, out, "api")
 	assert.Contains(t, out, "increase memory")
+}
+
+func TestRenderDefaultHumanReturnsWriteError(t *testing.T) {
+	r := &DefaultResult{}
+
+	err := RenderDefaultHuman(failingWriter{}, r)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errWriteFailed))
+}
+
+var errWriteFailed = errors.New("write failed")
+
+type failingWriter struct{}
+
+func (failingWriter) Write(_ []byte) (int, error) {
+	return 0, errWriteFailed
 }

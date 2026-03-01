@@ -1,3 +1,4 @@
+// Package promonitor implements the pro-monitor workflow and TUI.
 package promonitor
 
 import (
@@ -34,6 +35,7 @@ const (
 	statusUnknown = "unknown"
 )
 
+// PatchWorkload applies a server-side apply patch to the referenced workload.
 func (a *ClientsetApplier) PatchWorkload(ctx context.Context, ref WorkloadRef, patchJSON []byte, fm string, force bool) error {
 	opts := metav1.PatchOptions{FieldManager: fm, Force: &force}
 	switch ref.Kind {
@@ -53,10 +55,12 @@ func (a *ClientsetApplier) PatchWorkload(ctx context.Context, ref WorkloadRef, p
 	}
 }
 
+// GetContainerResources returns container resources for the referenced workload.
 func (a *ClientsetApplier) GetContainerResources(ctx context.Context, ref WorkloadRef) ([]ContainerResources, error) {
 	return FetchContainerResources(ctx, a.Client, &ref)
 }
 
+// GetManagedFields returns managed fields for the referenced workload.
 func (a *ClientsetApplier) GetManagedFields(ctx context.Context, ref WorkloadRef) ([]metav1.ManagedFieldsEntry, error) {
 	switch ref.Kind {
 	case KindDeployment:
@@ -88,6 +92,7 @@ func (a *ClientsetApplier) GetManagedFields(ctx context.Context, ref WorkloadRef
 	}
 }
 
+// GetWorkloadObject returns the referenced workload as a generic object map.
 func (a *ClientsetApplier) GetWorkloadObject(ctx context.Context, ref WorkloadRef) (map[string]interface{}, error) {
 	var raw interface{}
 	switch ref.Kind {
@@ -330,7 +335,8 @@ func ExecuteApply(ctx context.Context, client KubeApplier, input *ApplyInput) *A
 // buildSSAPatchJSON creates a JSON SSA patch from a recommendation.
 func buildSSAPatchJSON(rec *AlignmentRecommendation) ([]byte, error) {
 	containers := make([]ssaContainer, len(rec.Containers))
-	for i, c := range rec.Containers {
+	for i := range rec.Containers {
+		c := &rec.Containers[i]
 		containers[i] = ssaContainer{
 			Name: c.Name,
 			Resources: ssaResources{
@@ -375,7 +381,8 @@ func buildSSAPatchJSON(rec *AlignmentRecommendation) ([]byte, error) {
 func buildApplyAnnotation(rec *AlignmentRecommendation) string {
 	ts := time.Now().UTC().Format(time.RFC3339)
 	var parts []string
-	for _, c := range rec.Containers {
+	for i := range rec.Containers {
+		c := &rec.Containers[i]
 		parts = append(parts, fmt.Sprintf("%s: cpu-req %s→%s, cpu-lim %s→%s, mem-req %s→%s, mem-lim %s→%s",
 			c.Name,
 			formatCPUResource(c.Current.CPURequest), formatCPUResource(c.Recommended.CPURequest),
@@ -483,11 +490,12 @@ func compareResources(recommended []ContainerAlignment, admitted []ContainerReso
 	var drifts []ResourceDrift
 
 	admittedMap := make(map[string]ContainerResources, len(admitted))
-	for _, a := range admitted {
-		admittedMap[a.Name] = a
+	for i := range admitted {
+		admittedMap[admitted[i].Name] = admitted[i]
 	}
 
-	for _, rec := range recommended {
+	for i := range recommended {
+		rec := &recommended[i]
 		adm, ok := admittedMap[rec.Name]
 		if !ok {
 			continue
@@ -533,7 +541,8 @@ func compareResources(recommended []ContainerAlignment, admitted []ContainerReso
 // buildResourceSummary creates a container→resource summary from recommendation containers.
 func buildResourceSummary(containers []ContainerAlignment) map[string]string {
 	m := make(map[string]string, len(containers))
-	for _, c := range containers {
+	for i := range containers {
+		c := &containers[i]
 		m[c.Name] = fmt.Sprintf("cpu=%s/%s mem=%s/%s",
 			formatCPUResource(c.Recommended.CPURequest),
 			formatCPUResource(c.Recommended.CPULimit),
@@ -546,7 +555,8 @@ func buildResourceSummary(containers []ContainerAlignment) map[string]string {
 // buildContainerResourceSummary creates a summary from admitted container resources.
 func buildContainerResourceSummary(containers []ContainerResources) map[string]string {
 	m := make(map[string]string, len(containers))
-	for _, c := range containers {
+	for i := range containers {
+		c := &containers[i]
 		m[c.Name] = fmt.Sprintf("cpu=%s/%s mem=%s/%s",
 			formatCPUResource(c.CPURequest),
 			formatCPUResource(c.CPULimit),
@@ -636,7 +646,7 @@ func ExecuteApplyWithAudit(ctx context.Context, cfg *AuditApplyConfig) *ApplyRes
 	}
 
 	// 8. CreateBundle — if fails, abort
-	bundle, err := audit.CreateBundle(bundleCfg)
+	bundle, err := audit.CreateBundle(&bundleCfg)
 	if err != nil {
 		result.Error = fmt.Errorf("create audit bundle: %w", err)
 		return result
@@ -660,7 +670,9 @@ func ExecuteApplyWithAudit(ctx context.Context, cfg *AuditApplyConfig) *ApplyRes
 		status = "denied"
 	}
 	if err := audit.FinalizeBundle(bundle, afterObj, status, ts, applyResult.Error); err != nil {
-		fmt.Fprintf(os.Stderr, "[kubenow] warning: audit finalization failed: %v\n", err)
+		if _, writeErr := fmt.Fprintf(os.Stderr, "[kubenow] warning: audit finalization failed: %v\n", err); writeErr != nil {
+			return applyResult
+		}
 	}
 
 	return applyResult
@@ -672,38 +684,44 @@ func extractUID(obj map[string]interface{}) string {
 	if !ok {
 		return ""
 	}
-	uid, _ := metadata["uid"].(string)
+	uid, ok := metadata["uid"].(string)
+	if !ok {
+		return ""
+	}
 	return uid
 }
 
 // mapChanges converts container alignment data to audit bundle changes.
 func mapChanges(containers []ContainerAlignment) []audit.BundleChange {
 	var changes []audit.BundleChange
-	for _, c := range containers {
-		changes = append(changes, audit.BundleChange{
-			Field:        fmt.Sprintf("%s/cpu_request", c.Name),
-			Before:       formatCPUResource(c.Current.CPURequest),
-			After:        formatCPUResource(c.Recommended.CPURequest),
-			DeltaPercent: c.Delta.CPURequestPercent,
-		})
-		changes = append(changes, audit.BundleChange{
-			Field:        fmt.Sprintf("%s/cpu_limit", c.Name),
-			Before:       formatCPUResource(c.Current.CPULimit),
-			After:        formatCPUResource(c.Recommended.CPULimit),
-			DeltaPercent: c.Delta.CPULimitPercent,
-		})
-		changes = append(changes, audit.BundleChange{
-			Field:        fmt.Sprintf("%s/memory_request", c.Name),
-			Before:       formatMemResource(c.Current.MemoryRequest),
-			After:        formatMemResource(c.Recommended.MemoryRequest),
-			DeltaPercent: c.Delta.MemoryRequestPercent,
-		})
-		changes = append(changes, audit.BundleChange{
-			Field:        fmt.Sprintf("%s/memory_limit", c.Name),
-			Before:       formatMemResource(c.Current.MemoryLimit),
-			After:        formatMemResource(c.Recommended.MemoryLimit),
-			DeltaPercent: c.Delta.MemoryLimitPercent,
-		})
+	for i := range containers {
+		c := &containers[i]
+		changes = append(changes,
+			audit.BundleChange{
+				Field:        fmt.Sprintf("%s/cpu_request", c.Name),
+				Before:       formatCPUResource(c.Current.CPURequest),
+				After:        formatCPUResource(c.Recommended.CPURequest),
+				DeltaPercent: c.Delta.CPURequestPercent,
+			},
+			audit.BundleChange{
+				Field:        fmt.Sprintf("%s/cpu_limit", c.Name),
+				Before:       formatCPUResource(c.Current.CPULimit),
+				After:        formatCPUResource(c.Recommended.CPULimit),
+				DeltaPercent: c.Delta.CPULimitPercent,
+			},
+			audit.BundleChange{
+				Field:        fmt.Sprintf("%s/memory_request", c.Name),
+				Before:       formatMemResource(c.Current.MemoryRequest),
+				After:        formatMemResource(c.Recommended.MemoryRequest),
+				DeltaPercent: c.Delta.MemoryRequestPercent,
+			},
+			audit.BundleChange{
+				Field:        fmt.Sprintf("%s/memory_limit", c.Name),
+				Before:       formatMemResource(c.Current.MemoryLimit),
+				After:        formatMemResource(c.Recommended.MemoryLimit),
+				DeltaPercent: c.Delta.MemoryLimitPercent,
+			},
+		)
 	}
 	return changes
 }
