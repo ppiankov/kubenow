@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
@@ -253,6 +254,8 @@ func (m *LatchMonitor) restartDelta(namespace, podName, containerName string, cu
 }
 
 // sample takes a single metrics sample
+//
+//nolint:gocyclo // tight sampling loop under mutex
 func (m *LatchMonitor) sample(ctx context.Context) error {
 	// Get pod metrics from Metrics API
 	var podMetricsList *metricsv1beta1.PodMetricsList
@@ -437,155 +440,159 @@ func (m *LatchMonitor) checkAllCriticalSignals(ctx context.Context) {
 			continue
 		}
 
-		// Check each pod for critical signals
 		for i := range pods.Items {
-			pod := &pods.Items[i]
-			workloadName := pod.Name
-			if !m.config.PodLevel {
-				workloadName, _ = ResolveWorkloadIdentity(pod.Name, pod.Labels)
-			}
-			key := fmt.Sprintf("%s/%s", pod.Namespace, workloadName)
+			m.processPodCriticalSignals(&pods.Items[i])
+		}
 
-			data, exists := m.spikeData[key]
-			if !exists {
-				continue // Skip pods we didn't monitor
-			}
+		m.processNamespaceEvents(ctx, namespace, m.spikeData)
+	}
+}
 
-			if data.CriticalEvents == nil {
-				data.CriticalEvents = make([]string, 0)
-			}
+func (m *LatchMonitor) processPodCriticalSignals(pod *corev1.Pod) {
+	workloadName := pod.Name
+	if !m.config.PodLevel {
+		workloadName, _ = ResolveWorkloadIdentity(pod.Name, pod.Labels)
+	}
+	key := fmt.Sprintf("%s/%s", pod.Namespace, workloadName)
 
-			// Check container statuses for ALL termination reasons and exit codes
-			for j := range pod.Status.ContainerStatuses {
-				containerStatus := &pod.Status.ContainerStatuses[j]
-				// Track ALL termination reasons (not just OOMKilled)
-				if containerStatus.LastTerminationState.Terminated != nil {
-					terminated := containerStatus.LastTerminationState.Terminated
-					reason := terminated.Reason
-					exitCode := int(terminated.ExitCode)
-					finishedAt := terminated.FinishedAt.Time
+	data, exists := m.spikeData[key]
+	if !exists {
+		return
+	}
+	if data.CriticalEvents == nil {
+		data.CriticalEvents = make([]string, 0)
+	}
 
-					// Track when the last termination happened
-					if data.LastTerminationTime == nil || finishedAt.After(*data.LastTerminationTime) {
-						data.LastTerminationTime = &finishedAt
-					}
+	for i := range pod.Status.ContainerStatuses {
+		status := pod.Status.ContainerStatuses[i]
+		if status.LastTerminationState.Terminated != nil {
+			m.processTerminatedContainer(data, status, pod.Name)
+		}
 
-					// Count termination reason
-					if data.TerminationReasons == nil {
-						data.TerminationReasons = make(map[string]int)
-					}
-					data.TerminationReasons[reason]++
-
-					// Count exit code
-					if data.ExitCodes == nil {
-						data.ExitCodes = make(map[int]int)
-					}
-					data.ExitCodes[exitCode]++
-
-					// Special handling for known critical reasons
-					switch reason {
-					case "OOMKilled":
-						data.OOMKills++
-						event := fmt.Sprintf("OOMKilled: container %s (exit code %d)", containerStatus.Name, exitCode)
-						data.CriticalEvents = append(data.CriticalEvents, event)
-					case "Error":
-						event := fmt.Sprintf("Error: container %s exited with code %d - %s",
-							containerStatus.Name, exitCode, getExitCodeMeaning(exitCode))
-						data.CriticalEvents = append(data.CriticalEvents, event)
-					case "ContainerCannotRun":
-						event := fmt.Sprintf("ContainerCannotRun: %s - %s",
-							containerStatus.Name, terminated.Message)
-						data.CriticalEvents = append(data.CriticalEvents, event)
-					default:
-						if reason != "Completed" && reason != "" {
-							event := fmt.Sprintf("Terminated: container %s - reason: %s (exit code %d)",
-								containerStatus.Name, reason, exitCode)
-							data.CriticalEvents = append(data.CriticalEvents, event)
-						}
-					}
-				}
-
-				// Track restarts that occurred during the latch window only
-				delta := m.restartDelta(pod.Namespace, pod.Name, containerStatus.Name, containerStatus.RestartCount)
-				if delta > 0 {
-					data.Restarts += int(delta)
-					if delta > 5 {
-						event := fmt.Sprintf("High restart count: container %s had %d restarts during latch",
-							containerStatus.Name, delta)
-						data.CriticalEvents = append(data.CriticalEvents, event)
-					}
-				}
-
-				// Check current state for issues
-				if containerStatus.State.Waiting != nil {
-					reason := containerStatus.State.Waiting.Reason
-					switch reason {
-					case "CrashLoopBackOff":
-						event := fmt.Sprintf("CrashLoopBackOff: container %s", containerStatus.Name)
-						data.CriticalEvents = append(data.CriticalEvents, event)
-					case "ImagePullBackOff", "ErrImagePull":
-						event := fmt.Sprintf("Image issue: container %s - %s", containerStatus.Name, reason)
-						data.CriticalEvents = append(data.CriticalEvents, event)
-					case "CreateContainerConfigError", "CreateContainerError":
-						event := fmt.Sprintf("Container creation issue: %s - %s", containerStatus.Name, reason)
-						data.CriticalEvents = append(data.CriticalEvents, event)
-					}
-				}
-
-			}
-
-			// Check for pod eviction
-			if pod.Status.Reason == "Evicted" {
-				data.Evictions++
-				event := fmt.Sprintf("Pod evicted - %s", pod.Status.Message)
+		delta := m.restartDelta(pod.Namespace, pod.Name, status.Name, status.RestartCount)
+		if delta > 0 {
+			data.Restarts += int(delta)
+			if delta > 5 {
+				event := fmt.Sprintf("High restart count: container %s had %d restarts during latch",
+					status.Name, delta)
 				data.CriticalEvents = append(data.CriticalEvents, event)
 			}
 		}
 
-		// Batch-fetch recent events for this namespace (last 30 minutes)
-		events, err := m.kubeClient.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
-		if err != nil {
+		if status.State.Waiting != nil {
+			m.processWaitingContainer(data, status)
+		}
+	}
+
+	if pod.Status.Reason == "Evicted" {
+		data.Evictions++
+		event := fmt.Sprintf("Pod evicted - %s", pod.Status.Message)
+		data.CriticalEvents = append(data.CriticalEvents, event)
+	}
+}
+
+//nolint:gocritic // keep by-value signature aligned with the requested extraction
+func (m *LatchMonitor) processTerminatedContainer(data *SpikeData, status corev1.ContainerStatus, podName string) {
+	_ = podName
+
+	terminated := status.LastTerminationState.Terminated
+	reason := terminated.Reason
+	exitCode := int(terminated.ExitCode)
+	finishedAt := terminated.FinishedAt.Time
+
+	if data.LastTerminationTime == nil || finishedAt.After(*data.LastTerminationTime) {
+		data.LastTerminationTime = &finishedAt
+	}
+
+	if data.TerminationReasons == nil {
+		data.TerminationReasons = make(map[string]int)
+	}
+	data.TerminationReasons[reason]++
+
+	if data.ExitCodes == nil {
+		data.ExitCodes = make(map[int]int)
+	}
+	data.ExitCodes[exitCode]++
+
+	switch reason {
+	case "OOMKilled":
+		data.OOMKills++
+		event := fmt.Sprintf("OOMKilled: container %s (exit code %d)", status.Name, exitCode)
+		data.CriticalEvents = append(data.CriticalEvents, event)
+	case "Error":
+		event := fmt.Sprintf("Error: container %s exited with code %d - %s",
+			status.Name, exitCode, getExitCodeMeaning(exitCode))
+		data.CriticalEvents = append(data.CriticalEvents, event)
+	case "ContainerCannotRun":
+		event := fmt.Sprintf("ContainerCannotRun: %s - %s",
+			status.Name, terminated.Message)
+		data.CriticalEvents = append(data.CriticalEvents, event)
+	default:
+		if reason != "Completed" && reason != "" {
+			event := fmt.Sprintf("Terminated: container %s - reason: %s (exit code %d)",
+				status.Name, reason, exitCode)
+			data.CriticalEvents = append(data.CriticalEvents, event)
+		}
+	}
+}
+
+//nolint:gocritic // keep by-value signature aligned with the requested extraction
+func (m *LatchMonitor) processWaitingContainer(data *SpikeData, status corev1.ContainerStatus) {
+	reason := status.State.Waiting.Reason
+	switch reason {
+	case "CrashLoopBackOff":
+		event := fmt.Sprintf("CrashLoopBackOff: container %s", status.Name)
+		data.CriticalEvents = append(data.CriticalEvents, event)
+	case "ImagePullBackOff", "ErrImagePull":
+		event := fmt.Sprintf("Image issue: container %s - %s", status.Name, reason)
+		data.CriticalEvents = append(data.CriticalEvents, event)
+	case "CreateContainerConfigError", "CreateContainerError":
+		event := fmt.Sprintf("Container creation issue: %s - %s", status.Name, reason)
+		data.CriticalEvents = append(data.CriticalEvents, event)
+	}
+}
+
+func (m *LatchMonitor) processNamespaceEvents(ctx context.Context, namespace string, spikeData map[string]*SpikeData) {
+	events, err := m.kubeClient.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return
+	}
+
+	thirtyMinutesAgo := time.Now().Add(-30 * time.Minute)
+	for i := range events.Items {
+		event := &events.Items[i]
+		if event.LastTimestamp.Time.Before(thirtyMinutesAgo) {
 			continue
 		}
 
-		thirtyMinutesAgo := time.Now().Add(-30 * time.Minute)
-		for i := range events.Items {
-			event := &events.Items[i]
-			if event.LastTimestamp.Time.Before(thirtyMinutesAgo) {
-				continue
-			}
+		podName := event.InvolvedObject.Name
+		labels := m.podLabels[podName]
+		workloadName := podName
+		if !m.config.PodLevel {
+			workloadName, _ = ResolveWorkloadIdentity(podName, labels)
+		}
+		key := fmt.Sprintf("%s/%s", namespace, workloadName)
 
-			// Extract workload name from pod name
-			podName := event.InvolvedObject.Name
-			labels := m.podLabels[podName]
-			workloadName := podName
-			if !m.config.PodLevel {
-				workloadName, _ = ResolveWorkloadIdentity(podName, labels)
-			}
-			key := fmt.Sprintf("%s/%s", namespace, workloadName)
+		data, exists := spikeData[key]
+		if !exists {
+			continue
+		}
 
-			data, exists := m.spikeData[key]
-			if !exists {
-				continue
-			}
+		if event.Reason != "OOMKilling" && event.Reason != "FailedScheduling" &&
+			event.Reason != "FailedMount" && event.Reason != "BackOff" {
+			continue
+		}
 
-			// Look for critical event types
-			if event.Reason == "OOMKilling" || event.Reason == "FailedScheduling" ||
-				event.Reason == "FailedMount" || event.Reason == "BackOff" {
-				eventMsg := fmt.Sprintf("Event: %s - %s", event.Reason, truncateString(event.Message, 100))
-
-				// Avoid duplicates
-				isDuplicate := false
-				for _, existing := range data.CriticalEvents {
-					if existing == eventMsg {
-						isDuplicate = true
-						break
-					}
-				}
-				if !isDuplicate {
-					data.CriticalEvents = append(data.CriticalEvents, eventMsg)
-				}
+		eventMsg := fmt.Sprintf("Event: %s - %s", event.Reason, truncateString(event.Message, 100))
+		isDuplicate := false
+		for _, existing := range data.CriticalEvents {
+			if existing == eventMsg {
+				isDuplicate = true
+				break
 			}
+		}
+		if !isDuplicate {
+			data.CriticalEvents = append(data.CriticalEvents, eventMsg)
 		}
 	}
 }

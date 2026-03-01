@@ -98,42 +98,39 @@ func (w *Watcher) GetState() ([]Problem, []RecentEvent, ClusterStats) {
 
 // watchEvents watches Kubernetes events for problems
 func (w *Watcher) watchEvents(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		watcher, err := w.clientset.CoreV1().Events(w.config.Namespace).Watch(ctx, metav1.ListOptions{
-			Watch: true,
-		})
-		if err != nil {
-			w.setConnectionError(err)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-		w.setConnectionOK()
-
-		for event := range watcher.ResultChan() {
-			if event.Type == watch.Error {
-				break
+	w.watchLoop(
+		ctx,
+		func() (watch.Interface, error) {
+			return w.clientset.CoreV1().Events(w.config.Namespace).Watch(ctx, metav1.ListOptions{Watch: true})
+		},
+		func(event watch.Event) {
+			if k8sEvent, ok := event.Object.(*corev1.Event); ok {
+				w.processEvent(k8sEvent)
 			}
-
-			if event.Type == watch.Added || event.Type == watch.Modified {
-				if k8sEvent, ok := event.Object.(*corev1.Event); ok {
-					w.processEvent(k8sEvent)
-				}
-			}
-		}
-
-		watcher.Stop()
-		time.Sleep(1 * time.Second)
-	}
+		},
+	)
 }
 
 // watchPods watches pod status changes
 func (w *Watcher) watchPods(ctx context.Context) {
+	w.watchLoop(
+		ctx,
+		func() (watch.Interface, error) {
+			return w.clientset.CoreV1().Pods(w.config.Namespace).Watch(ctx, metav1.ListOptions{Watch: true})
+		},
+		func(event watch.Event) {
+			if pod, ok := event.Object.(*corev1.Pod); ok {
+				w.processPodStatus(pod)
+			}
+		},
+	)
+}
+
+func (w *Watcher) watchLoop(
+	ctx context.Context,
+	newWatcher func() (watch.Interface, error),
+	handle func(watch.Event),
+) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -141,9 +138,7 @@ func (w *Watcher) watchPods(ctx context.Context) {
 		default:
 		}
 
-		watcher, err := w.clientset.CoreV1().Pods(w.config.Namespace).Watch(ctx, metav1.ListOptions{
-			Watch: true,
-		})
+		watcher, err := newWatcher()
 		if err != nil {
 			w.setConnectionError(err)
 			time.Sleep(5 * time.Second)
@@ -155,11 +150,8 @@ func (w *Watcher) watchPods(ctx context.Context) {
 			if event.Type == watch.Error {
 				break
 			}
-
 			if event.Type == watch.Added || event.Type == watch.Modified {
-				if pod, ok := event.Object.(*corev1.Pod); ok {
-					w.processPodStatus(pod)
-				}
+				handle(event)
 			}
 		}
 
@@ -217,125 +209,162 @@ func (w *Watcher) processEvent(event *corev1.Event) {
 
 // processPodStatus processes pod status for problems
 func (w *Watcher) processPodStatus(pod *corev1.Pod) {
+	problems := make([]Problem, 0)
+
 	for i := range pod.Status.ContainerStatuses {
 		containerStatus := &pod.Status.ContainerStatuses[i]
-		// Check for CrashLoopBackOff
-		if containerStatus.State.Waiting != nil && containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
-			w.addProblem(
-				SeverityFatal,
-				"CrashLoopBackOff",
-				pod.Namespace,
-				pod.Name,
-				containerStatus.Name,
-				fmt.Sprintf("Container crashing repeatedly (restarts: %d)", containerStatus.RestartCount),
-				map[string]string{
-					"restarts": fmt.Sprintf("%d", containerStatus.RestartCount),
-				},
-			)
-		}
-
-		// Check for OOMKilled (only if recent - within last hour)
-		if containerStatus.LastTerminationState.Terminated != nil &&
-			containerStatus.LastTerminationState.Terminated.Reason == "OOMKilled" {
-			terminatedAt := containerStatus.LastTerminationState.Terminated.FinishedAt.Time
-			if time.Since(terminatedAt) < 1*time.Hour {
-				w.addProblem(
-					SeverityFatal,
-					"OOMKilled",
-					pod.Namespace,
-					pod.Name,
-					containerStatus.Name,
-					fmt.Sprintf("Container killed due to out of memory (%s ago)", formatDuration(time.Since(terminatedAt))),
-					map[string]string{
-						"exit_code":     fmt.Sprintf("%d", containerStatus.LastTerminationState.Terminated.ExitCode),
-						"terminated_at": terminatedAt.Format(time.RFC3339),
-					},
-				)
-			}
-		}
-
-		// Check for ImagePullBackOff / ErrImagePull
-		if containerStatus.State.Waiting != nil {
-			reason := containerStatus.State.Waiting.Reason
-			if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
-				w.addProblem(
-					SeverityCritical,
-					reason,
-					pod.Namespace,
-					pod.Name,
-					containerStatus.Name,
-					fmt.Sprintf("Cannot pull image: %s", containerStatus.State.Waiting.Message),
-					map[string]string{
-						"image": containerStatus.Image,
-					},
-				)
-			}
-		}
-
-		// Check for high restart count (possible instability)
-		if containerStatus.RestartCount > 5 {
-			w.addProblem(
-				SeverityWarning,
-				"HighRestarts",
-				pod.Namespace,
-				pod.Name,
-				containerStatus.Name,
-				fmt.Sprintf("Container has %d restarts (may indicate instability)", containerStatus.RestartCount),
-				map[string]string{
-					"restart_count": fmt.Sprintf("%d", containerStatus.RestartCount),
-				},
-			)
-		}
+		problems = append(problems, w.checkCrashLoop(pod, containerStatus)...)
+		problems = append(problems, w.checkOOMKill(pod, containerStatus)...)
+		problems = append(problems, w.checkImagePull(pod, containerStatus)...)
+		problems = append(problems, w.checkHighRestarts(pod, containerStatus)...)
 	}
 
-	// Check for Pending pods (stuck for more than 5 minutes)
-	if pod.Status.Phase == corev1.PodPending {
-		podAge := time.Since(pod.CreationTimestamp.Time)
-		if podAge > 5*time.Minute {
-			reason := "Unknown"
-			message := "Pod stuck in Pending state"
+	problems = append(problems, w.checkPendingPod(pod)...)
 
-			// Try to determine why it's pending
-			for _, condition := range pod.Status.Conditions {
-				if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
-					reason = condition.Reason
-					message = condition.Message
-					break
-				}
-			}
-
-			w.addProblem(
-				SeverityCritical,
-				"PodPending",
-				pod.Namespace,
-				pod.Name,
-				"", // No specific container
-				fmt.Sprintf("Pod pending for %s: %s", formatDuration(podAge), message),
-				map[string]string{
-					"reason":    reason,
-					"pod_age":   podAge.String(),
-					"node_name": pod.Spec.NodeName,
-				},
-			)
-		}
-	}
-
-	// Check for pod eviction
 	if pod.Status.Reason == "Evicted" {
-		w.addProblem(
-			SeverityCritical,
-			"Evicted",
-			pod.Namespace,
-			pod.Name,
-			"",
-			fmt.Sprintf("Pod evicted: %s", pod.Status.Message),
-			map[string]string{
+		problems = append(problems, Problem{
+			Severity:  SeverityCritical,
+			Type:      "Evicted",
+			Namespace: pod.Namespace,
+			PodName:   pod.Name,
+			Message:   fmt.Sprintf("Pod evicted: %s", pod.Status.Message),
+			Details: map[string]string{
 				"eviction_reason": pod.Status.Reason,
 			},
+		})
+	}
+
+	for i := range problems {
+		problem := &problems[i]
+		w.addProblem(
+			problem.Severity,
+			problem.Type,
+			problem.Namespace,
+			problem.PodName,
+			problem.ContainerName,
+			problem.Message,
+			problem.Details,
 		)
 	}
 
 	w.updateChan <- struct{}{}
+}
+
+func (w *Watcher) checkCrashLoop(pod *corev1.Pod, cs *corev1.ContainerStatus) []Problem {
+	if cs.State.Waiting == nil || cs.State.Waiting.Reason != "CrashLoopBackOff" {
+		return nil
+	}
+
+	return []Problem{{
+		Severity:      SeverityFatal,
+		Type:          "CrashLoopBackOff",
+		Namespace:     pod.Namespace,
+		PodName:       pod.Name,
+		ContainerName: cs.Name,
+		Message:       fmt.Sprintf("Container crashing repeatedly (restarts: %d)", cs.RestartCount),
+		Details: map[string]string{
+			"restarts": fmt.Sprintf("%d", cs.RestartCount),
+		},
+	}}
+}
+
+func (w *Watcher) checkOOMKill(pod *corev1.Pod, cs *corev1.ContainerStatus) []Problem {
+	if cs.LastTerminationState.Terminated == nil || cs.LastTerminationState.Terminated.Reason != "OOMKilled" {
+		return nil
+	}
+
+	terminatedAt := cs.LastTerminationState.Terminated.FinishedAt.Time
+	if time.Since(terminatedAt) >= 1*time.Hour {
+		return nil
+	}
+
+	return []Problem{{
+		Severity:      SeverityFatal,
+		Type:          "OOMKilled",
+		Namespace:     pod.Namespace,
+		PodName:       pod.Name,
+		ContainerName: cs.Name,
+		Message:       fmt.Sprintf("Container killed due to out of memory (%s ago)", formatDuration(time.Since(terminatedAt))),
+		Details: map[string]string{
+			"exit_code":     fmt.Sprintf("%d", cs.LastTerminationState.Terminated.ExitCode),
+			"terminated_at": terminatedAt.Format(time.RFC3339),
+		},
+	}}
+}
+
+func (w *Watcher) checkImagePull(pod *corev1.Pod, cs *corev1.ContainerStatus) []Problem {
+	if cs.State.Waiting == nil {
+		return nil
+	}
+
+	reason := cs.State.Waiting.Reason
+	if reason != "ImagePullBackOff" && reason != "ErrImagePull" {
+		return nil
+	}
+
+	return []Problem{{
+		Severity:      SeverityCritical,
+		Type:          reason,
+		Namespace:     pod.Namespace,
+		PodName:       pod.Name,
+		ContainerName: cs.Name,
+		Message:       fmt.Sprintf("Cannot pull image: %s", cs.State.Waiting.Message),
+		Details: map[string]string{
+			"image": cs.Image,
+		},
+	}}
+}
+
+func (w *Watcher) checkHighRestarts(pod *corev1.Pod, cs *corev1.ContainerStatus) []Problem {
+	if cs.RestartCount <= 5 {
+		return nil
+	}
+
+	return []Problem{{
+		Severity:      SeverityWarning,
+		Type:          "HighRestarts",
+		Namespace:     pod.Namespace,
+		PodName:       pod.Name,
+		ContainerName: cs.Name,
+		Message:       fmt.Sprintf("Container has %d restarts (may indicate instability)", cs.RestartCount),
+		Details: map[string]string{
+			"restart_count": fmt.Sprintf("%d", cs.RestartCount),
+		},
+	}}
+}
+
+func (w *Watcher) checkPendingPod(pod *corev1.Pod) []Problem {
+	if pod.Status.Phase != corev1.PodPending {
+		return nil
+	}
+
+	podAge := time.Since(pod.CreationTimestamp.Time)
+	if podAge <= 5*time.Minute {
+		return nil
+	}
+
+	reason := "Unknown"
+	message := "Pod stuck in Pending state"
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
+			reason = condition.Reason
+			message = condition.Message
+			break
+		}
+	}
+
+	return []Problem{{
+		Severity:  SeverityCritical,
+		Type:      "PodPending",
+		Namespace: pod.Namespace,
+		PodName:   pod.Name,
+		Message:   fmt.Sprintf("Pod pending for %s: %s", formatDuration(podAge), message),
+		Details: map[string]string{
+			"reason":    reason,
+			"pod_age":   podAge.String(),
+			"node_name": pod.Spec.NodeName,
+		},
+	}}
 }
 
 // addProblem adds or updates a problem

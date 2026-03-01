@@ -96,6 +96,8 @@ func (m *Model) Init() tea.Cmd {
 }
 
 // Update handles messages
+//
+//nolint:gocyclo // BubbleTea Update message dispatch
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:

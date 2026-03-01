@@ -100,51 +100,15 @@ func Run(ctx context.Context, clientset *kubernetes.Clientset, config *Config) e
 				} else {
 					printDiff(diff, config.AlertNewOnly)
 
-					// Call LLM for analysis
-					snapJSON, err := json.Marshal(currSnapshot)
-					if err != nil {
-						stderrf("snapshot marshal error: %v\n", err)
-					} else {
-						finalPrompt, err := prompt.LoadPrompt(config.Mode, string(snapJSON), config.ProblemHint, config.Enhancements)
-						if err != nil {
-							stderrf("prompt error: %v\n", err)
-						} else {
-							stderrf("[kubenow] Calling LLM endpoint...\n")
-							raw, err := config.LLMClient.Complete(ctx, finalPrompt)
-							if err != nil {
-								stderrf("llm error: %v\n", err)
-							} else {
-								// Render output based on mode
-								if err := renderOutput(raw, config.Mode); err != nil {
-									stderrf("render error: %v\n", err)
-								}
-							}
-						}
+					if err := runLLMAnalysis(ctx, config, currSnapshot); err != nil {
+						stderrf("%v\n", err)
 					}
 
 					prevSnapshot = currSnapshot
 				}
 			} else {
-				// First iteration - call LLM
-				snapJSON, err := json.Marshal(currSnapshot)
-				if err != nil {
-					stderrf("snapshot marshal error: %v\n", err)
-				} else {
-					finalPrompt, err := prompt.LoadPrompt(config.Mode, string(snapJSON), config.ProblemHint, config.Enhancements)
-					if err != nil {
-						stderrf("prompt error: %v\n", err)
-					} else {
-						stderrf("[kubenow] Calling LLM endpoint...\n")
-						raw, err := config.LLMClient.Complete(ctx, finalPrompt)
-						if err != nil {
-							stderrf("llm error: %v\n", err)
-						} else {
-							// Render output based on mode
-							if err := renderOutput(raw, config.Mode); err != nil {
-								stderrf("render error: %v\n", err)
-							}
-						}
-					}
+				if err := runLLMAnalysis(ctx, config, currSnapshot); err != nil {
+					stderrf("%v\n", err)
 				}
 
 				prevSnapshot = currSnapshot
@@ -166,6 +130,30 @@ func Run(ctx context.Context, clientset *kubernetes.Clientset, config *Config) e
 			stderrln("\n[kubenow] Watch mode stopped.")
 			return ctx.Err()
 		}
+	}
+
+	return nil
+}
+
+func runLLMAnalysis(ctx context.Context, config *Config, snapshotData interface{}) error {
+	snapJSON, err := json.Marshal(snapshotData)
+	if err != nil {
+		return fmt.Errorf("snapshot marshal error: %w", err)
+	}
+
+	finalPrompt, err := prompt.LoadPrompt(config.Mode, string(snapJSON), config.ProblemHint, config.Enhancements)
+	if err != nil {
+		return fmt.Errorf("prompt error: %w", err)
+	}
+
+	stderrf("[kubenow] Calling LLM endpoint...\n")
+	raw, err := config.LLMClient.Complete(ctx, finalPrompt)
+	if err != nil {
+		return fmt.Errorf("llm error: %w", err)
+	}
+
+	if err := renderOutput(raw, config.Mode); err != nil {
+		return fmt.Errorf("render error: %w", err)
 	}
 
 	return nil

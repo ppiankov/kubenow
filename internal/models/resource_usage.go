@@ -116,6 +116,8 @@ func (sa *SafetyAnalysis) HasSpikes() bool {
 }
 
 // DetermineRating calculates the safety rating based on collected metrics
+//
+//nolint:gocyclo // safety decision table — each branch is a distinct signal
 func (sa *SafetyAnalysis) DetermineRating(cpuUsageP99, memUsageP99, cpuRequested, memRequested float64) {
 	sa.Warnings = []string{}
 	sa.Reasons = []string{}

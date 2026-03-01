@@ -6,8 +6,12 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
@@ -21,6 +25,11 @@ type RequestsSkewAnalyzer struct {
 	kubeClient      kubernetes.Interface
 	metricsProvider metrics.MetricsProvider
 	config          RequestsSkewConfig
+}
+
+type namespaceWorkload struct {
+	name         string
+	creationTime time.Time
 }
 
 // logProgress prints progress messages unless silent mode is enabled
@@ -200,6 +209,8 @@ func NewRequestsSkewAnalyzer(kubeClient kubernetes.Interface, metricsProvider me
 }
 
 // Analyze performs the requests-skew analysis
+//
+//nolint:gocyclo // orchestration pipeline with sequential error guards
 func (a *RequestsSkewAnalyzer) Analyze(ctx context.Context) (*RequestsSkewResult, error) {
 	result := &RequestsSkewResult{
 		Metadata: RequestsSkewMetadata{
@@ -365,23 +376,10 @@ func (a *RequestsSkewAnalyzer) getFilteredNamespaces(ctx context.Context) ([]str
 		ns := &nsList.Items[i]
 		nsName := ns.Name
 
-		// Skip kube-system unless explicitly included
 		if !a.config.IncludeKubeSystem && nsName == "kube-system" {
 			continue
 		}
-
-		// Apply namespace regex filter if configured
-		if namespaceRegex != nil && !namespaceRegex.MatchString(nsName) {
-			continue
-		}
-
-		// Apply exclude patterns (most restrictive)
-		if len(excludePatterns) > 0 && matchesAnyPattern(nsName, excludePatterns) {
-			continue
-		}
-
-		// Apply include patterns (if specified, must match at least one)
-		if len(includePatterns) > 0 && !matchesAnyPattern(nsName, includePatterns) {
+		if !shouldIncludeNamespace(nsName, excludePatterns, includePatterns, namespaceRegex) {
 			continue
 		}
 
@@ -440,33 +438,15 @@ func (a *RequestsSkewAnalyzer) getNamespaceQuotaInfo(ctx context.Context, namesp
 		// Use the first quota (most namespaces have only one)
 		quota := quotas.Items[0]
 
-		// Extract CPU quota
 		if hardCPU, ok := quota.Status.Hard["requests.cpu"]; ok {
 			if usedCPU, ok := quota.Status.Used["requests.cpu"]; ok {
-				info.QuotaCPU = QuotaUsage{
-					Hard:      hardCPU.String(),
-					Used:      usedCPU.String(),
-					HardValue: float64(hardCPU.MilliValue()) / 1000.0,
-					UsedValue: float64(usedCPU.MilliValue()) / 1000.0,
-				}
-				if info.QuotaCPU.HardValue > 0 {
-					info.QuotaCPU.Utilization = (info.QuotaCPU.UsedValue / info.QuotaCPU.HardValue) * 100
-				}
+				info.QuotaCPU = extractQuotaUsage(hardCPU, usedCPU)
 			}
 		}
 
-		// Extract Memory quota
 		if hardMem, ok := quota.Status.Hard["requests.memory"]; ok {
 			if usedMem, ok := quota.Status.Used["requests.memory"]; ok {
-				info.QuotaMemory = QuotaUsage{
-					Hard:      hardMem.String(),
-					Used:      usedMem.String(),
-					HardValue: float64(hardMem.Value()) / (1024 * 1024 * 1024), // Convert to GiB
-					UsedValue: float64(usedMem.Value()) / (1024 * 1024 * 1024), // Convert to GiB
-				}
-				if info.QuotaMemory.HardValue > 0 {
-					info.QuotaMemory.Utilization = (info.QuotaMemory.UsedValue / info.QuotaMemory.HardValue) * 100
-				}
+				info.QuotaMemory = extractQuotaUsage(hardMem, usedMem)
 			}
 		}
 	}
@@ -481,37 +461,13 @@ func (a *RequestsSkewAnalyzer) getNamespaceQuotaInfo(ctx context.Context, namesp
 		info.HasLimitRange = true
 		info.LimitRangeDefaults = &LimitRangeDefaults{}
 
-		// Extract defaults from first LimitRange (most namespaces have only one)
 		lr := limitRanges.Items[0]
 		for i := range lr.Spec.Limits {
 			limit := &lr.Spec.Limits[i]
 			if limit.Type != "Container" {
 				continue
 			}
-			if defaultCPU, ok := limit.Default["cpu"]; ok {
-				info.LimitRangeDefaults.DefaultCPU = defaultCPU.String()
-			}
-			if defaultMem, ok := limit.Default["memory"]; ok {
-				info.LimitRangeDefaults.DefaultMemory = defaultMem.String()
-			}
-			if defaultReqCPU, ok := limit.DefaultRequest["cpu"]; ok {
-				info.LimitRangeDefaults.DefaultRequestCPU = defaultReqCPU.String()
-			}
-			if defaultReqMem, ok := limit.DefaultRequest["memory"]; ok {
-				info.LimitRangeDefaults.DefaultRequestMemory = defaultReqMem.String()
-			}
-			if minCPU, ok := limit.Min["cpu"]; ok {
-				info.LimitRangeDefaults.MinCPU = minCPU.String()
-			}
-			if minMem, ok := limit.Min["memory"]; ok {
-				info.LimitRangeDefaults.MinMemory = minMem.String()
-			}
-			if maxCPU, ok := limit.Max["cpu"]; ok {
-				info.LimitRangeDefaults.MaxCPU = maxCPU.String()
-			}
-			if maxMem, ok := limit.Max["memory"]; ok {
-				info.LimitRangeDefaults.MaxMemory = maxMem.String()
-			}
+			info.LimitRangeDefaults = extractLimitRangeDefaults(*limit)
 		}
 	}
 
@@ -711,80 +667,43 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	workloads := make([]WorkloadSkewAnalysis, 0)
 	noMetrics := make([]WorkloadWithoutMetrics, 0)
 
-	// Analyze Deployments
-	deployments, err := a.kubeClient.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list deployments: %w", err)
+	workloadKinds := []struct {
+		kind string
+		list func(context.Context, string) ([]namespaceWorkload, error)
+	}{
+		{
+			kind: "Deployment",
+			list: func(ctx context.Context, namespace string) ([]namespaceWorkload, error) {
+				return a.listWorkloadTargets(ctx, namespace, "Deployment")
+			},
+		},
+		{
+			kind: "StatefulSet",
+			list: func(ctx context.Context, namespace string) ([]namespaceWorkload, error) {
+				return a.listWorkloadTargets(ctx, namespace, "StatefulSet")
+			},
+		},
+		{
+			kind: "DaemonSet",
+			list: func(ctx context.Context, namespace string) ([]namespaceWorkload, error) {
+				return a.listWorkloadTargets(ctx, namespace, "DaemonSet")
+			},
+		},
 	}
 
-	for i := range deployments.Items {
-		deploy := &deployments.Items[i]
-		var analysis *WorkloadSkewAnalysis
-		var hasMetrics bool
-		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, deploy.Name, "Deployment", deploy.CreationTimestamp.Time)
+	for i := range workloadKinds {
+		workloadKind := workloadKinds[i]
+		analyzedWorkloads, analyzedNoMetrics, err := a.analyzeWorkloadKind(
+			ctx,
+			namespace,
+			workloadKind.kind,
+			workloadKind.list,
+		)
 		if err != nil {
-			// Log but continue
-			continue
+			return nil, nil, err
 		}
-		if !hasMetrics {
-			noMetrics = append(noMetrics, WorkloadWithoutMetrics{
-				Namespace: namespace,
-				Workload:  deploy.Name,
-				Type:      "Deployment",
-			})
-		} else if analysis != nil {
-			workloads = append(workloads, *analysis)
-		}
-	}
-
-	// Analyze StatefulSets
-	statefulsets, err := a.kubeClient.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list statefulsets: %w", err)
-	}
-
-	for i := range statefulsets.Items {
-		sts := &statefulsets.Items[i]
-		var analysis *WorkloadSkewAnalysis
-		var hasMetrics bool
-		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, sts.Name, "StatefulSet", sts.CreationTimestamp.Time)
-		if err != nil {
-			continue
-		}
-		if !hasMetrics {
-			noMetrics = append(noMetrics, WorkloadWithoutMetrics{
-				Namespace: namespace,
-				Workload:  sts.Name,
-				Type:      "StatefulSet",
-			})
-		} else if analysis != nil {
-			workloads = append(workloads, *analysis)
-		}
-	}
-
-	// Analyze DaemonSets
-	daemonsets, err := a.kubeClient.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list daemonsets: %w", err)
-	}
-
-	for i := range daemonsets.Items {
-		ds := &daemonsets.Items[i]
-		var analysis *WorkloadSkewAnalysis
-		var hasMetrics bool
-		analysis, hasMetrics, err = a.analyzeWorkload(ctx, namespace, ds.Name, "DaemonSet", ds.CreationTimestamp.Time)
-		if err != nil {
-			continue
-		}
-		if !hasMetrics {
-			noMetrics = append(noMetrics, WorkloadWithoutMetrics{
-				Namespace: namespace,
-				Workload:  ds.Name,
-				Type:      "DaemonSet",
-			})
-		} else if analysis != nil {
-			workloads = append(workloads, *analysis)
-		}
+		workloads = append(workloads, analyzedWorkloads...)
+		noMetrics = append(noMetrics, analyzedNoMetrics...)
 	}
 
 	// Discover CRD-managed workloads (CNPG, Strimzi, RabbitMQ, etc.)
@@ -818,6 +737,173 @@ func (a *RequestsSkewAnalyzer) analyzeNamespace(ctx context.Context, namespace s
 	}
 
 	return workloads, noMetrics, nil
+}
+
+func shouldIncludeNamespace(name string, excludePatterns, includePatterns []string, namespaceRegex *regexp.Regexp) bool {
+	if namespaceRegex != nil && !namespaceRegex.MatchString(name) {
+		return false
+	}
+	if len(excludePatterns) > 0 && matchesAnyPattern(name, excludePatterns) {
+		return false
+	}
+	if len(includePatterns) > 0 && !matchesAnyPattern(name, includePatterns) {
+		return false
+	}
+	return true
+}
+
+func extractQuotaUsage(hardQty, usedQty resource.Quantity) QuotaUsage {
+	usage := QuotaUsage{
+		Hard:      hardQty.String(),
+		Used:      usedQty.String(),
+		HardValue: quotaValue(hardQty),
+		UsedValue: quotaValue(usedQty),
+	}
+	if usage.HardValue > 0 {
+		usage.Utilization = (usage.UsedValue / usage.HardValue) * 100
+	}
+	return usage
+}
+
+func quotaValue(q resource.Quantity) float64 {
+	if isMemoryQuantity(q) {
+		return float64(q.Value()) / (1024 * 1024 * 1024)
+	}
+	return float64(q.MilliValue()) / 1000.0
+}
+
+func isMemoryQuantity(q resource.Quantity) bool {
+	if q.Format == resource.BinarySI {
+		return true
+	}
+
+	text := q.String()
+	if strings.ContainsAny(text, "KMGTEP") || strings.Contains(text, "i") {
+		return true
+	}
+
+	return q.Value() >= 1024*1024
+}
+
+func extractLimitRangeDefaults(item corev1.LimitRangeItem) *LimitRangeDefaults {
+	defaults := &LimitRangeDefaults{}
+
+	if defaultCPU, ok := item.Default["cpu"]; ok {
+		defaults.DefaultCPU = defaultCPU.String()
+	}
+	if defaultMem, ok := item.Default["memory"]; ok {
+		defaults.DefaultMemory = defaultMem.String()
+	}
+	if defaultReqCPU, ok := item.DefaultRequest["cpu"]; ok {
+		defaults.DefaultRequestCPU = defaultReqCPU.String()
+	}
+	if defaultReqMem, ok := item.DefaultRequest["memory"]; ok {
+		defaults.DefaultRequestMemory = defaultReqMem.String()
+	}
+	if minCPU, ok := item.Min["cpu"]; ok {
+		defaults.MinCPU = minCPU.String()
+	}
+	if minMem, ok := item.Min["memory"]; ok {
+		defaults.MinMemory = minMem.String()
+	}
+	if maxCPU, ok := item.Max["cpu"]; ok {
+		defaults.MaxCPU = maxCPU.String()
+	}
+	if maxMem, ok := item.Max["memory"]; ok {
+		defaults.MaxMemory = maxMem.String()
+	}
+
+	return defaults
+}
+
+func (a *RequestsSkewAnalyzer) analyzeWorkloadKind(
+	ctx context.Context,
+	namespace, kind string,
+	list func(context.Context, string) ([]namespaceWorkload, error),
+) ([]WorkloadSkewAnalysis, []WorkloadWithoutMetrics, error) {
+	targets, err := list(ctx, namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	workloads := make([]WorkloadSkewAnalysis, 0)
+	noMetrics := make([]WorkloadWithoutMetrics, 0)
+	for i := range targets {
+		target := &targets[i]
+		analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, target.name, kind, target.creationTime)
+		if err != nil {
+			continue
+		}
+		if !hasMetrics {
+			noMetrics = append(noMetrics, WorkloadWithoutMetrics{
+				Namespace: namespace,
+				Workload:  target.name,
+				Type:      kind,
+			})
+			continue
+		}
+		if analysis != nil {
+			workloads = append(workloads, *analysis)
+		}
+	}
+
+	return workloads, noMetrics, nil
+}
+
+func (a *RequestsSkewAnalyzer) listWorkloadTargets(
+	ctx context.Context,
+	namespace, kind string,
+) ([]namespaceWorkload, error) {
+	switch kind {
+	case "Deployment":
+		deployments, err := a.kubeClient.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list deployments: %w", err)
+		}
+		return buildNamespaceWorkloadList(
+			deployments.Items,
+			func(item appsv1.Deployment) string { return item.Name },
+			func(item appsv1.Deployment) time.Time { return item.CreationTimestamp.Time },
+		), nil
+	case "StatefulSet":
+		statefulsets, err := a.kubeClient.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list statefulsets: %w", err)
+		}
+		return buildNamespaceWorkloadList(
+			statefulsets.Items,
+			func(item appsv1.StatefulSet) string { return item.Name },
+			func(item appsv1.StatefulSet) time.Time { return item.CreationTimestamp.Time },
+		), nil
+	case "DaemonSet":
+		daemonsets, err := a.kubeClient.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list daemonsets: %w", err)
+		}
+		return buildNamespaceWorkloadList(
+			daemonsets.Items,
+			func(item appsv1.DaemonSet) string { return item.Name },
+			func(item appsv1.DaemonSet) time.Time { return item.CreationTimestamp.Time },
+		), nil
+	default:
+		return nil, fmt.Errorf("unsupported workload kind: %s", kind)
+	}
+}
+
+func buildNamespaceWorkloadList[T any](
+	items []T,
+	name func(T) string,
+	creationTime func(T) time.Time,
+) []namespaceWorkload {
+	result := make([]namespaceWorkload, 0, len(items))
+	for i := range items {
+		item := items[i]
+		result = append(result, namespaceWorkload{
+			name:         name(item),
+			creationTime: creationTime(item),
+		})
+	}
+	return result
 }
 
 // analyzeWorkload analyzes a single workload

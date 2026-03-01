@@ -47,6 +47,8 @@ type chatResponse struct {
 }
 
 // Complete sends a single chat completion request and returns the content of the first choice.
+//
+//nolint:gocyclo // HTTP lifecycle: validate, build, send, read, decode
 func (c Client) Complete(ctx context.Context, prompt string) (string, error) {
 	if c.Timeout <= 0 {
 		c.Timeout = 60 * time.Second

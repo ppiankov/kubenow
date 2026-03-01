@@ -86,6 +86,8 @@ func computeConfidence(latchDuration time.Duration, sampleCount int, hasProm boo
 // Recommend produces an alignment recommendation from latch evidence
 // and current container resources. This is a pure computation with no
 // side effects — all inputs are provided, all outputs are returned.
+//
+//nolint:gocyclo // sequential validation gates before computation
 func Recommend(input *RecommendInput) *AlignmentRecommendation {
 	result := &AlignmentRecommendation{
 		Timestamp: time.Now(),
@@ -276,41 +278,34 @@ func recommendContainer(
 
 // applyPolicyBounds caps recommendation deltas per policy guardrails.
 func applyPolicyBounds(a *ContainerAlignment, b *PolicyBounds) {
-	if b.MaxRequestDeltaPct > 0 {
-		maxPct := float64(b.MaxRequestDeltaPct)
-
-		if a.Current.CPURequest > 0 && math.Abs(a.Delta.CPURequestPercent) > maxPct {
-			a.Recommended.CPURequest = capValue(a.Current.CPURequest, maxPct, a.Delta.CPURequestPercent > 0)
-			a.Delta.CPURequestPercent = deltaPercent(a.Current.CPURequest, a.Recommended.CPURequest)
-			a.Capped = true
-			a.CappedFields = append(a.CappedFields, "cpu_request")
-		}
-
-		if a.Current.MemoryRequest > 0 && math.Abs(a.Delta.MemoryRequestPercent) > maxPct {
-			a.Recommended.MemoryRequest = capValue(a.Current.MemoryRequest, maxPct, a.Delta.MemoryRequestPercent > 0)
-			a.Delta.MemoryRequestPercent = deltaPercent(a.Current.MemoryRequest, a.Recommended.MemoryRequest)
-			a.Capped = true
-			a.CappedFields = append(a.CappedFields, "memory_request")
-		}
-	}
-
-	if b.MaxLimitDeltaPct > 0 {
-		maxPct := float64(b.MaxLimitDeltaPct)
-
-		if a.Current.CPULimit > 0 && math.Abs(a.Delta.CPULimitPercent) > maxPct {
-			a.Recommended.CPULimit = capValue(a.Current.CPULimit, maxPct, a.Delta.CPULimitPercent > 0)
-			a.Delta.CPULimitPercent = deltaPercent(a.Current.CPULimit, a.Recommended.CPULimit)
-			a.Capped = true
-			a.CappedFields = append(a.CappedFields, "cpu_limit")
-		}
-
-		if a.Current.MemoryLimit > 0 && math.Abs(a.Delta.MemoryLimitPercent) > maxPct {
-			a.Recommended.MemoryLimit = capValue(a.Current.MemoryLimit, maxPct, a.Delta.MemoryLimitPercent > 0)
-			a.Delta.MemoryLimitPercent = deltaPercent(a.Current.MemoryLimit, a.Recommended.MemoryLimit)
-			a.Capped = true
-			a.CappedFields = append(a.CappedFields, "memory_limit")
-		}
-	}
+	applyPolicyDeltaBounds(a, b.MaxRequestDeltaPct,
+		policyDeltaField{
+			current:     &a.Current.CPURequest,
+			recommended: &a.Recommended.CPURequest,
+			delta:       &a.Delta.CPURequestPercent,
+			name:        "cpu_request",
+		},
+		policyDeltaField{
+			current:     &a.Current.MemoryRequest,
+			recommended: &a.Recommended.MemoryRequest,
+			delta:       &a.Delta.MemoryRequestPercent,
+			name:        "memory_request",
+		},
+	)
+	applyPolicyDeltaBounds(a, b.MaxLimitDeltaPct,
+		policyDeltaField{
+			current:     &a.Current.CPULimit,
+			recommended: &a.Recommended.CPULimit,
+			delta:       &a.Delta.CPULimitPercent,
+			name:        "cpu_limit",
+		},
+		policyDeltaField{
+			current:     &a.Current.MemoryLimit,
+			recommended: &a.Recommended.MemoryLimit,
+			delta:       &a.Delta.MemoryLimitPercent,
+			name:        "memory_limit",
+		},
+	)
 
 	// Prevent limit decrease if policy disallows it
 	if !b.AllowLimitDecrease {
@@ -332,6 +327,31 @@ func applyPolicyBounds(a *ContainerAlignment, b *PolicyBounds) {
 	if a.Recommended.MemoryLimit < a.Recommended.MemoryRequest {
 		a.Recommended.MemoryLimit = a.Recommended.MemoryRequest
 		a.Delta.MemoryLimitPercent = deltaPercent(a.Current.MemoryLimit, a.Recommended.MemoryLimit)
+	}
+}
+
+type policyDeltaField struct {
+	current     *float64
+	recommended *float64
+	delta       *float64
+	name        string
+}
+
+func applyPolicyDeltaBounds(a *ContainerAlignment, maxDeltaPct int, fields ...policyDeltaField) {
+	if maxDeltaPct <= 0 {
+		return
+	}
+
+	maxPct := float64(maxDeltaPct)
+	for _, field := range fields {
+		if *field.current <= 0 || math.Abs(*field.delta) <= maxPct {
+			continue
+		}
+
+		*field.recommended = capValue(*field.current, maxPct, *field.delta > 0)
+		*field.delta = deltaPercent(*field.current, *field.recommended)
+		a.Capped = true
+		a.CappedFields = append(a.CappedFields, field.name)
 	}
 }
 

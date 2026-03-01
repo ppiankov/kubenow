@@ -180,6 +180,8 @@ var gitOpsManagers = []string{
 
 // CheckActionable validates all preconditions for apply.
 // Returns nil if all checks pass, or a list of denial reasons.
+//
+//nolint:gocyclo // pre-flight denial checklist with linear guards
 func CheckActionable(input *ApplyInput) []string {
 	var reasons []string
 

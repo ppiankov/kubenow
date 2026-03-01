@@ -193,196 +193,280 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Any non-Esc key dismisses the early-stop warning
-		if m.earlyStopPending && msg.String() != "esc" && msg.String() != "q" && msg.String() != "ctrl+c" {
-			m.earlyStopPending = false
-			return m, nil
-		}
-
-		switch msg.String() {
-		case "q", "ctrl+c":
-			m.quitting = true
-			if m.latch != nil && !m.latchDone {
-				m.latch.Stop()
-			}
-			return m, tea.Quit
-		case "esc":
-			if !m.latchDone && m.latch != nil {
-				if m.earlyStopPending {
-					// Second Esc — stop the latch and proceed with collected data
-					m.earlyStopActual = time.Since(m.latchStart)
-					m.latch.Stop()
-					// latch.Stop() blocks until done; LatchDoneMsg will arrive via goroutine
-					m.earlyStopPending = false
-					return m, nil
-				}
-				// First Esc — show warning
-				m.earlyStopPending = true
-				return m, nil
-			}
-		case "e":
-			if m.recommendation != nil && !m.exported {
-				rec := m.recommendation
-				workload := m.workload
-				return m, func() tea.Msg {
-					path, err := ExportToFile(rec, workload)
-					return exportDoneMsg{path: path, err: err}
-				}
-			}
-		case "l":
-			if m.recommendation != nil {
-				if m.showExposure {
-					m.showExposure = false
-					return m, nil
-				}
-				m.showTraffic = false // mutually exclusive overlays
-				if m.exposureMap != nil {
-					m.showExposure = true
-					return m, nil
-				}
-				if !m.exposureLoading && m.exposureCollector != nil {
-					m.exposureLoading = true
-					m.showExposure = true
-					ref := m.workload
-					return m, func() tea.Msg {
-						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-						defer cancel()
-						result, err := m.exposureCollector.Collect(ctx, ref.Namespace, ref.Name, ref.Kind)
-						return exposureDoneMsg{m: result, err: err}
-					}
-				}
-			}
-		case "t":
-			if m.recommendation != nil && m.exposureCollector != nil && m.exposureCollector.HasPrometheus() {
-				if m.showTraffic {
-					m.showTraffic = false
-					return m, nil
-				}
-				m.showExposure = false // mutually exclusive overlays
-				if m.trafficMap != nil {
-					m.showTraffic = true
-					return m, nil
-				}
-				if !m.trafficLoading {
-					m.trafficLoading = true
-					m.showTraffic = true
-					ref := m.workload
-					return m, func() tea.Msg {
-						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-						defer cancel()
-						result, err := m.exposureCollector.CollectTrafficMap(ctx, ref.Namespace, ref.Name)
-						return trafficDoneMsg{m: result, err: err}
-					}
-				}
-			}
-		case "a":
-			if m.recommendation != nil && m.mode == ModeApplyReady && m.applyResult == nil && !m.applying {
-				// Run pre-flight checks before showing confirmation
-				input := m.buildApplyInput()
-				reasons := CheckActionable(input)
-				if len(reasons) > 0 {
-					m.applyResult = &ApplyResult{DenialReasons: reasons}
-					return m, nil
-				}
-				// Enter confirmation mode
-				ti := textinput.New()
-				ti.Placeholder = `type "apply" to confirm`
-				_ = ti.Focus()
-				ti.CharLimit = 10
-				m.confirmInput = ti
-				m.confirming = true
-				return m, ti.Focus()
-			}
-		}
-
+		return m.updateKeyMsg(msg)
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		return m, nil
-
+		return m.updateWindowSizeMsg(msg)
 	case tickMsg:
-		if m.latch != nil && !m.latchDone {
-			// Count samples from latch data
-			data := m.latch.GetSpikeData()
-			total := 0
-			for _, d := range data {
-				if d.SampleCount > total {
-					total = d.SampleCount
-				}
-			}
-			m.sampleCount = total
-		}
-		return m, tickCmd()
-
+		return m.updateTickMsg()
 	case LatchDoneMsg:
-		m.latchDone = true
-		m.latchTimestamp = time.Now()
-		if msg.Err != nil {
-			m.err = msg.Err
-			return m, nil
-		}
-		// Final sample count update and operator type extraction
-		if m.latch != nil {
-			data := m.latch.GetSpikeData()
-			total := 0
-			for _, d := range data {
-				if d.SampleCount > total {
-					total = d.SampleCount
-				}
-				if d.OperatorType != "" && m.operatorType == "" {
-					m.operatorType = d.OperatorType
-				}
-			}
-			m.sampleCount = total
-		}
-		m.computing = true
-		cmd := m.computeRecommendationCmd()
-		return m, cmd
-
+		return m.updateLatchDone(msg)
 	case recommendDoneMsg:
-		m.computing = false
-		m.recommendation = msg.rec
-		return m, nil
-
+		return m.updateRecommendDone(msg)
 	case exportDoneMsg:
-		if msg.err != nil {
-			m.exportError = msg.err
-		} else {
-			m.exported = true
-			m.exportPath = msg.path
-		}
-		return m, nil
-
+		return m.updateExportDone(msg)
 	case applyDoneMsg:
-		m.applying = false
-		m.applyResult = msg.result
-		return m, nil
-
+		return m.updateApplyDone(msg)
 	case exposureDoneMsg:
-		m.exposureLoading = false
-		if msg.err != nil {
-			m.err = msg.err
-		} else {
-			m.exposureMap = msg.m
-		}
-		return m, nil
-
+		return m.updateExposureDone(msg)
 	case trafficDoneMsg:
-		m.trafficLoading = false
-		if msg.err != nil {
-			m.err = msg.err
-		} else {
-			m.trafficMap = msg.m
-		}
-		return m, nil
-
+		return m.updateTrafficDone(msg)
 	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		return m.updateSpinnerTick(msg)
 	}
 
 	return m, nil
+}
+
+func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if m.shouldDismissEarlyStop(key) {
+		m.earlyStopPending = false
+		return m, nil
+	}
+
+	switch key {
+	case "q", "ctrl+c":
+		return m.handleQuitKey()
+	case "esc":
+		return m.handleEscapeKey()
+	case "e":
+		return m.handleExportKey()
+	case "l":
+		return m.handleExposureToggle()
+	case "t":
+		return m.handleTrafficToggle()
+	case "a":
+		return m.handleApplyKey()
+	}
+
+	return m, nil
+}
+
+func (m *Model) updateWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	return m, nil
+}
+
+func (m *Model) updateTickMsg() (tea.Model, tea.Cmd) {
+	if m.latch != nil && !m.latchDone {
+		m.refreshLatchData(false)
+	}
+	return m, tickCmd()
+}
+
+func (m *Model) updateLatchDone(msg LatchDoneMsg) (tea.Model, tea.Cmd) {
+	m.latchDone = true
+	m.latchTimestamp = time.Now()
+	if msg.Err != nil {
+		m.err = msg.Err
+		return m, nil
+	}
+
+	m.refreshLatchData(true)
+	m.computing = true
+	cmd := m.computeRecommendationCmd()
+	return m, cmd
+}
+
+func (m *Model) updateRecommendDone(msg recommendDoneMsg) (tea.Model, tea.Cmd) {
+	m.computing = false
+	m.recommendation = msg.rec
+	return m, nil
+}
+
+func (m *Model) updateExportDone(msg exportDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.exportError = msg.err
+		return m, nil
+	}
+
+	m.exported = true
+	m.exportPath = msg.path
+	return m, nil
+}
+
+func (m *Model) updateApplyDone(msg applyDoneMsg) (tea.Model, tea.Cmd) {
+	m.applying = false
+	m.applyResult = msg.result
+	return m, nil
+}
+
+func (m *Model) updateExposureDone(msg exposureDoneMsg) (tea.Model, tea.Cmd) {
+	m.exposureLoading = false
+	if msg.err != nil {
+		m.err = msg.err
+		return m, nil
+	}
+
+	m.exposureMap = msg.m
+	return m, nil
+}
+
+func (m *Model) updateTrafficDone(msg trafficDoneMsg) (tea.Model, tea.Cmd) {
+	m.trafficLoading = false
+	if msg.err != nil {
+		m.err = msg.err
+		return m, nil
+	}
+
+	m.trafficMap = msg.m
+	return m, nil
+}
+
+func (m *Model) updateSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.spinner, cmd = m.spinner.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) shouldDismissEarlyStop(key string) bool {
+	if !m.earlyStopPending {
+		return false
+	}
+
+	switch key {
+	case "esc", "q", "ctrl+c":
+		return false
+	default:
+		return true
+	}
+}
+
+func (m *Model) handleQuitKey() (tea.Model, tea.Cmd) {
+	m.quitting = true
+	if m.latch != nil && !m.latchDone {
+		m.latch.Stop()
+	}
+	return m, tea.Quit
+}
+
+func (m *Model) handleEscapeKey() (tea.Model, tea.Cmd) {
+	if m.latchDone || m.latch == nil {
+		return m, nil
+	}
+	if m.earlyStopPending {
+		// Second Esc — stop the latch and proceed with collected data
+		m.earlyStopActual = time.Since(m.latchStart)
+		m.latch.Stop()
+		// latch.Stop() blocks until done; LatchDoneMsg will arrive via goroutine
+		m.earlyStopPending = false
+		return m, nil
+	}
+
+	// First Esc — show warning
+	m.earlyStopPending = true
+	return m, nil
+}
+
+func (m *Model) handleExportKey() (tea.Model, tea.Cmd) {
+	if m.recommendation == nil || m.exported {
+		return m, nil
+	}
+
+	rec := m.recommendation
+	workload := m.workload
+	return m, func() tea.Msg {
+		path, err := ExportToFile(rec, workload)
+		return exportDoneMsg{path: path, err: err}
+	}
+}
+
+func (m *Model) handleApplyKey() (tea.Model, tea.Cmd) {
+	if m.recommendation == nil || m.mode != ModeApplyReady || m.applyResult != nil || m.applying {
+		return m, nil
+	}
+
+	input := m.buildApplyInput()
+	reasons := CheckActionable(input)
+	if len(reasons) > 0 {
+		m.applyResult = &ApplyResult{DenialReasons: reasons}
+		return m, nil
+	}
+
+	ti := textinput.New()
+	ti.Placeholder = `type "apply" to confirm`
+	_ = ti.Focus()
+	ti.CharLimit = 10
+	m.confirmInput = ti
+	m.confirming = true
+	return m, ti.Focus()
+}
+
+func (m *Model) refreshLatchData(updateOperator bool) {
+	if m.latch == nil {
+		return
+	}
+
+	data := m.latch.GetSpikeData()
+	total := 0
+	for _, d := range data {
+		if d.SampleCount > total {
+			total = d.SampleCount
+		}
+		if updateOperator && d.OperatorType != "" && m.operatorType == "" {
+			m.operatorType = d.OperatorType
+		}
+	}
+	m.sampleCount = total
+}
+
+func (m *Model) handleExposureToggle() (tea.Model, tea.Cmd) {
+	if m.recommendation == nil {
+		return m, nil
+	}
+	if m.showExposure {
+		m.showExposure = false
+		return m, nil
+	}
+
+	m.showTraffic = false // mutually exclusive overlays
+	if m.exposureMap != nil {
+		m.showExposure = true
+		return m, nil
+	}
+	if m.exposureLoading || m.exposureCollector == nil {
+		return m, nil
+	}
+
+	m.exposureLoading = true
+	m.showExposure = true
+	ref := m.workload
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, err := m.exposureCollector.Collect(ctx, ref.Namespace, ref.Name, ref.Kind)
+		return exposureDoneMsg{m: result, err: err}
+	}
+}
+
+func (m *Model) handleTrafficToggle() (tea.Model, tea.Cmd) {
+	if m.recommendation == nil || m.exposureCollector == nil || !m.exposureCollector.HasPrometheus() {
+		return m, nil
+	}
+	if m.showTraffic {
+		m.showTraffic = false
+		return m, nil
+	}
+
+	m.showExposure = false // mutually exclusive overlays
+	if m.trafficMap != nil {
+		m.showTraffic = true
+		return m, nil
+	}
+	if m.trafficLoading {
+		return m, nil
+	}
+
+	m.trafficLoading = true
+	m.showTraffic = true
+	ref := m.workload
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		result, err := m.exposureCollector.CollectTrafficMap(ctx, ref.Namespace, ref.Name)
+		return trafficDoneMsg{m: result, err: err}
+	}
 }
 
 // updateConfirming handles input while the confirmation prompt is active.

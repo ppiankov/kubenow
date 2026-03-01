@@ -86,90 +86,12 @@ func renderView(m *Model) string {
 	b.WriteString(renderPolicyStatus(m))
 	b.WriteString("\n\n")
 
-	// Main content area — one of: traffic map, exposure map, recommendation, or progress
-	switch {
-	case m.showTraffic:
-		if m.trafficLoading {
-			b.WriteString(m.spinner.View())
-			b.WriteString(dimStyle.Render(" Querying Linkerd traffic map..."))
-		} else if m.trafficMap != nil {
-			b.WriteString(renderTrafficMap(m.trafficMap))
-		}
-		b.WriteString("\n\n")
-	case m.showExposure:
-		if m.exposureLoading {
-			b.WriteString(m.spinner.View())
-			b.WriteString(dimStyle.Render(" Querying exposure map..."))
-		} else if m.exposureMap != nil {
-			b.WriteString(renderExposureMap(m.exposureMap))
-		}
-		b.WriteString("\n\n")
-	case m.recommendation != nil:
-		b.WriteString(renderRecommendation(m.recommendation))
-	case m.computing:
-		b.WriteString(m.spinner.View())
-		b.WriteString(dimStyle.Render(" Computing recommendation..."))
-	case m.latchDone:
-		b.WriteString(m.spinner.View())
-		b.WriteString(dimStyle.Render(" Processing latch data..."))
-	default:
-		b.WriteString(m.spinner.View())
-		b.WriteString(dimStyle.Render(" Latching..."))
-	}
-
+	b.WriteString(renderMainContent(m))
 	b.WriteString("\n\n")
 
-	// Export status
-	if m.exported {
-		b.WriteString(okStyle.Render(fmt.Sprintf("Exported to %s", m.exportPath)))
-		b.WriteString("\n")
-	} else if m.exportError != nil {
-		b.WriteString(warnStyle.Render(fmt.Sprintf("Export failed: %v", m.exportError)))
-		b.WriteString("\n")
-	}
-
-	// Apply status
-	switch {
-	case m.confirming:
-		b.WriteString(renderConfirmationPrompt(m))
-		b.WriteString("\n")
-	case m.applying:
-		b.WriteString(m.spinner.View())
-		b.WriteString(dimStyle.Render(" Applying via Server-Side Apply..."))
-		b.WriteString("\n")
-	case m.applyResult != nil:
-		b.WriteString(renderApplyResult(m.applyResult))
-		b.WriteString("\n")
-	}
-
-	// Key bindings
-	overlay := m.showExposure || m.showTraffic
-	var keys []string
-	if !m.latchDone && m.latch != nil {
-		keys = append(keys, "esc: stop early")
-	}
-	if m.recommendation != nil && m.exposureCollector != nil {
-		if m.showExposure {
-			keys = append(keys, "l: dismiss")
-		} else {
-			keys = append(keys, "l: exposure map")
-		}
-		if m.exposureCollector.HasPrometheus() {
-			if m.showTraffic {
-				keys = append(keys, "t: dismiss")
-			} else {
-				keys = append(keys, "t: traffic map")
-			}
-		}
-	}
-	if m.recommendation != nil && !m.exported && !overlay {
-		keys = append(keys, "e: export")
-	}
-	if m.recommendation != nil && m.mode == ModeApplyReady && m.applyResult == nil && !m.applying && !m.confirming && !overlay {
-		keys = append(keys, "a: apply")
-	}
-	keys = append(keys, "q: quit")
-	b.WriteString(dimStyle.Render(strings.Join(keys, "  ")))
+	b.WriteString(renderExportStatus(m))
+	b.WriteString(renderApplyStatus(m))
+	b.WriteString(renderKeyBindings(m))
 
 	// Error display
 	if m.err != nil {
@@ -184,6 +106,116 @@ func renderView(m *Model) string {
 		border = border.Width(m.width - 4) // Account for border + padding
 	}
 	return border.Render(content)
+}
+
+func renderMainContent(m *Model) string {
+	var b strings.Builder
+
+	switch {
+	case m.showTraffic:
+		if m.trafficLoading {
+			b.WriteString(m.spinner.View())
+			b.WriteString(dimStyle.Render(" Querying Linkerd traffic map..."))
+		} else if m.trafficMap != nil {
+			b.WriteString(renderTrafficMap(m.trafficMap))
+		}
+	case m.showExposure:
+		if m.exposureLoading {
+			b.WriteString(m.spinner.View())
+			b.WriteString(dimStyle.Render(" Querying exposure map..."))
+		} else if m.exposureMap != nil {
+			b.WriteString(renderExposureMap(m.exposureMap))
+		}
+	case m.recommendation != nil:
+		b.WriteString(renderRecommendation(m.recommendation))
+	case m.computing:
+		b.WriteString(m.spinner.View())
+		b.WriteString(dimStyle.Render(" Computing recommendation..."))
+	case m.latchDone:
+		b.WriteString(m.spinner.View())
+		b.WriteString(dimStyle.Render(" Processing latch data..."))
+	default:
+		b.WriteString(m.spinner.View())
+		b.WriteString(dimStyle.Render(" Latching..."))
+	}
+
+	return b.String()
+}
+
+func renderExportStatus(m *Model) string {
+	switch {
+	case m.exported:
+		return okStyle.Render(fmt.Sprintf("Exported to %s", m.exportPath)) + "\n"
+	case m.exportError != nil:
+		return warnStyle.Render(fmt.Sprintf("Export failed: %v", m.exportError)) + "\n"
+	default:
+		return ""
+	}
+}
+
+func renderApplyStatus(m *Model) string {
+	switch {
+	case m.confirming:
+		return renderConfirmationPrompt(m) + "\n"
+	case m.applying:
+		return m.spinner.View() + dimStyle.Render(" Applying via Server-Side Apply...") + "\n"
+	case m.applyResult != nil:
+		return renderApplyResult(m.applyResult) + "\n"
+	default:
+		return ""
+	}
+}
+
+func renderKeyBindings(m *Model) string {
+	overlay := m.showExposure || m.showTraffic
+	var keys []string
+
+	if !m.latchDone && m.latch != nil {
+		keys = append(keys, "esc: stop early")
+	}
+	keys = append(keys, renderOverlayKeyBindings(m)...)
+	if canExportRecommendation(m, overlay) {
+		keys = append(keys, "e: export")
+	}
+	if canApplyRecommendation(m, overlay) {
+		keys = append(keys, "a: apply")
+	}
+	keys = append(keys, "q: quit")
+
+	return dimStyle.Render(strings.Join(keys, "  "))
+}
+
+func renderOverlayKeyBindings(m *Model) []string {
+	if m.recommendation == nil || m.exposureCollector == nil {
+		return nil
+	}
+
+	keys := []string{"l: exposure map"}
+	if m.showExposure {
+		keys[0] = "l: dismiss"
+	}
+	if !m.exposureCollector.HasPrometheus() {
+		return keys
+	}
+	if m.showTraffic {
+		keys = append(keys, "t: dismiss")
+		return keys
+	}
+
+	return append(keys, "t: traffic map")
+}
+
+func canExportRecommendation(m *Model, overlay bool) bool {
+	return m.recommendation != nil && !m.exported && !overlay
+}
+
+func canApplyRecommendation(m *Model, overlay bool) bool {
+	return m.recommendation != nil &&
+		m.mode == ModeApplyReady &&
+		m.applyResult == nil &&
+		!m.applying &&
+		!m.confirming &&
+		!overlay
 }
 
 func renderModeTag(mode Mode) string {

@@ -129,6 +129,8 @@ func Load(overridePath string) *LoadResult {
 // Validate checks a loaded policy for correctness.
 // Returns a ValidationResult with all errors found.
 // Panics if p is nil — callers must check LoadResult.ErrorMsg first.
+//
+//nolint:gocyclo // flat field validation accumulator
 func Validate(p *Policy) *ValidationResult {
 	if p == nil {
 		return &ValidationResult{

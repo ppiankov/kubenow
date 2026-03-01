@@ -15,6 +15,8 @@ import (
 
 const (
 	kubeSystemNS            = "kube-system"
+	workloadTypeDeployment  = "Deployment"
+	workloadTypeDaemonSet   = "DaemonSet"
 	workloadTypeStatefulSet = "StatefulSet"
 )
 
@@ -307,18 +309,18 @@ func (a *NodeFootprintAnalyzer) checkWorkloadStability(ctx context.Context, pods
 
 		// Resolve workload name and type from ownerReferences
 		workloadName := ""
-		workloadType := "Deployment" // default for PromQL pattern
+		workloadType := workloadTypeDeployment // default for PromQL pattern
 		if len(pod.OwnerReferences) > 0 {
 			ownerKind := pod.OwnerReferences[0].Kind
 			switch ownerKind {
 			case "ReplicaSet":
-				workloadType = "Deployment"
+				workloadType = workloadTypeDeployment
 				workloadName = metrics.ResolveWorkloadName(pod.Name, pod.Labels)
 			case workloadTypeStatefulSet:
 				workloadType = workloadTypeStatefulSet
 				workloadName = pod.OwnerReferences[0].Name
-			case "DaemonSet":
-				workloadType = "DaemonSet"
+			case workloadTypeDaemonSet:
+				workloadType = workloadTypeDaemonSet
 				workloadName = pod.OwnerReferences[0].Name
 			default:
 				// CRD-managed pod — resolve via operator labels
