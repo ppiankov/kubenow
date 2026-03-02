@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
 
-**Version 0.3.3** — Deterministic resource analysis, policy-gated apply, and real-time monitoring for Kubernetes clusters.
+**Version 0.4.0** — Deterministic resource analysis, policy-gated apply, and real-time monitoring for Kubernetes clusters.
 
 ---
 
@@ -14,8 +14,8 @@
 
 ```bash
 # Install
-go install github.com/ppiankov/kubenow/cmd/kubenow@latest
-# Or download from releases: https://github.com/ppiankov/kubenow/releases/latest
+brew install ppiankov/tap/kubenow
+# Or: go install github.com/ppiankov/kubenow/cmd/kubenow@latest
 
 # Monitor cluster problems (real-time TUI)
 kubenow monitor
@@ -57,17 +57,20 @@ A Kubernetes cluster analysis tool that combines:
 
 ## Project Status
 
-**Status: Beta** · **v0.3.3** · Pre-1.0
+**Status: Beta** · **v0.4.0** · Pre-1.0
 
 | Milestone | Status |
 |-----------|--------|
 | Core functionality | Complete |
 | Test coverage >85% | Complete |
-| Security audit | Complete |
-| golangci-lint config | Complete |
+| Security audit (24 WOs) | Complete |
+| Lint cleanup (433 → 1) | Complete |
 | CI pipeline (test/lint/scan) | Complete |
 | Homebrew distribution | Complete |
 | Safety model documented | Complete |
+| Cost impact estimation | Complete |
+| GitOps export (kustomize, helm) | Complete |
+| Recommendation tracking | Complete |
 | API stability guarantees | Partial |
 | v1.0 release | Planned |
 
@@ -189,6 +192,7 @@ Namespace Prometheus Status:
 Key features:
 - Safety analysis: OOMKills, restarts, CPU throttling, spike patterns
 - Safety ratings: SAFE, CAUTION, RISKY, UNSAFE with automatic margins
+- Cost impact estimation: `--cost-cpu`, `--cost-memory`, or `--instance-type` for automatic lookup
 - Per-namespace Prometheus diagnostics with latch suggestions
 - Obfuscation mode (`--obfuscate`) for sharing without exposing names
 - Baseline comparison for tracking drift over time
@@ -255,6 +259,12 @@ kubenow pro-monitor export deployment/payment-api --format diff
 
 # Machine-readable JSON
 kubenow pro-monitor export deployment/payment-api --format json
+
+# Kustomize patches for GitOps (kustomization.yaml + strategic merge patch)
+kubenow pro-monitor export deployment/payment-api --format kustomize -o patches/
+
+# Helm values override
+kubenow pro-monitor export deployment/payment-api --format helm
 ```
 
 ### Apply: Bounded Server-Side Apply
@@ -271,6 +281,34 @@ Pre-flight checks before any mutation:
 - Rate limit not exceeded
 
 GitOps conflict detection: inspects `managedFields` for ArgoCD, Flux, Helm, and Kustomize field managers. Reports conflict rather than overwriting.
+
+### Track: Post-Apply Recommendation Validation
+
+After pro-monitor applies a change, track whether recommendations were accurate:
+
+```bash
+# Show recommendation outcomes from the last 30 days
+kubenow pro-monitor track --audit-path /var/lib/kubenow/audit --prometheus-url http://localhost:9090 --since 30d
+```
+
+Output:
+```
+RECOMMENDATION HISTORY (last 30 days)
+────────────────────────────────────────────────────────────
+  nginx/web    CPU 500m→250m  Feb 15  peak 220m (88%)  SAFE
+  redis/cache  Mem 2Gi→512Mi  Feb 10  OOMKill x3       WRONG
+  api/gateway  CPU 1→400m     Feb 18  peak 380m (95%)   TIGHT
+────────────────────────────────────────────────────────────
+  Score: 47 applied, 44 SAFE, 2 TIGHT, 1 WRONG (93.6% accuracy)
+```
+
+Outcome classifications:
+- **SAFE** — headroom above margin, recommendation was correct
+- **TIGHT** — headroom < 10%, recommendation was borderline
+- **WRONG** — OOMKill, throttling, or crash detected post-apply
+- **PENDING** — insufficient post-apply data to classify
+
+WRONG outcomes trigger a recommendation to revert (but never auto-revert).
 
 ### Exposure Map
 
@@ -423,7 +461,7 @@ Available for Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64).
 
 ```bash
 kubenow version
-# kubenow version 0.3.3
+# kubenow 0.4.0 (commit: e9b8f18, built: 2026-03-02T11:50:11Z, go: go1.25.7)
 ```
 
 ---
@@ -496,8 +534,9 @@ kubenow analyze requests-skew \
 
 See [CHANGELOG.md](CHANGELOG.md) for version history. Planned:
 - Auto-detect Prometheus in-cluster
-- Cloud provider cost integration (AWS, GCP, Azure)
 - Historical trend tracking
+- Concurrency controls (`--workers`, `--query-timeout`)
+- Prometheus metrics endpoint for meta-monitoring
 
 ---
 

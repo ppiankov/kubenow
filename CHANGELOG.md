@@ -9,10 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - Auto-detect Prometheus in-cluster
-- Cloud provider cost integration (AWS, GCP, Azure)
 - Historical trend tracking for analyze commands
 - Concurrency controls (--workers, --query-timeout)
 - Prometheus metrics endpoint for meta-monitoring
+
+---
+
+## [0.4.0] - 2026-03-02
+
+### Added
+
+- **Post-apply recommendation tracking** (`pro-monitor track`): validates whether past recommendations were accurate by comparing post-apply Prometheus metrics against new resource requests. Classifies outcomes as SAFE, TIGHT, WRONG, or PENDING. Supports `--format json` for CI integration
+- **Cost impact estimation** for requests-skew analysis: new `--cost-cpu`, `--cost-memory`, and `--instance-type` flags attach dollar estimates to resource waste. Includes per-workload, per-namespace, and cluster-wide cost summaries with built-in pricing for AWS, GCP, and Azure instance types
+- **Kustomize export format** (`--format kustomize`): generates `kustomization.yaml` + strategic merge patch files for GitOps workflows
+- **Helm export format** (`--format helm`): generates `values.yaml` fragment with resource overrides
+- **JSON version output** (`version --json`): machine-readable build info for CI pipelines
+- Commit hash and build timestamp in version output, matching project-wide convention
+
+### Fixed
+
+- Wire ldflags version injection to CLI — version was hardcoded as a const and never read from build-time injection, causing brew-installed binaries to report stale version strings
+- Reduce cyclomatic complexity across 10 functions and eliminate code duplication across 4 sites
+- Resolve 433 lint warnings (errcheck, gocritic, revive, gocyclo, dupl) down to 1 pre-existing excluded warning
 
 ---
 
