@@ -12,9 +12,8 @@ var versionCmd = &cobra.Command{
 	Short: "Show kubenow version information",
 	Long:  `Display version information for kubenow including Go version and platform details.`,
 	Run: func(_ *cobra.Command, _ []string) {
-		fmt.Printf("kubenow version %s\n", version)
-		fmt.Printf("Go version: %s\n", runtime.Version())
-		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("kubenow %s (commit: %s, built: %s, go: %s)\n",
+			version, commit, date, runtime.Version())
 	},
 }
 

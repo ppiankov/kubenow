@@ -62,8 +62,10 @@ jobs:
         run: |
           VERSION=${{ steps.tag.outputs.version }}
           VERSION_NUM=${VERSION#v}
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           PROJECT=${{ steps.project.outputs.name }}
-          LDFLAGS="-s -w -X main.Version=${VERSION_NUM}"
+          LDFLAGS="-s -w -X main.Version=${VERSION_NUM} -X main.commit=${COMMIT} -X main.date=${DATE}"
 
           platforms=(
             "linux/amd64"

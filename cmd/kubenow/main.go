@@ -9,11 +9,15 @@ import (
 	"github.com/ppiankov/kubenow/internal/util"
 )
 
-// Version is set at build time via -ldflags
-var Version = "dev"
+// Set via ldflags at build time.
+var (
+	Version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
-	cli.SetVersion(Version)
+	cli.SetBuildInfo(Version, commit, date)
 	if err := cli.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		util.Exit(util.ExitRuntimeError)

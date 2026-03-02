@@ -10,12 +10,19 @@ import (
 	"github.com/ppiankov/kubenow/internal/util"
 )
 
-// version is set at build time via SetVersion(). Falls back to "dev".
-var version = "dev"
+// Build info set at build time via SetBuildInfo().
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
-// SetVersion sets the version string from main (injected via ldflags).
-func SetVersion(v string) {
+// SetBuildInfo sets build metadata from main (injected via ldflags).
+func SetBuildInfo(v, c, d string) {
 	version = v
+	commit = c
+	date = d
+	rootCmd.Version = v
 }
 
 var (

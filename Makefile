@@ -5,7 +5,9 @@ BINARY_NAME=kubenow
 BUILD_DIR=bin
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 VERSION_NUM=$(VERSION:v%=%)
-LDFLAGS=-ldflags "-X main.Version=$(VERSION_NUM)"
+COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+DATE=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION_NUM) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
 
 # Go parameters
 GOCMD=go
