@@ -10,7 +10,13 @@ import (
 	"github.com/ppiankov/kubenow/internal/util"
 )
 
-const version = "0.3.3"
+// version is set at build time via SetVersion(). Falls back to "dev".
+var version = "dev"
+
+// SetVersion sets the version string from main (injected via ldflags).
+func SetVersion(v string) {
+	version = v
+}
 
 var (
 	// Global flags

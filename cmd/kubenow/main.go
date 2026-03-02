@@ -13,6 +13,7 @@ import (
 var Version = "dev"
 
 func main() {
+	cli.SetVersion(Version)
 	if err := cli.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		util.Exit(util.ExitRuntimeError)
