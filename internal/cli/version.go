@@ -27,7 +27,10 @@ var versionCmd = &cobra.Command{
 		if versionJSON {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
-			_ = enc.Encode(info)
+			if err := enc.Encode(info); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
 			return
 		}
 		fmt.Printf("kubenow %s (commit: %s, built: %s, go: %s)\n",
