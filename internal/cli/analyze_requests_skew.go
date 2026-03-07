@@ -203,9 +203,31 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Validate flags
-	if requestsSkewConfig.prometheusURL == "" && !requestsSkewConfig.autoDetect {
-		return fmt.Errorf("either --prometheus-url, --k8s-service, or --auto-detect-prometheus is required")
+	// Auto-detect Prometheus if requested or if no URL/service was provided
+	if requestsSkewConfig.prometheusURL == "" && requestsSkewConfig.k8sService == "" {
+		if !requestsSkewConfig.autoDetect {
+			return fmt.Errorf("either --prometheus-url, --k8s-service, or --auto-detect-prometheus is required")
+		}
+
+		if IsVerbose() {
+			stderrln("[kubenow] Auto-detecting Prometheus in cluster...")
+		}
+
+		detectClient, err := util.BuildKubeClientWithOpts(GetKubeOpts())
+		if err != nil {
+			return fmt.Errorf("failed to build Kubernetes client for auto-detect: %w", err)
+		}
+
+		detectCtx, detectCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer detectCancel()
+
+		detectedURL, err := metrics.AutoDetect(detectCtx, detectClient)
+		if err != nil {
+			return fmt.Errorf("auto-detect failed: %w", err)
+		}
+
+		requestsSkewConfig.prometheusURL = detectedURL
+		stderrf("[kubenow] Discovered Prometheus at %s\n", detectedURL)
 	}
 
 	if requestsSkewConfig.output != "table" && requestsSkewConfig.output != "json" && requestsSkewConfig.output != "sarif" {
