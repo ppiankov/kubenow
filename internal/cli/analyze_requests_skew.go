@@ -18,6 +18,7 @@ import (
 	"github.com/ppiankov/kubenow/internal/cost"
 	"github.com/ppiankov/kubenow/internal/metrics"
 	"github.com/ppiankov/kubenow/internal/output"
+	"github.com/ppiankov/kubenow/internal/trend"
 	"github.com/ppiankov/kubenow/internal/util"
 )
 
@@ -58,6 +59,8 @@ var requestsSkewConfig struct {
 	// Baseline options
 	saveBaseline    string
 	compareBaseline string
+	// Trend tracking
+	trackTrends bool
 }
 
 // spikeWorkload holds spike data with calculated ratios
@@ -149,6 +152,9 @@ func init() {
 	// Baseline/drift flags
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.saveBaseline, "save-baseline", "", "Save analysis results as baseline to file")
 	requestsSkewCmd.Flags().StringVar(&requestsSkewConfig.compareBaseline, "compare-baseline", "", "Compare current results to saved baseline")
+
+	// Trend tracking
+	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.trackTrends, "track-trends", false, "Save analysis snapshot for historical trend tracking")
 
 	// Cost estimation flags
 	requestsSkewCmd.Flags().Float64Var(&requestsSkewConfig.costCPU, "cost-cpu", 0, "Cost per CPU core per hour in dollars (overrides instance-type lookup)")
@@ -376,6 +382,11 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 	// Compute cost estimates if any cost flag is provided
 	if requestsSkewConfig.costCPU > 0 || requestsSkewConfig.costMemory > 0 || requestsSkewConfig.instanceType != "" {
 		attachCostEstimates(result)
+	}
+
+	// Save trend snapshot if requested (before obfuscation to capture real names)
+	if requestsSkewConfig.trackTrends {
+		saveTrendSnapshot(result)
 	}
 
 	// Create obfuscator
@@ -1532,6 +1543,45 @@ func attachCostEstimates(result *analyzer.RequestsSkewResult) {
 		rates,
 	)
 	result.Summary.CostEstimate = &summary
+}
+
+// saveTrendSnapshot persists the analysis result as a trend data point.
+func saveTrendSnapshot(result *analyzer.RequestsSkewResult) {
+	var workloads []trend.WorkloadSnapshot
+	for i := range result.Results {
+		w := &result.Results[i]
+		workloads = append(workloads, trend.WorkloadSnapshot{
+			Namespace: w.Namespace,
+			Workload:  w.Workload,
+			SkewCPU:   w.SkewCPU,
+			SkewMem:   w.SkewMemory,
+			WasteCPU:  w.RequestedCPU - w.P95UsedCPU,
+			WasteMem:  w.RequestedMemoryGi - w.P95UsedMemoryGi,
+		})
+	}
+
+	var costMo float64
+	if result.Summary.CostEstimate != nil {
+		costMo = result.Summary.CostEstimate.TotalWastedMonthly
+	}
+
+	snap := &trend.Snapshot{
+		Timestamp: result.Metadata.GeneratedAt,
+		Window:    result.Metadata.Window,
+		Cluster:   result.Metadata.Cluster,
+		Workloads: workloads,
+		TotalWaste: trend.TotalWaste{
+			CPU:    result.Summary.TotalWastedCPU,
+			MemGi:  result.Summary.TotalWastedMemoryGi,
+			CostMo: costMo,
+		},
+	}
+
+	if err := trend.SaveSnapshot(snap); err != nil {
+		stderrf("[kubenow] Warning: failed to save trend snapshot: %v\n", err)
+		return
+	}
+	stderrln("[kubenow] Trend snapshot saved.")
 }
 
 // formatMonthlyCost renders a dollar amount as a compact monthly cost string.
