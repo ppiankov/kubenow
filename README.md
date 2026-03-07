@@ -1,4 +1,10 @@
-![kubenow logo](https://raw.githubusercontent.com/ppiankov/kubenow/main/docs/img/logo.png)
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/logo-light.svg">
+    <img alt="kubenow" src="docs/img/logo-light.svg" width="300">
+  </picture>
+</p>
 
 # kubenow — Kubernetes Resource Analysis & Cost Optimization
 [![CI](https://github.com/ppiankov/kubenow/actions/workflows/ci.yml/badge.svg)](https://github.com/ppiankov/kubenow/actions/workflows/ci.yml)
@@ -6,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
 
-**Version 0.4.0** — Deterministic resource analysis, policy-gated apply, and real-time monitoring for Kubernetes clusters.
+**Version 0.5.0** — Deterministic resource analysis, policy-gated apply, and real-time monitoring for Kubernetes clusters.
 
 ---
 
