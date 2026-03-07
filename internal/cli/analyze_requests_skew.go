@@ -61,6 +61,8 @@ var requestsSkewConfig struct {
 	compareBaseline string
 	// Trend tracking
 	trackTrends bool
+	// Concurrency
+	workers int
 }
 
 // spikeWorkload holds spike data with calculated ratios
@@ -155,6 +157,9 @@ func init() {
 
 	// Trend tracking
 	requestsSkewCmd.Flags().BoolVar(&requestsSkewConfig.trackTrends, "track-trends", false, "Save analysis snapshot for historical trend tracking")
+
+	// Concurrency
+	requestsSkewCmd.Flags().IntVar(&requestsSkewConfig.workers, "workers", 1, "Max concurrent workload queries (1 = sequential, max 20)")
 
 	// Cost estimation flags
 	requestsSkewCmd.Flags().Float64Var(&requestsSkewConfig.costCPU, "cost-cpu", 0, "Cost per CPU core per hour in dollars (overrides instance-type lookup)")
@@ -351,6 +356,7 @@ func runRequestsSkew(_ *cobra.Command, _ []string) error {
 		MinRuntimeDays:   requestsSkewConfig.minRuntimeDays,
 		SortBy:           requestsSkewConfig.sortBy,
 		Silent:           requestsSkewConfig.silent,
+		Workers:          requestsSkewConfig.workers,
 	}
 
 	skewAnalyzer := analyzer.NewRequestsSkewAnalyzer(kubeClient, metricsProvider, &analyzerConfig)

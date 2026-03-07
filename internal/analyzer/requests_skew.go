@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -53,6 +54,7 @@ type RequestsSkewConfig struct {
 	IncludeKubeSystem bool          // Include kube-system namespace
 	SortBy            string        // Sort by: impact|skew|cpu|memory|name (default: impact)
 	Silent            bool          // Suppress progress output
+	Workers           int           // Max concurrent workload queries (0 = sequential)
 }
 
 // RequestsSkewResult contains the analysis results
@@ -826,6 +828,18 @@ func (a *RequestsSkewAnalyzer) analyzeWorkloadKind(
 		return nil, nil, err
 	}
 
+	if a.config.Workers > 1 && len(targets) > 1 {
+		return a.analyzeWorkloadKindConcurrent(ctx, namespace, kind, targets)
+	}
+
+	return a.analyzeWorkloadKindSequential(ctx, namespace, kind, targets)
+}
+
+func (a *RequestsSkewAnalyzer) analyzeWorkloadKindSequential(
+	ctx context.Context,
+	namespace, kind string,
+	targets []namespaceWorkload,
+) ([]WorkloadSkewAnalysis, []WorkloadWithoutMetrics, error) {
 	workloads := make([]WorkloadSkewAnalysis, 0)
 	noMetrics := make([]WorkloadWithoutMetrics, 0)
 	for i := range targets {
@@ -844,6 +858,72 @@ func (a *RequestsSkewAnalyzer) analyzeWorkloadKind(
 		}
 		if analysis != nil {
 			workloads = append(workloads, *analysis)
+		}
+	}
+
+	return workloads, noMetrics, nil
+}
+
+type workloadResult struct {
+	analysis  *WorkloadSkewAnalysis
+	noMetrics *WorkloadWithoutMetrics
+}
+
+func (a *RequestsSkewAnalyzer) analyzeWorkloadKindConcurrent(
+	ctx context.Context,
+	namespace, kind string,
+	targets []namespaceWorkload,
+) ([]WorkloadSkewAnalysis, []WorkloadWithoutMetrics, error) {
+	workers := a.config.Workers
+	if workers > 20 {
+		workers = 20
+	}
+
+	jobs := make(chan int, len(targets))
+	results := make([]workloadResult, len(targets))
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				target := &targets[idx]
+				analysis, hasMetrics, err := a.analyzeWorkload(ctx, namespace, target.name, kind, target.creationTime)
+				if err != nil {
+					continue
+				}
+				if !hasMetrics {
+					results[idx] = workloadResult{
+						noMetrics: &WorkloadWithoutMetrics{
+							Namespace: namespace,
+							Workload:  target.name,
+							Type:      kind,
+						},
+					}
+					continue
+				}
+				if analysis != nil {
+					results[idx] = workloadResult{analysis: analysis}
+				}
+			}
+		}()
+	}
+
+	for i := range targets {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	workloads := make([]WorkloadSkewAnalysis, 0)
+	noMetrics := make([]WorkloadWithoutMetrics, 0)
+	for _, r := range results {
+		if r.analysis != nil {
+			workloads = append(workloads, *r.analysis)
+		}
+		if r.noMetrics != nil {
+			noMetrics = append(noMetrics, *r.noMetrics)
 		}
 	}
 
