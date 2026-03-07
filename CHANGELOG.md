@@ -7,11 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned
-- Auto-detect Prometheus in-cluster
-- Historical trend tracking for analyze commands
-- Concurrency controls (--workers, --query-timeout)
-- Prometheus metrics endpoint for meta-monitoring
+---
+
+## [0.5.0] - 2026-03-07
+
+### Added
+
+- **Auto-detect Prometheus in-cluster** (`--auto-detect-prometheus`): scans well-known service locations (monitoring/prometheus-server, monitoring/prometheus, kube-system/prometheus, etc.) and connects to the first healthy instance
+- **Historical trend tracking** (`analyze trends`): saves analysis snapshots with `--track-trends` and shows per-workload skew deltas over time with `--days` and `--output json` support
+- **Concurrent workload queries** (`--workers`): parallelize Prometheus queries across workloads with bounded worker pool (default 1, max 20)
+- **Prometheus metrics endpoint** (`--metrics-port`): opt-in `/metrics` endpoint on monitor command exposing query duration, error counts, and analysis timing
+
+### Changed
+
+- Release workflow migrated from custom bash to GoReleaser with automatic Homebrew tap updates
 
 ---
 
