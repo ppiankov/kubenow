@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ppiankov/kubenow/internal/monitor"
+	"github.com/ppiankov/kubenow/internal/telemetry"
 	"github.com/ppiankov/kubenow/internal/util"
 )
 
@@ -19,6 +20,7 @@ var monitorConfig struct {
 	quiet          bool
 	alertSound     bool
 	noMesh         bool
+	metricsPort    int
 }
 
 var monitorCmd = &cobra.Command{
@@ -75,6 +77,7 @@ func init() {
 	monitorCmd.Flags().BoolVar(&monitorConfig.quiet, "quiet", false, "Quiet mode: only show problems, hide stats")
 	monitorCmd.Flags().BoolVar(&monitorConfig.alertSound, "alert", false, "Terminal bell on critical problems")
 	monitorCmd.Flags().BoolVar(&monitorConfig.noMesh, "no-mesh", false, "Disable service mesh health monitoring")
+	monitorCmd.Flags().IntVar(&monitorConfig.metricsPort, "metrics-port", 0, "Expose Prometheus metrics on this port (0 = disabled)")
 }
 
 func runMonitor(_ *cobra.Command, _ []string) error {
@@ -114,10 +117,21 @@ func runMonitor(_ *cobra.Command, _ []string) error {
 
 	watcher := monitor.NewWatcher(kubeClient, config)
 
-	// Start watching
+	// Start metrics server if requested
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	if monitorConfig.metricsPort > 0 {
+		srv := telemetry.NewServer(monitorConfig.metricsPort)
+		go func() {
+			if err := srv.Start(ctx); err != nil {
+				stderrf("[kubenow] Metrics server error: %v\n", err)
+			}
+		}()
+		stderrf("[kubenow] Metrics endpoint: http://localhost:%d/metrics\n", monitorConfig.metricsPort)
+	}
+
+	// Start watching
 	if err := watcher.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start watcher: %w", err)
 	}
